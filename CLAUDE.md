@@ -64,19 +64,19 @@ At $h = 0.8$ — an ambitious but plausible target for learned prefetch + LRU �
 
 | Module | Owns | Must NOT import |
 | --- | --- | --- |
-| `preempt/core/` | Shared vocabulary: enums (`enums.py`), exceptions, constants, protocols, type aliases. **Also currently owns event sinks** (`sinks.py`: `BaseEventSink` async ABC + `ParquetEventSink` + `JsonlFileEventSink`) — see the layering note below. | MLX, PyTorch, backends, model adapters, training libs |
+| `preempt/core/` | Shared vocabulary: `enums.py` (only `ParquetCompressionCodecs` so far). **Also currently owns event sinks** (`sinks.py`: `BaseEventSink` async ABC + `ParquetEventSink` + `JsonlFileEventSink`) — see the layering note below. | MLX, PyTorch, backends, model adapters, training libs |
 | `preempt/datamodel/` | Concrete records plus their Arrow/Parquet projection. `arrow.py` (attrs↔Arrow field-metadata machinery) and `tracing/` (`TraceRunContext`, `TraceStepContext`, `ExpertRoutingEvent`, `EventMetadata`, `LayerIdentifiers`). Engine-side records (`ModelManifest`, `LoadRequest`, `PredictionRequest`, …) are not written yet. | Backends, trainers, ORMs, concrete storage |
 | `preempt/config/` | **Pydantic config models parsed from TOML.** `target_layers.py` (`TargetLayerConfig` / `TargetLayerSpec` / `TargetLayerSearchParams`). Concrete config files live in `configs/*.toml`. | Backends, models, engine internals |
-| `preempt/engine/` | **Decisions and coordination.** Today: `profiler.py` (platform-agnostic layer resolution — `LayerCandidate`, `match_target_layers`, `resolve_target_layers`) and `recorder.py` (`BaseEventRecorder`, the trace-lifecycle ABC). `scheduler.py` and `model_executor.py` are **empty stubs** — the scheduler is unwritten. | `backends/*` concrete classes, model-specific code |
-| `preempt/backends/mlx_metal/` | Platform-specific execution and instrumentation: `layer_search.py` (enumerate MLX modules), `instrument.py` (`instrument_mlx_modules` via `update_modules`/`tree_unflatten`), `recorder.py` (`MlxExpertRoutingRecorder`), `instrumented/` (forked-forward capture wrappers). Streaming/residency I/O not written yet. | Scheduler/policy logic |
+| `preempt/engine/` | **Decisions and coordination.** Today: `layer_resolution.py` (platform-agnostic layer resolution — `LayerCandidate`, `match_target_layers`, `resolve_target_layers`) and `recorder.py` (`BaseEventRecorder`, the trace-lifecycle ABC). `scheduler.py` and `model_executor.py` are placeholders — the scheduler is unwritten. | `backends/*` concrete classes, model-specific code |
+| `preempt/backends/mlx_metal/` | Platform-specific execution and instrumentation: `layer_discovery.py` (enumerate MLX modules), `instrument.py` (`mlx_instrument_model` via `update_modules`/`tree_unflatten`), `recorder.py` (`MlxExpertRoutingRecorder`), `types.py` (`MlxWrapperFactory` alias), `instrumented/` (forked-forward capture wrappers). Streaming/residency I/O not written yet. | Scheduler/policy logic |
 | `preempt/models/` | In-repo PyTorch architectures. Still **dense Qwen3 only** — there is no MoE variant. MoE work currently happens by wrapping `mlx_lm`'s implementations, not by porting them here. | I/O scheduling, platform APIs |
 | `preempt/predictors/` | Predictor runtimes behind one contract: heuristic baseline, linear probe, transformer predictor later. **Empty.** | Engine internals |
-| `preempt/training/` | Trace → dataset → fine-tune → evaluate → export artifact. **Empty** (`dataset/` scaffolded). | Engine runtime imports |
-| `preempt/numerics/`, `preempt/utils/`, `preempt/preprocessing/` | Helpers. `utils/attrs_utils.py` (recursive attrs field walking), `utils/io_utils.py` (`read_and_validate_toml`), `utils/torch_utils.py`. | — |
+| `preempt/training/` | Trace → dataset → fine-tune → evaluate → export artifact. **Empty.** | Engine runtime imports |
+| `preempt/utils/` | Helpers. `attrs_utils.py` (recursive attrs field walking), `io_utils.py` (`read_and_validate_toml`), `torch_utils.py`. | — |
 
 **Known layering deviation:** `core/sinks.py` imports `pyarrow`/`pyarrow.parquet` and performs file I/O, contradicting "`core/` is dependency-free, no concrete storage." It works and is not urgent, but it is the one place the dependency rule is currently broken — either relocate the sinks or consciously amend the rule. Do not treat the current placement as precedent.
 
-**No `__init__.py` re-exports.** Every package `__init__.py` under `preempt/` is empty; modules are always imported by full path (`from preempt.engine.profiler import LayerCandidate`). Keep it that way — it makes dependency direction visible at every import site.
+**No `__init__.py` re-exports.** Every package `__init__.py` under `preempt/` is empty; modules are always imported by full path (`from preempt.engine.layer_resolution import LayerCandidate`). Keep it that way — it makes dependency direction visible at every import site.
 
 ### Dependency direction
 
@@ -94,9 +94,9 @@ At $h = 0.8$ — an ambitious but plausible target for learned prefetch + LRU �
 This is currently the most developed subsystem and the one most new work will touch. It captures a MoE model's real router decisions and writes them as Parquet training data. Six stages, each swappable, only two of which are platform-specific:
 
 1. **Declare targets in TOML** — `configs/*.toml` → `TargetLayerConfig` (`preempt/config/target_layers.py`). A target names a layer set by `layer_class`, `layer_path_glob`, and/or `layer_idx`, plus an optional `count` that asserts how many layers must match. Instrumentation targets are **configuration, never hardcoded paths**; a wrong `count` fails loudly at resolve time instead of silently tracing the wrong layers.
-2. **Resolve targets, platform-agnostically** — `preempt/engine/profiler.py`. Pure functions over an iterable of `LayerCandidate(path, layer_class, layer_idx)`. Knows nothing about MLX or torch.
-3. **Enumerate candidates, per backend** — `preempt/backends/mlx_metal/layer_search.py` walks `model.named_modules()` and parses the block index out of dotted paths. This is the only MLX-aware half of target resolution.
-4. **Replace modules with capture wrappers** — `instrument.py`'s `instrument_mlx_modules()` swaps resolved modules via `update_modules(tree_unflatten(...))`, using an injected `MlxWrapperFactory`. Wrappers live in `backends/mlx_metal/instrumented/`, one module per upstream block type (`qwen3_next_moe.py` → `InstrumentedQwen3NextMoE`).
+2. **Resolve targets, platform-agnostically** — `preempt/engine/layer_resolution.py`. Pure functions over an iterable of `LayerCandidate(layer_path, layer_class, layer_idx)`. Knows nothing about MLX or torch.
+3. **Enumerate candidates, per backend** — `preempt/backends/mlx_metal/layer_discovery.py` walks `model.named_modules()` and parses the block index out of dotted paths. This is the only MLX-aware half of target resolution.
+4. **Replace modules with capture wrappers** — `instrument.py`'s `mlx_instrument_model()` swaps resolved modules via `update_modules(tree_unflatten(...))`, using an injected `MlxWrapperFactory` (aliased in `types.py`). Wrappers live in `backends/mlx_metal/instrumented/`, one module per upstream block type (`qwen3_next_moe.py` → `InstrumentedQwen3NextMoE`, built by `make_qwen3next_moe_wrapper_factory`).
 5. **Record into a lazy buffer** — `MlxExpertRoutingRecorder` (`backends/mlx_metal/recorder.py`) implements `BaseEventRecorder` (`engine/recorder.py`). Lifecycle is `start_step(step_context)` → many `capture(...)` → `flush(sink)` → `end_step()`.
 6. **Write through an async sink** — `BaseEventSink` / `ParquetEventSink` / `JsonlFileEventSink` (`core/sinks.py`). Async context managers; all blocking I/O goes through `asyncio.to_thread`, writes serialized by an `asyncio.Lock`, batched so one row group isn't created per event.
 
@@ -124,7 +124,7 @@ Three conventions in this pipeline matter more than the code itself:
 ## v1 scope (cut hard)
 
 - **Rapid iteration and prototyping** are a **top priority**. Once these features are more mature much later on, the focus will shift toward building a comprehensive LLM inference framework.
-- **One small MoE** as the first streaming target. The concrete working target is **Qwen3.6-35B-A3B** (`unsloth/Qwen3.6-35B-A3B-MLX-8bit`), whose MLX implementation is `mlx_lm`'s `Qwen3NextSparseMoeBlock` — 40 MoE layers, 256 experts, top-k 8. The in-repo Qwen3 PyTorch code is dense-only and **is not used for this model**; we currently instrument `mlx_lm`'s implementation rather than porting an MoE variant into `preempt/models/`.
+- **One small MoE** as the first streaming target. The concrete working target is **Qwen3.6-35B-A3B** (`unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit`), whose MLX implementation is `mlx_lm`'s `Qwen3NextSparseMoeBlock` — 40 MoE layers, 256 experts, top-k 8. The in-repo Qwen3 PyTorch code is dense-only and **is not used for this model**; we currently instrument `mlx_lm`'s implementation rather than porting an MoE variant into `preempt/models/`.
 - MLX execution backend on Apple Silicon; int4 experts / int8 dense quantization initially.
 - LRU + heuristic lookahead baseline; learned predictor integrated behind the same contract afterward.
 - **Fine-tuning API included in v1.** Since training scripts must be written anyway, the trace → dataset → fine-tune → export loop ships as a first-class Python package from the start (LoRA on the chosen predictor base; linear probe as the cheap baseline). This is the feature that makes the project forkable rather than just notable — do not defer it.
@@ -155,6 +155,9 @@ Explicitly deferred: serving/API, speculative decoding, KV persistence, dual-SSD
 - **Use `attrs` (`@attrs.define`) for data classes** — chosen over builtin `dataclasses.dataclass` for speed and flexibility.
 - **Pydantic where heavier validation is needed** — predictor artifact manifests, config parsing, or anything crossing a process/file boundary with compatibility rules.
 - Plain `attrs` classes for hot-path internal records where Pydantic overhead would matter.
+- **`pydantic.BaseModel` vs. `attrs.define`, decided by trust boundary, not convenience:**
+  - **`pydantic.BaseModel`** for configs and any external/user-provided data that needs validation — TOML-parsed config, predictor artifact manifests, anything crossing a process/file boundary. Every field annotated with `pydantic.Field(...)`.
+  - **`attrs` (`@attrs.define`)** for internal dataclasses — records passed between trusted in-process code, hot-path structures — since it has much lower overhead than Pydantic and runs faster. Every field annotated with `attrs.field(...)`.
 - **Typing**
 
   - All classes should have annotations
@@ -233,7 +236,26 @@ Explicitly deferred: serving/API, speculative decoding, KV persistence, dual-SSD
   - **Contract tests with fakes**: scheduler priority, cancellation, deadline, and fallback behavior must be testable with a fake disk, fake executor, and fake predictor — no model weights or Metal required.
   - **Measure before optimizing**: `iobench`-style disk profiling and per-turn telemetry exist before any cleverness lands.
   - **Framework:** We use `pytest` for all testing.
-  - **Current state of `tests/` (read this before assuming a suite exists):** there are **no `pytest` tests yet**. `tests/integration/` holds hand-run smoke *scripts* — `mlx_layer_search.py` (resolve a TOML target against a real model and print matches) and `mlx_single_router_lens.py` (wrap one router layer, run one token, assert exactly one Parquet row round-trips). They are `argparse` CLIs with `main()`, not `test_*.py`, and they require macOS + MLX + real weights, so they cannot run in a Linux sandbox. Converting the pure layers (`engine/profiler.py` matching, `datamodel/arrow.py` schema derivation, `config/target_layers.py` validation, sink batching against a fake schema) into real `pytest` tests is outstanding work — all four are already free of MLX imports and testable without weights.
+  - **Current state of `tests/` (read this before assuming a suite exists):** there are **no `pytest` tests yet**. `tests/integration/` holds hand-run smoke *scripts* — `mlx_layer_search.py` (resolve a TOML target against a real model and print matches) and `mlx_single_router_layer.py` (wrap one router layer, run one token, assert exactly one Parquet row round-trips). They are `argparse` CLIs with `main()`, not `test_*.py`. They require macOS + MLX + real weights, so they cannot execute *in* a Linux sandbox — but a sandboxed agent can now run them *on the host* through the host-bridge MCP server (below). Converting the pure layers (`engine/layer_resolution.py` matching, `datamodel/arrow.py` schema derivation, `config/target_layers.py` validation, sink batching against a fake schema) into real `pytest` tests is outstanding work — all four are already free of MLX imports and testable without weights.
+  - **Running MLX tests from a sandbox — the host-bridge MCP server.** `scripts/host_bridge_mcp.py` is a small MCP server that runs **on the macOS host** and executes anything under `tests/` there, so sandboxed agents can exercise MLX/Metal code they cannot run locally. Use the `/run-host-test` slash command, which encodes the whole workflow.
+
+    Start it on the host (not from a sandbox — it cannot be started from inside one):
+
+    ```bash
+    ./scripts/setup.sh                  # first time only: makes the launcher executable
+    ./scripts/run_host_bridge_mcp.sh    # bootstrap + serve; leave running in its own tab
+    ```
+
+    The launcher is idempotent: it ensures `.venv` exists, creates `.host-bridge-mcp-token` (0600, stable across restarts), merges a `hostrun` entry into `.mcp.json` **without clobbering other servers**, adds the generated files to `.git/info/exclude`, and runs `sbx policy allow network localhost:8765`. That policy grant does not survive a host reboot.
+
+    Key properties to know before using it:
+
+    - **Only `tests/` is executable.** This is a scoping control, not a security boundary — an agent that can write into `tests/` through the mount can run what it wrote.
+    - **Runs are jobs, not blocking calls**, because HTTP MCP clients enforce a 60s time-to-first-byte timer and a 35B model load takes ~60–90s. A run tool returns a `run_id` and a `log_path`; poll for the result.
+    - **Read `log_path` directly** rather than polling for output. The repo is bind-mounted at the *same absolute path* on both sides, so the log is readable live from the sandbox and holds complete output; the returned `tail` is truncated.
+    - **Write artifacts to `${run_dir}`.** `mlx_single_router_layer.py` defaults `--output` to a `TemporaryDirectory` that is deleted on exit, so anything not directed at `${run_dir}` vanishes before it can be inspected. `${model}` expands to the host's default model id.
+    - **One run at a time**, since a single model load consumes most of the host's memory budget.
+    - The server runs via `uv run --script` against its PEP 723 header, so its dependencies **never enter the project `.venv`**.
   - Write pure functions that are easily testable with input fixtures in pytest.
   - Test edge cases for dependency injection and state immutability.
   - Provide descriptive docstrings for exported functions (purpose, params, return, throws). Comment the "why," not the "what."
@@ -271,7 +293,9 @@ Notes:
   to `uv`. Activating the environment is not enough — a bare `pytest`/`uv pip install` can
   resolve against `.venv` and silently write to it.
 - The Linux env can only exercise MLX-free code. Anything under `backends/mlx_metal/`, and both
-  scripts in `tests/integration/`, need the macOS host.
+  scripts in `tests/integration/`, need the macOS host — run those through the host-bridge MCP
+  server (`/run-host-test`) rather than trying to make them work in the sandbox. Running the same
+  MLX-free tests in both places is a useful cross-check.
 - Subagents run in the same sandbox and hit the same constraint: give them the absolute
   `pytest` path and the `PYTHONPATH` prefix in their brief, or they will reach for `.venv`.
 
