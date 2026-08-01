@@ -25,11 +25,13 @@ audit trail; it does not contain a hostile one.
 
 Launch (from `$HOME`, so uv cannot pick up the surrounding project):
 
-    cd ~ && uv run --script /Users/davidstoneman/venvs/preempt/scripts/hostrun_mcp.py \
-      --repo /Users/davidstoneman/venvs/preempt --host 127.0.0.1 --port 8765
+    cd ~ && uv run --script ./preempt/scripts/host_bridge_mcp.py \
+      --repo ./preempt --host 127.0.0.1 --port 8765
 
 Pair that, once per host boot, with `sbx policy allow network localhost:8765`.
 """
+
+# TODO refactor!
 
 from __future__ import annotations
 
@@ -58,7 +60,7 @@ from pydantic import BaseModel, Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-LOG_PREFIX = "##HOSTRUN"
+LOG_PREFIX = "##HOST_BRIDGE"
 TAIL_WINDOW_BYTES = 65_536
 TAIL_LINE_CHARS = 500
 SWAP_SAMPLE_SECONDS = 5.0
@@ -66,17 +68,16 @@ SWAP_BREACH_SAMPLES = 6
 CANCEL_GRACE_SECONDS = 10.0
 RECENT_RUNS = 10
 
-logger = logging.getLogger("hostrun")
 
-
-# --------------------------------------------------------------------------------------
-# Configuration
-# --------------------------------------------------------------------------------------
+logger = logging.getLogger("host_bridge")
 
 
 @attrs.define(frozen=True)
 class Config:
     """Immutable server configuration resolved from the command line."""
+
+    # TODO use pydantic
+    # TODO move to config/
 
     repo: Path
     tests_dir: Path
@@ -163,8 +164,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> Config:
     return Config(
         repo=repo,
         tests_dir=tests_dir.resolve(),
-        runs_dir=repo / ".hostruns",
-        token_path=repo / ".hostrun-token",
+        runs_dir=repo / ".host-bridge",
+        token_path=repo / ".host-bridge-mcp-token",
         python=python,
         host=args.host,
         port=args.port,
@@ -211,11 +212,7 @@ def _load_or_create_token(path: Path) -> str:
 
 TOKEN = _load_or_create_token(CFG.token_path)
 
-
-# --------------------------------------------------------------------------------------
 # Swap telemetry
-# --------------------------------------------------------------------------------------
-
 _SWAP_FIELD = re.compile(r"used\s*=\s*([0-9.]+)([KMG])", re.IGNORECASE)
 _SWAP_SCALE = {"K": 1 / 1024 / 1024, "M": 1 / 1024, "G": 1.0}
 
@@ -255,11 +252,7 @@ def swap_used_gb() -> float | None:
     return float(match.group(1)) * _SWAP_SCALE[match.group(2).upper()]
 
 
-# --------------------------------------------------------------------------------------
 # Path allowlist
-# --------------------------------------------------------------------------------------
-
-
 def resolve_under_tests(user_path: str, *, must_be_file: bool) -> Path:
     """
     Resolve a caller-supplied path and assert it lands inside the repo's `tests/` tree.
@@ -337,15 +330,12 @@ def check_argv_tokens(tokens: Sequence[str]) -> list[str]:
     return checked
 
 
-# --------------------------------------------------------------------------------------
-# Run state
-# --------------------------------------------------------------------------------------
-
 RunState = Literal[
     "running", "passed", "failed", "cancelled", "aborted_memory", "orphaned"
 ]
 
 
+# TODO Move to engine/model_executor.py
 @attrs.define
 class HostRun:
     """In-process record of one child process. Wire-facing shape is `RunStatus`."""
@@ -427,9 +417,7 @@ def _append_log(run: HostRun, line: str) -> None:
         logger.warning("could not append to %s", run.log_path)
 
 
-# --------------------------------------------------------------------------------------
 # Run lifecycle
-# --------------------------------------------------------------------------------------
 
 
 def _expand_placeholders(tokens: Sequence[str], run_dir: Path) -> list[str]:
@@ -725,16 +713,13 @@ def _recover_orphans() -> None:
         )
 
 
-# --------------------------------------------------------------------------------------
-# Wire models
-# --------------------------------------------------------------------------------------
-
 _NOTE = (
     "Read log_path directly with your file-reading tool — the repository is mounted at "
     "this same absolute path inside your sandbox, and the log updates live."
 )
 
 
+# TODO move to datamodel/
 class RunStatus(BaseModel):
     """Status of one host run. Returned by every run, poll, and cancel call."""
 
@@ -830,9 +815,7 @@ def _lookup(run_id: str) -> HostRun:
     return run
 
 
-# --------------------------------------------------------------------------------------
-# Server
-# --------------------------------------------------------------------------------------
+# MCP server
 
 mcp = FastMCP(
     name="hostrun",
@@ -882,7 +865,8 @@ async def list_targets() -> TargetsInfo:
             size_bytes=path.stat().st_size,
         )
         for path in sorted(CFG.tests_dir.rglob("*.py"))
-        if "__pycache__" not in path.parts and path.resolve().is_relative_to(CFG.tests_dir)
+        if "__pycache__" not in path.parts
+        and path.resolve().is_relative_to(CFG.tests_dir)
     ]
 
     runs_bytes = (

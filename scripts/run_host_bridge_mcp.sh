@@ -6,21 +6,21 @@
 # command. Idempotent: safe to re-run, and re-running is the normal way to restart the
 # server after changing its flags.
 #
-#   ./scripts/hostrun.sh                 # bootstrap, then serve on 127.0.0.1:8765
-#   ./scripts/hostrun.sh --port 9000     # a different port
-#   ./scripts/hostrun.sh --setup-only    # bootstrap and exit without serving
+#   ./scripts/run_host_bridge_mcp.sh                 # bootstrap, then serve on 127.0.0.1:8765
+#   ./scripts/run_host_bridge_mcp.sh --port 9000     # a different port
+#   ./scripts/run_host_bridge_mcp.sh --setup-only    # bootstrap and exit without serving
 #
 # What it does, in order:
 #   1. verifies uv and python3
 #   2. ensures .venv exists (the interpreter the *tests* run under)
-#   3. creates .hostrun-token if absent, 0600
+#   3. creates .host-bridge-mcp-token if absent, 0600
 #   4. merges a `hostrun` entry into .mcp.json, preserving any other servers
 #   5. adds the generated files to .git/info/exclude
 #   6. allows the port through the sandbox network policy, if `sbx` is present
 #   7. execs the server
 #
 # Note the server itself does NOT run inside .venv. It runs via `uv run --script` against
-# the PEP 723 header in hostrun_mcp.py, so its dependencies never enter the project
+# the PEP 723 header in host_bridge_mcp.py, so its dependencies never enter the project
 # environment. .venv matters only because the server spawns tests with it.
 
 set -euo pipefail
@@ -52,7 +52,7 @@ while [ $# -gt 0 ]; do
         --model) MODEL="$2"; shift 2 ;;
         --setup-only) SETUP_ONLY=1; shift ;;
         -h|--help) usage; exit 0 ;;
-        *) echo "hostrun.sh: unknown option $1" >&2; usage >&2; exit 2 ;;
+        *) echo "$(basename "$0"): unknown option $1" >&2; usage >&2; exit 2 ;;
     esac
 done
 
@@ -67,9 +67,9 @@ done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 REPO="$(cd -P "$SCRIPT_DIR/.." && pwd)"
 
-SERVER="$SCRIPT_DIR/hostrun_mcp.py"
+SERVER="$SCRIPT_DIR/host_bridge_mcp.py"
 VENV_PYTHON="$REPO/.venv/bin/python"
-TOKEN_PATH="$REPO/.hostrun-token"
+TOKEN_PATH="$REPO/.host-bridge-mcp-token"
 MCP_JSON="$REPO/.mcp.json"
 
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
@@ -185,7 +185,7 @@ say "Wrote $MCP_JSON"
 EXCLUDE="$REPO/.git/info/exclude"
 if [ -d "$REPO/.git" ]; then
     mkdir -p "$(dirname "$EXCLUDE")"; touch "$EXCLUDE"
-    for pattern in ".hostruns/" ".hostrun-token" ".mcp.json"; do
+    for pattern in ".host-bridge/" ".host-bridge-mcp-token" ".mcp.json"; do
         grep -qxF "$pattern" "$EXCLUDE" || printf '%s\n' "$pattern" >> "$EXCLUDE"
     done
     say "Local ignores present in .git/info/exclude"
