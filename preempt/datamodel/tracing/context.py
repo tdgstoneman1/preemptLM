@@ -16,6 +16,7 @@ _RUN_ID_TIMESTAMP_FORMAT = "%Y%m%dT%H%M%SZ"
 
 def generate_run_id(prefix: str, *, timestamp_fn: datetime | None = None) -> str:
     """Creates unique `run_id` formatted as `<prefix>-<UTC timestamp>-<8 hex chars>`."""
+
     if not prefix:
         raise ValueError("`prefix` must be a non-empty string.")
 
