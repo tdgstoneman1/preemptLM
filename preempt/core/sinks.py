@@ -165,6 +165,14 @@ class ParquetEventSink(BaseEventSink):
                 self._row_group_size,
             )
         except Exception as e:
+            # TODO: a failed write_batch can leave PyArrow's underlying file stream
+            # closed/poisoned. We restore the buffer for retry here but keep reusing
+            # `self._writer` as-is, so a subsequent flush()/aclose() retries against
+            # the same broken writer and raises a confusing secondary
+            # "Operation on closed file" error that masks the real one. Consider
+            # discarding/closing `self._writer` (forcing recreation) whenever this
+            # except branch fires. Found 2025-XX-XX debugging a schema mismatch in
+            # ExpertRoutingEvent.as_arrow_record(); not fixed, low priority.
             self._buffer = records + self._buffer
             raise e
 
