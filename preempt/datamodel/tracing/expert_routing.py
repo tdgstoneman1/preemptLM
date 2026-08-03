@@ -51,10 +51,12 @@ class LayerIdentifiers:
 class ExpertRoutingEvent:
     """MoE block expert routing for a single token.
 
-    **Note:** `expert_weights` and `expert_ids` correspond to the *final* expert
+    :Note: `expert_weights` and `expert_ids` correspond to the *final* expert
     routing after applying any normalization to score logits.
-    `gate_logits` corresponds to full-size logits array (used for training)
-    and should be the same size as *total* number of experts, *not* top-k
+
+    `gate_logits` (used for training) corresponds to full-size pre-softmax logits
+    and should be the same size as *total* number of experts--*not* top-k, i.e.
+    `len(gate_logits) = num_total_experts ≠ top_k_experts`
     """
 
     schema_version: int = field(
@@ -84,11 +86,16 @@ class ExpertRoutingEvent:
         validator=validators.min_len(1),
         converter=lambda arr: tuple(float(x) for x in arr),
     )
-    # Gate logits optional since they only matter for training
+    # Gate logits optional since they only matter for training. Arrow field
+    # must be nullable to match 'None', a non-nullable list column silently coerces a
+    # `None` into `[]` which reader can't distinguish from captured but empty
+    # distribution.
+
     gate_logits: tuple[float, ...] | None = field(
         metadata=arrow_metadata(
             pa.list_(pa.field("item", pa.float32(), nullable=True)),
             serializer=list,
+            nullable=True,
         ),
         validator=validators.optional(validators.min_len(1)),
         converter=lambda arr: tuple(float(x) for x in arr) if arr else None,
@@ -115,11 +122,16 @@ class ExpertRoutingEvent:
     def as_arrow_record(self) -> dict[str, pa.Field]:
         serialized: dict[str, pa.Field] = {}
 
-        for f, value in recurse_attrs_instance_fields(attrs.fields(ExpertRoutingEvent)):
+        for f, value in recurse_attrs_instance_fields(self):
             arrow_args = arrow_args_for(f, cls=ExpertRoutingEvent)
 
-            if arrow_args.serializer is not None:
-                serialized[f.name] = arrow_args.serializer(value)
+            # Nullable field still has serializer, so `None` must be
+            # passed through untouched --> `list(None)` would raise instead.
+            serialized[f.name] = (
+                arrow_args.serializer(value)
+                if arrow_args.serializer is not None and value is not None
+                else value
+            )
 
         return serialized
 
