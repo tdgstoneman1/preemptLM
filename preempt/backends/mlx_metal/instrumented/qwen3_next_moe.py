@@ -15,31 +15,45 @@ from mlx_lm.models.qwen3_next import Qwen3NextSparseMoeBlock
 from ..recorder import MlxExpertRoutingRecorder
 from ..types import MlxWrapperFactory
 
+from preempt.core.identity import ExpertKey
+from preempt.core.protocols.provider import ExpertProvider
+
 from preempt.engine.layer_resolution import LayerCandidate
 
 
 class InstrumentedQwen3NextMoE(nn.Module):
     inner: Qwen3NextSparseMoeBlock
-    recorder: MlxExpertRoutingRecorder
+    recorder: MlxExpertRoutingRecorder | None
     capture_gate_logits: bool
     layer_path: str
     layer_idx: int
+    provider: ExpertProvider | None
+    model_fingerprint: str | None
 
     def __init__(
         self,
         inner: Qwen3NextSparseMoeBlock,
-        recorder: MlxExpertRoutingRecorder,
+        recorder: MlxExpertRoutingRecorder | None,
         capture_gate_logits: bool,
         layer_path: str,
         layer_idx: int,
+        provider: ExpertProvider | None = None,
+        model_fingerprint: str | None = None,
     ) -> None:
         super().__init__()
+
+        if provider is not None and model_fingerprint is None:
+            raise ValueError(
+                "`model_fingerprint` is required when a `provider` is given."
+            )
 
         self.inner = inner
         self.recorder = recorder
         self.capture_gate_logits = capture_gate_logits
         self.layer_path = layer_path
         self.layer_idx = layer_idx
+        self.provider = provider
+        self.model_fingerprint = model_fingerprint
 
     def __call__(
         self,
@@ -61,15 +75,32 @@ class InstrumentedQwen3NextMoE(nn.Module):
         if self.inner.norm_topk_prob:
             scores = scores / scores.sum(axis=-1, keepdims=True)
 
-        # Record state
-        self.recorder.capture(
-            layer_path=self.layer_path,
-            layer_class=self.inner.__class__.__name__,
-            layer_idx=self.layer_idx,
-            expert_ids=inds,
-            expert_weights=scores,
-            gate_logits=logits if self.capture_gate_logits else None,
-        )
+        # Record state (lazily -- no eval in the capture path)
+        if self.recorder is not None:
+            self.recorder.capture(
+                layer_path=self.layer_path,
+                layer_class=self.inner.__class__.__name__,
+                layer_idx=self.layer_idx,
+                expert_ids=inds,
+                expert_weights=scores,
+                gate_logits=logits if self.capture_gate_logits else None,
+            )
+
+        # Demand sync point: only a streaming run wires a provider, and only
+        # then do we pay the eval that materializing the routed ids forces.
+        if self.provider is not None:
+            assert self.model_fingerprint is not None
+            unique_ids = sorted({int(e) for e in inds.flatten().tolist()})
+            self.provider.acquire(
+                tuple(
+                    ExpertKey(
+                        model_fingerprint=self.model_fingerprint,
+                        layer_idx=self.layer_idx,
+                        expert_idx=expert_idx,
+                    )
+                    for expert_idx in unique_ids
+                )
+            )
 
         y = self.inner.switch_mlp(x, inds)
         y = (y * scores[..., None]).sum(axis=-2)
@@ -85,19 +116,41 @@ class InstrumentedQwen3NextMoE(nn.Module):
         return y
 
 
-# TODO Get rid of this, just slop from Perplexity session
 def make_qwen3next_moe_wrapper_factory(
-    recorder: MlxExpertRoutingRecorder,
+    recorder: MlxExpertRoutingRecorder | None,
     *,
     capture_gate_logits: bool = False,
+    provider: ExpertProvider | None = None,
+    model_fingerprint: str | None = None,
 ) -> MlxWrapperFactory:
+    """Returns a factory that swaps `Qwen3NextSparseMoeBlock` for an instrumented
+    wrapper layer.
+
+    Parameters
+    ----------
+    recorder : MlxExpertRoutingRecorder | None
+        Trace recorder; `None` disables routing capture.
+    capture_gate_logits : bool
+        Whether to buffer the full `num_experts`-wide gate distribution.
+    provider : ExpertProvider | None
+        Residency hook called after top-k selection; `None` disables it.
+    model_fingerprint : str | None
+        Required when `provider` is given — it qualifies each `ExpertKey`.
+
+    Returns
+    -------
+    MlxWrapperFactory
+        Callable accepting the upstream module and its `LayerCandidate`.
+    """
 
     def factory(
         module: Qwen3NextSparseMoeBlock,
         candidate: LayerCandidate,
     ) -> nn.Module:
         if candidate.layer_idx is None:
-            raise ValueError()  # TODO descriptive error msg
+            raise ValueError(
+                f"Cannot instrument {candidate.layer_path!r}: no transformer block index."
+            )
 
         return InstrumentedQwen3NextMoE(
             inner=module,
@@ -105,6 +158,8 @@ def make_qwen3next_moe_wrapper_factory(
             capture_gate_logits=capture_gate_logits,
             layer_path=candidate.layer_path,
             layer_idx=candidate.layer_idx,
+            provider=provider,
+            model_fingerprint=model_fingerprint,
         )
 
     return factory
