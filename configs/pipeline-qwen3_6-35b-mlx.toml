@@ -1,0 +1,21 @@
+version = 1
+
+[model]
+id = "unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit"
+backend = "mlx_metal"
+architecture = "qwen3-next"
+
+[generation]
+max_tokens = 512
+
+[tracing]
+# Relative paths resolve against this config file's directory, not the CWD.
+output_path = "../traces/router-events.parquet"
+overwrite_output = true
+
+[[tracing.targets]]
+name = "Qwen3.6-35B-expert-router"
+
+[tracing.targets.search_params]
+layer_class = "Qwen3NextSparseMoeBlock"
+count = 40
