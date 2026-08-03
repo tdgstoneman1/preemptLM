@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import Any
 from collections.abc import Generator
 
-import mlx.core as mx
+from datetime import datetime, UTC
 
 import attrs
 from attrs import field
 
-from datetime import datetime, UTC
+import mlx.core as mx
 
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
 from preempt.datamodel.tracing.expert_routing import (
@@ -18,6 +18,7 @@ from preempt.datamodel.tracing.expert_routing import (
 )
 
 from preempt.core.sinks import BaseEventSink
+
 from preempt.engine.recorder import BaseEventRecorder
 
 
@@ -33,9 +34,18 @@ class _PendingExpertRoutingEvent:
 
 class MlxExpertRoutingRecorder(BaseEventRecorder):
     _buffer: list[_PendingExpertRoutingEvent]
+    _emitted_event_idx: int
 
     def __init__(self, run_context: TraceRunContext) -> None:
         super().__init__(run_context)
+
+        # `_event_idx` counts `capture()` calls, i.e. one per instrumented layer
+        # per step. A single capture fans out to one event per (batch, token) at
+        # flush time, so it cannot number the emitted events: a multi-token
+        # prefill emits far more events than there were captures, and the next
+        # step would restart inside the range already written. Track what has
+        # actually been emitted separately.
+        self._emitted_event_idx = 0
 
     def capture(
         self,
@@ -83,14 +93,14 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):
         if not self._buffer:
             return 0
 
-        self._eval_arrays_in_queue(self._buffer)
+        self._eval_arrays_in_buffer(self._buffer)
         n_flushed = 0
 
-        for rec in self._materialize_buffered_events(
-            self._event_idx - len(self._buffer)
-        ):
+        for rec in self._materialize_buffered_events(self._emitted_event_idx):
             await sink.write(rec.as_arrow_record())
             n_flushed += 1
+
+        self._emitted_event_idx += n_flushed
 
         return n_flushed
 
@@ -101,7 +111,10 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):
         for record in self._buffer:
             expert_ids = record.expert_ids.tolist()
             expert_weights = record.expert_weights.tolist()
-            gate_logits = record.gate_logits.tolist() if record.gate_logits else None
+
+            gate_logits = (
+                record.gate_logits.tolist() if record.gate_logits is not None else None
+            )
 
             for batch_idx, (batch_ids, batch_weights) in enumerate(
                 zip(expert_ids, expert_weights, strict=True)
@@ -116,7 +129,11 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):
                         current_event_idx,
                         ids,
                         weights,
-                        gate_logits[batch_idx][offset] if gate_logits else None,
+                        (
+                            gate_logits[batch_idx][offset]
+                            if gate_logits is not None
+                            else None
+                        ),
                     )
                     current_event_idx += 1
 
@@ -142,17 +159,18 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):
         return ExpertRoutingEvent(
             expert_ids=tuple(ids),
             expert_weights=tuple(weights),
-            gate_logits=tuple(logits) if logits else None,
+            gate_logits=tuple(logits) if logits is not None else None,
             run_context=self._run_context,
             step_context=step_context,
             event_metadata=event_metadata,
             layer_identifiers=record.layer_identifiers,
         )
 
-    def _eval_arrays_in_queue(self, queue: list[_PendingExpertRoutingEvent]) -> None:
+    def _eval_arrays_in_buffer(self, buffer: list[_PendingExpertRoutingEvent]) -> None:
         to_evaluate = [
             arr
-            for item in queue
+            for item in buffer
             for arr in (item.expert_ids, item.expert_weights, item.gate_logits)
+            if arr is not None
         ]
         mx.eval(*to_evaluate)
