@@ -127,7 +127,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> Config:
     parser.add_argument("--port", type=int, default=8765, help="Bind port.")
     parser.add_argument(
         "--default-model",
-        default="unsloth/Qwen3.6-35B-A3B-MLX-8bit",
+        default="unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit",
         help="Model id substituted for the `${model}` placeholder in run arguments.",
     )
     # Measured 2026-08-01: one `mlx_single_router_layer` run against
