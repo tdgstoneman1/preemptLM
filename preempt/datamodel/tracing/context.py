@@ -55,10 +55,12 @@ class TraceRunContext:
         model_revision: str | None = None,
         instrumentation_version: str = "0.1.0",
     ) -> Self:
-        """Constructs a `TraceRunContext` with a unique `run_id` generated from `run_id_prefix`.
+        """Constructs a `TraceRunContext` with a unique `run_id` generated from
+        `run_id_prefix`.
 
-        In general, this is the preferred way to instantiate `TraceRunContext` (rather than instantiating
-        directly with `TraceRunContext(run_id=..., ...)`) as it guarantees `run_id` will be a unique value.
+        In general, this is the preferred way to instantiate `TraceRunContext`
+        (rather than instantiating directly with `TraceRunContext(run_id=..., ...)`)
+        as it guarantees `run_id` will be a unique value.
         """
 
         return cls(
