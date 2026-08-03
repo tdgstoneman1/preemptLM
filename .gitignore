@@ -6,7 +6,11 @@ wheels/
 *.egg-info
 
 # ignored temporarily 
-tests/**
 README.md
+traces/**
 
 **/.DS_Store
+
+.host-bridge-mcp-token
+.mcp.json
+expert-store/**
