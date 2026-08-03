@@ -1,0 +1,28 @@
+# Config for tests/integration/mlx_all_router_layers.py.
+#
+# That script is its own composition root, so it takes only [model],
+# [generation].max_tokens, and [tracing].targets from here. Every other
+# [tracing] key is overridden or ignored: output_path (--output),
+# batch_size (--batch-size), capture_gate_logits (--no-gate-logits),
+# run_id_prefix (hardcoded), and overwrite_output (always true).
+
+version = 1
+
+[model]
+id = "unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit"
+backend = "mlx_metal"
+architecture = "qwen3-next"
+
+[generation]
+max_tokens = 2
+
+[tracing]
+output_path = "out/router-events.parquet"
+overwrite_output = true
+
+[[tracing.targets]]
+name = "Qwen3.6-35B-expert-router"
+
+[tracing.targets.search_params]
+layer_class = "Qwen3NextSparseMoeBlock"
+count = 40

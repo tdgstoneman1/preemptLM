@@ -13,6 +13,12 @@ Parquet row, this script exercises the pieces that only matter at full scale:
   wrapper is a verbatim fork of the upstream forward, and this is the assertion that
   catches it drifting.
 
+The generation loop itself lives in `preempt/` now (`InferencePipeline` over
+`MlxModelRunner`); this script is a thin composition root around it. It stays
+separate from `main.py` because it needs a sequencing `main.build_pipeline` does not
+expose: run the reference generation *before* instrumenting the same loaded model,
+so both passes share one set of weights.
+
 This model is larger than the host's RAM, so a single forward pass costs roughly a
 minute and every pass counts. Per-token coverage therefore comes from the *prefill*
 -- one forward yields `len(prompt)` token positions across all 40 layers -- rather
@@ -23,32 +29,26 @@ only to exercise the decode path. The exactness check runs generation a second t
 Usage (from the repo root, on the macOS host)::
 
     python tests/integration/mlx_all_router_layers.py \
-        --model <mlx-model-id> \
-        --config configs/qwen3_6-35b-mlx.toml \
-        --output out/router-events.parquet
+        --config tests/integration/qwen3_6-35b-mlx-pipeline.toml \
+        --output out/router-events.parquet \
+        --verify-exactness
 """
 
 from __future__ import annotations
 
-from typing import Any, Protocol, cast
-from collections.abc import Iterable, Sequence
+from typing import Any
+from collections.abc import Callable, Iterable, Sequence
 
 import argparse
 import asyncio
 import tempfile
-import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from mlx_lm import load
-from mlx_lm.generate import generation_stream
-from mlx_lm.models.cache import make_prompt_cache
-
 import mlx.core as mx
 import mlx.nn as nn
-from mlx.utils import tree_flatten
 
 from preempt.backends.mlx_metal.instrument import mlx_instrument_model
 from preempt.backends.mlx_metal.instrumented.qwen3_next_moe import (
@@ -56,10 +56,12 @@ from preempt.backends.mlx_metal.instrumented.qwen3_next_moe import (
     make_qwen3next_moe_wrapper_factory,
 )
 from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
+from preempt.backends.mlx_metal.loader import load_mlx_model
 from preempt.backends.mlx_metal.recorder import MlxExpertRoutingRecorder
-from preempt.config.target_layers import TargetLayerConfig
+from preempt.backends.mlx_metal.runner import MlxModelRunner
+from preempt.config.pipeline import PipelineConfig
 from preempt.core.sinks import ParquetEventSink
-from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
+from preempt.datamodel.tracing.context import TraceRunContext
 from preempt.datamodel.tracing.expert_routing import (
     EXPERT_ROUTING_EVENT_TYPE,
     EXPERT_ROUTING_SCHEMA_VERSION,
@@ -69,10 +71,12 @@ from preempt.engine.layer_resolution import (
     LayerCandidate,
     ensure_no_target_layer_overlap,
 )
+from preempt.engine.metrics import StepMetrics
+from preempt.engine.pipeline import GenerationResult, InferencePipeline
 from preempt.utils.io_utils import read_and_validate_toml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_CONFIG = _REPO_ROOT / "configs" / "qwen3_6-35b-mlx.toml"
+_DEFAULT_CONFIG = _REPO_ROOT / "tests" / "integration" / "qwen3_6-35b-mlx-pipeline.toml"
 
 # Router weights are renormalized in bf16/quantized arithmetic, so the per-token
 # top-k weights sum to 1.0 only to a couple of decimal places.
@@ -83,36 +87,22 @@ class TraceVerificationError(RuntimeError):
     """Raised when the captured Parquet trace violates its expected contract."""
 
 
-class TokenCodec(Protocol):
-    """The only tokenizer surface this script uses.
-
-    `mlx_lm.tokenizer_utils.TokenizerWrapper` does not define `encode`/`decode`
-    itself -- it forwards them to the wrapped tokenizer through an unannotated
-    `__getattr__`, whose inferred return type is a union that includes `set`. Type
-    checkers therefore report the calls as "not callable". Casting to this protocol
-    restores real signatures rather than silencing the diagnostic.
-    """
-
-    def encode(self, text: str) -> list[int]: ...
-
-    def decode(self, tokens: Sequence[int]) -> str: ...
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Instrument every MoE router block in an MLX Qwen3.6 model "
         "and verify the captured Parquet trace."
     )
     parser.add_argument(
-        "--model",
-        required=True,
-        help="MLX model ID or local directory accepted by mlx_lm.load().",
-    )
-    parser.add_argument(
         "--config",
         type=Path,
         default=_DEFAULT_CONFIG,
-        help=f"TOML target-layer config. Default: {_DEFAULT_CONFIG}",
+        help=f"TOML pipeline config with a [tracing] table. Default: {_DEFAULT_CONFIG}",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Override the model id in --config. Any MLX model ID or local "
+        "directory accepted by mlx_lm.load().",
     )
     parser.add_argument(
         "--prompt",
@@ -124,10 +114,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=2,
-        help="Greedy tokens to generate, one forward pass each. This model is "
-        "larger than the host's RAM, so a pass costs roughly a minute; prefer a "
-        "longer --prompt over a larger value here.",
+        default=None,
+        help="Override [generation].max_tokens from --config. Greedy tokens to "
+        "generate, one forward pass each. This model is larger than the host's "
+        "RAM, so a pass costs roughly a minute; prefer a longer --prompt over a "
+        "larger value here.",
     )
     parser.add_argument(
         "--output",
@@ -156,20 +147,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_router_layers(
-    model: nn.Module,
-    config: TargetLayerConfig,
+def sort_and_check_layers(
+    resolved: dict[str, tuple[LayerCandidate, ...]],
 ) -> tuple[LayerCandidate, ...]:
-    """Resolve every target in `config` to a flat, ordered tuple of MoE blocks.
+    """Flatten resolved targets into one ordered tuple of MoE blocks.
 
     Parameters
     ----------
-    model : nn.Module
-        Loaded MLX model to search.
-    config : TargetLayerConfig
-        Parsed target-layer config. Its per-target `count` is what asserts the
-        expected number of MoE blocks, so a model that does not match fails here
-        rather than silently tracing fewer layers.
+    resolved : dict[str, tuple[LayerCandidate, ...]]
+        Per-target matches as returned by `resolve_mlx_target_layers`. The
+        config's per-target `count` is what asserts the expected number of MoE
+        blocks, so a model that does not match fails at resolve time rather
+        than silently tracing fewer layers.
 
     Returns
     -------
@@ -179,12 +168,9 @@ def resolve_router_layers(
     Raises
     ------
     RuntimeError
-        If two targets claim the same layer, if fewer than two layers resolve
-        (this is a *scale-up* test), or if any match has no derivable block index.
+        If fewer than two layers resolve (this is a *scale-up* test), or if any
+        match has no derivable block index.
     """
-    resolved = resolve_mlx_target_layers(model, config)
-    ensure_no_target_layer_overlap(resolved)
-
     layers = [candidate for matches in resolved.values() for candidate in matches]
 
     if len(layers) < 2:
@@ -289,139 +275,23 @@ def instrument_router_layers(
         )
 
 
-def forward_and_argmax(
-    model: nn.Module,
-    tokens: Sequence[int],
-    cache: list[Any],
-) -> int:
-    """Run one forward pass over `tokens` and greedily pick the next token id.
-
-    Mirrors the memory discipline of `mlx_lm.generate.generate_step`: compute runs
-    on the generation stream, and the cache state is evaluated explicitly.
-
-    That explicit eval is load-bearing, not cosmetic. This model's linear-attention
-    layers return their recurrent state as a *sibling* of the layer output rather
-    than an ancestor of it, so evaluating only the sampled token leaves the state
-    an unevaluated graph. The next step then builds on that graph, and each step
-    re-derives the whole chain from step 0 — step time grows linearly while peak
-    memory stays flat, because it is recomputation rather than accumulation.
-    """
-    with mx.stream(generation_stream):
-        input_ids = mx.array([list(tokens)], dtype=mx.int32)
-        logits = model(input_ids, cache=cache)
-        next_token = mx.argmax(logits[:, -1, :], axis=-1)
-        mx.eval(next_token)
-
-        # `state` is a list per cache entry and may hold `None` slots, so flatten
-        # and keep only real arrays instead of passing the tree to `mx.eval`.
-        state_arrays = [
-            value
-            for _, value in tree_flatten([entry.state for entry in cache])
-            if isinstance(value, mx.array)
-        ]
-        if state_arrays:
-            mx.eval(state_arrays)
-
-    return int(next_token.item())
-
-
-def report_step(label: str, step: int, n_tokens: int, elapsed: float) -> None:
-    """Print one progress line per forward pass.
+def make_step_printer(label: str) -> Callable[[StepMetrics], None]:
+    """Return an `on_step` callback printing one progress line per forward pass.
 
     This model is larger than the host's physical memory, so a pass can take
     tens of seconds. Without a line per step there is no way to tell a slow run
     apart from a hung one, or a constant per-step cost (paging) apart from a
     growing one (accumulating graph/memory).
     """
-    print(
-        f"  {label} step {step}: {n_tokens} token(s) in {elapsed:6.1f}s | "
-        f"peak {mx.get_peak_memory() / 1e9:5.2f} GB",
-        flush=True,
-    )
 
-
-def generate_greedy(
-    model: nn.Module,
-    prompt_ids: Sequence[int],
-    max_tokens: int,
-) -> list[int]:
-    """Greedily decode `max_tokens` ids with no tracing (the exactness reference)."""
-
-    cache = make_prompt_cache(model)
-    generated: list[int] = []
-    tokens = list(prompt_ids)
-
-    # NOTE: `mlx_lm.generate` wraps generation in `wired_limit(...)`; this script
-    # deliberately does not. Wiring only helps a model that fits. Measured on the
-    # 8-bit variant of this model (35121 MB of weights against a 25559 MB
-    # recommended working set, which trips mlx_lm's own "this can be slow"
-    # warning), wiring pushed a single forward pass from ~55s to over 300s. The
-    # 4-bit variant fits and does not need it either.
-    for step in range(max_tokens):
-        started = time.perf_counter()
-        next_token = forward_and_argmax(model, tokens, cache)
-        report_step("reference", step, len(tokens), time.perf_counter() - started)
-
-        generated.append(next_token)
-        tokens = [next_token]
-        mx.clear_cache()
-
-    return generated
-
-
-async def generate_greedy_traced(
-    *,
-    model: nn.Module,
-    prompt_ids: Sequence[int],
-    max_tokens: int,
-    recorder: MlxExpertRoutingRecorder,
-    sink: ParquetEventSink,
-    sequence_id: int = 0,
-) -> tuple[list[int], int, int]:
-    """Greedily decode while capturing router events, one trace step per forward.
-
-    The first step is a batched prefill over the whole prompt; the rest are
-    single-token decode steps.
-
-    Returns
-    -------
-    tuple[list[int], int, int]
-        `(generated_token_ids, records_written, tokens_forwarded)`, where
-        `tokens_forwarded` is the number of distinct token positions pushed
-        through the model and therefore the row count per instrumented layer.
-    """
-    cache = make_prompt_cache(model)
-    generated: list[int] = []
-    tokens = list(prompt_ids)
-
-    token_idx = 0
-    records_written = 0
-
-    for step in range(max_tokens):
-        started = time.perf_counter()
-
-        recorder.start_step(
-            TraceStepContext(
-                sequence_id=sequence_id,
-                token_idx=token_idx,
-                # `TraceStepContext` carries one `token_id`, so it is only
-                # meaningful for a single-token forward. Prefill spans many
-                # tokens; leave it null rather than stamping every prefill
-                # row with the first prompt token.
-                token_id=tokens[0] if len(tokens) == 1 else None,
-            )
+    def print_step(step: StepMetrics) -> None:
+        print(
+            f"  {label} step {step.step_idx}: {step.n_tokens} token(s) in "
+            f"{step.duration_s:6.1f}s | peak {mx.get_peak_memory() / 1e9:5.2f} GB",
+            flush=True,
         )
 
-        next_token = forward_and_argmax(model, tokens, cache)
-        records_written += await recorder.flush(sink)
-        report_step("traced", step, len(tokens), time.perf_counter() - started)
-
-        generated.append(next_token)
-        token_idx += len(tokens)
-        tokens = [next_token]
-        mx.clear_cache()
-
-    return generated, records_written, token_idx
+    return print_step
 
 
 def _require(condition: bool, message: str) -> None:
@@ -473,7 +343,7 @@ def verify_trace(
 
     expected_paths = {candidate.layer_path for candidate in layers}
 
-    # `LayerCandidate.layer_idx` is `int | None`. `resolve_router_layers` already
+    # `LayerCandidate.layer_idx` is `int | None`. `sort_and_check_layers` already
     # rejects candidates without a block index, but re-check here so this function
     # is safe to call on its own and so the set narrows to `set[int]` -- otherwise
     # the `sorted()` calls below are comparing against a possible `None`.
@@ -591,14 +461,25 @@ def verify_trace(
 
 
 async def run(args: argparse.Namespace, output_path: Path) -> None:
-    config = read_and_validate_toml(args.config, TargetLayerConfig)
+    config = read_and_validate_toml(args.config, PipelineConfig)
 
-    print(f"Loading model: {args.model}")
-    model, raw_tokenizer = load(args.model)  # type: ignore[misc]
-    tokenizer = cast(TokenCodec, raw_tokenizer)
+    if config.tracing is None:
+        raise ValueError(f"{args.config} has no [tracing] table; this script needs one.")
 
-    layers = resolve_router_layers(model, config)
-    top_k, num_experts, norm_topk_prob = describe_router_topology(model, layers)
+    model_id = args.model if args.model is not None else config.model.id
+    max_tokens = (
+        args.max_tokens if args.max_tokens is not None else config.generation.max_tokens
+    )
+
+    print(f"Loading model: {model_id}")
+    loaded = load_mlx_model(model_id)
+
+    resolved = resolve_mlx_target_layers(
+        loaded.model, config.tracing.to_target_layer_config()
+    )
+    ensure_no_target_layer_overlap(resolved)
+    layers = sort_and_check_layers(resolved)
+    top_k, num_experts, norm_topk_prob = describe_router_topology(loaded.model, layers)
 
     print(
         f"Resolved {len(layers)} router layer(s): "
@@ -609,56 +490,78 @@ async def run(args: argparse.Namespace, output_path: Path) -> None:
         f"Expert topology: top_k={top_k}, num_experts={num_experts}, "
         f"norm_topk_prob={norm_topk_prob}"
     )
+    print(f"Prompt: {args.prompt!r}")
 
-    prompt_ids = tokenizer.encode(args.prompt)
-    print(f"Prompt tokenized to {len(prompt_ids)} token(s): {args.prompt!r}")
+    runner = MlxModelRunner(loaded.model)
 
-    reference_tokens: list[int] | None = None
+    reference: GenerationResult | None = None
 
     if args.verify_exactness:
-        print(f"Reference pass (uninstrumented), {args.max_tokens} token(s)...")
-        reference_tokens = generate_greedy(model, prompt_ids, args.max_tokens)
-        print(f"Reference output: {tokenizer.decode(reference_tokens)!r}")
+        print(f"Reference pass (uninstrumented), {max_tokens} token(s)...")
+        reference_pipeline = InferencePipeline(
+            runner=runner,
+            tokenizer=loaded.tokenizer,
+            max_tokens=max_tokens,
+            on_step=make_step_printer("reference"),
+        )
+        reference = await reference_pipeline.generate(args.prompt)
+        print(f"Reference output: {reference.text!r}")
 
     capture_gate_logits = not args.no_gate_logits
 
     run_context = TraceRunContext.with_generated_run_id(
         run_id_prefix="mlx-all-router-layers",
-        model_id=args.model,
-        model_architecture="qwen3-next",
+        model_id=model_id,
+        model_architecture=config.model.architecture,
+        model_revision=config.model.revision,
     )
     recorder = MlxExpertRoutingRecorder(run_context=run_context)
 
     instrument_router_layers(
-        model=model,
+        model=loaded.model,
         layers=layers,
         recorder=recorder,
         capture_gate_logits=capture_gate_logits,
     )
     print(f"Instrumented all {len(layers)} router layer(s).")
 
-    async with ParquetEventSink(
+    sink = ParquetEventSink(
         path=output_path,
         schema=ExpertRoutingEvent.arrow_schema(),
         batch_size=args.batch_size,
         overwrite=True,
-    ) as sink:
-        print(f"Traced pass (instrumented), {args.max_tokens} token(s)...")
+    )
+    traced_pipeline = InferencePipeline(
+        runner=runner,
+        tokenizer=loaded.tokenizer,
+        max_tokens=max_tokens,
+        recorder=recorder,
+        sink=sink,
+        on_step=make_step_printer("traced"),
+    )
 
-        traced_tokens, records_written, tokens_forwarded = await generate_greedy_traced(
-            model=model,
-            prompt_ids=prompt_ids,
-            max_tokens=args.max_tokens,
-            recorder=recorder,
-            sink=sink,
+    print(f"Traced pass (instrumented), {max_tokens} token(s)...")
+    traced = await traced_pipeline.generate(args.prompt)
+    print(f"Traced output: {traced.text!r}")
+
+    # Exactness first: it is the headline signal, and a row-count mismatch is a
+    # far less interesting failure to surface ahead of it.
+    if reference is not None:
+        if traced.token_ids != reference.token_ids:
+            raise TraceVerificationError(
+                "EXACT INFERENCE violated: instrumented output differs from the "
+                f"uninstrumented reference.\n  reference: {reference.token_ids!r}\n"
+                f"  traced:    {traced.token_ids!r}"
+            )
+        print(
+            f"Exactness verified: {len(traced.token_ids)} greedy token(s) identical "
+            "with and without instrumentation."
         )
+    else:
+        print("Exactness not verified (pass --verify-exactness to enable).")
 
-    # Read *after* the context manager exits: `aclose()` writes the final partial
-    # batch, so sampling this inside the block reports only whole batches.
-    sink_records = sink.records_written
-
-    print(f"Traced output: {tokenizer.decode(traced_tokens)!r}")
-
+    tokens_forwarded = traced.metrics.tokens_forwarded
+    records_written = traced.metrics.records_written
     expected_rows = len(layers) * tokens_forwarded
 
     if records_written != expected_rows:
@@ -668,25 +571,14 @@ async def run(args: argparse.Namespace, output_path: Path) -> None:
         )
 
     # `sink.records_written` only counts rows already handed to the Parquet
-    # writer, so this catches a batch stranded in the sink buffer.
-    if sink_records != expected_rows:
+    # writer, so this catches a batch stranded in the sink buffer. The traced
+    # pipeline closed the sink when `generate` returned, so the final partial
+    # batch is included.
+    if sink.records_written != expected_rows:
         raise TraceVerificationError(
-            f"Sink persisted {sink_records} record(s); expected {expected_rows}."
+            f"Sink persisted {sink.records_written} record(s); "
+            f"expected {expected_rows}."
         )
-
-    if reference_tokens is not None:
-        if traced_tokens != reference_tokens:
-            raise TraceVerificationError(
-                "EXACT INFERENCE violated: instrumented output differs from the "
-                f"uninstrumented reference.\n  reference: {reference_tokens!r}\n"
-                f"  traced:    {traced_tokens!r}"
-            )
-        print(
-            f"Exactness verified: {len(traced_tokens)} greedy token(s) identical "
-            "with and without instrumentation."
-        )
-    else:
-        print("Exactness not verified (pass --verify-exactness to enable).")
 
     print(f"Captured and wrote {records_written} router record(s).")
     print(f"Parquet output: {output_path}")
@@ -706,7 +598,7 @@ async def run(args: argparse.Namespace, output_path: Path) -> None:
 def main() -> None:
     args = parse_args()
 
-    if args.max_tokens < 1:
+    if args.max_tokens is not None and args.max_tokens < 1:
         raise ValueError("--max-tokens must be at least 1.")
 
     if args.batch_size < 1:
