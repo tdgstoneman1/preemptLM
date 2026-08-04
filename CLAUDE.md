@@ -303,4 +303,18 @@ Notes:
 
 - [**colibri**](https://github.com/JustVugg/colibri): 744B MoE on 25 GB RAM, single C file, per-expert contiguous `pread` reads, per-layer LRU, heuristic router-lookahead prefetch, token-exact validation against transformers. Model for the streaming/storage layer and for README/benchmark honesty.
 - [**ds4**](https://github.com/antirez/ds4): model-specific C/Metal engine, asymmetric quantization (aggressive on experts only), disk-backed KV. Model for narrow-scope engines and native Metal organization.
+- [**waste**](https://github.com/sqliteai/waste): "Weight-Aware Streaming Tensor Engine" — embeddable C engine running the full 2.78T Kimi K3 on a 64 GB MacBook at ~0.45–0.62 tok/s. Closest prior art to preempt's thesis: trunk resident, one aligned read per expert, bounded LRU expert cache, reads overlapped with compute, and a **lookahead router that prefetches the next layer's experts while the real router stays authoritative** — the same "changes timing, not results" invariant. Model for container layout and for measurement honesty.
+- [**kimi-k3-in-c**](https://github.com/FareedKhan-dev/kimi-k3-in-c): 2.78T K3 in portable C99 on one CPU in 8.24 GB peak RSS, ~33 s/token. No prefetching cleverness — it is the *naive streaming floor* this project exists to beat, and a readable reference for K3's architecture.
 - [**llama.cpp**](https://github.com/ggml-org/llama.cpp): target of the future backend; its MoE disk-paging PoC (slot pool + `pread` sidecar + `MTLSharedEvent`) is the integration substrate. Not a dependency of v1.
+
+### Local clones of the reference repos
+
+Four of these are cloned read-only for study at **`/home/agent/repos/`** (`colibri`, `ds4`, `kimi-k3-in-c`, `waste`; llama.cpp is not cloned). Notes before using them:
+
+- **Sandbox-local, not part of this repo.** The path exists inside the Linux agent sandbox, is outside the git worktree, and nothing in `preempt/` may import, vendor, or build against it. Clones drift — re-check `git log -1` before citing a line number.
+- **Read, never copy.** These are C engines under their own licences (Apache-2.0 / MIT etc.). Borrow *designs and measurements*; do not paste code.
+- Highest-value docs for current work:
+  - `waste/docs/ENGINE.md`, `FORMAT.md`, `EFFICIENCY.md` — streaming design, on-disk expert layout, per-stage cost breakdown; `waste/docs/LEARNED.md` is an append-only, dated measurement log that keeps its own refuted hypotheses (a good model for our benchmark discipline).
+  - `colibri/docs/routing-telemetry.md` — its `.coli_usage` / `ROUTE_TRACE` routing-trace format, the nearest existing analogue to `ExpertRoutingEvent`; `colibri/docs/CACHE_ROUTE.md` and `tuning.md` — cache-aware routing and its learning cache. Note `CACHE_ROUTE` **changes which experts run**; that is exactly the line preempt does not cross (EXACT INFERENCE), so read it as a contrast, not a template.
+  - `kimi-k3-in-c/docs/ARCHITECTURE.md` and `docs/kimi-k3-tech-report.pdf` — K3 architecture background for the long-term roadmap.
+  - `ds4/README.md` + `MODEL_CARD.md` — asymmetric expert-only quantization and SSD-streaming behaviour on Metal.
