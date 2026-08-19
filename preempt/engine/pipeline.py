@@ -95,11 +95,10 @@ class GenerationPipeline:
         self._on_step = on_step
         self._sink_consumed = False
 
-    # TODO rewrite docstring slop
     async def generate(
         self, prompt: str, *, max_tokens: int | None = None
     ) -> GenerationResult:
-        """Runs greedy generation on a text prompt and returns token ids, decoded text,
+        """Runs greedy generation on text prompt and returns token ids, decoded text,
         and generation metrics.
 
         Parameters
