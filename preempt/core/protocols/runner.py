@@ -5,8 +5,10 @@ from collections.abc import Sequence
 
 
 @runtime_checkable
-class TokenCodec(Protocol):
-    """Minimal tokenizer surface the engine needs."""
+class ITokenCodec(Protocol):  # TODO rename
+    """Minimal tokenization interface for encoding text to token ids
+    and vice versa.
+    """
 
     def encode(self, text: str) -> list[int]: ...
 
@@ -14,18 +16,19 @@ class TokenCodec(Protocol):
 
 
 @runtime_checkable
-class ModelRunner(Protocol):
-    """One synchronous forward pass + greedy sample.
-
-    Sync by design: MLX decode is sync; the engine wraps `step` in
-    `asyncio.to_thread` so the event loop stays free for I/O.
+class IModelRunner(Protocol):
+    """Runs synchronous forward pass and returns the greedy-decoded
+    next token.
     """
 
     def prepare(self) -> None:
-        """Resets per-sequence state (e.g. the prompt cache). Call before the
-        first `step` of each generation."""
+        """Resets per-sequence state (prompt cache). Call before the
+        first (prefill) generation step.
+        """
         ...
 
     def step(self, tokens: Sequence[int]) -> int:
-        """Runs forward pass over `tokens`; returns the greedy next token id."""
+        """Runs forward pass over `tokens` and returns the greedy-
+        decoded next token id.
+        """
         ...
