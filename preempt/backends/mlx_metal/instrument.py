@@ -1,3 +1,8 @@
+"""Instrumentation for MLX MoE layers. MLX doesn't have PyTorch-style forward hooks,
+so instrumentation requires in-place replacement of target layers with instrumented
+wrapper modules.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -6,34 +11,39 @@ import mlx.nn as nn
 from mlx.utils import tree_unflatten
 
 from preempt.engine.layer_resolution import LayerCandidate
+
 from .types import MlxWrapperFactory
+
+# Attribute names for wrapped MoE block and its expert MLP submodule
+# TODO move to dedicated constants module
+_INNER_ATTR = "inner"
+_SWITCH_MLP_ATTR = "switch_mlp"  # TODO make sure 'switch_mlp' Qwen specific
 
 
 def mlx_instrument_model(
     model: nn.Module,
     candidates: Iterable[LayerCandidate],
-    wrapper_factory: MlxWrapperFactory,
+    wrapper_factory: MlxWrapperFactory,  # TODO rename
 ) -> None:
-    """Replaces each candidate `nn.Module` in `model` in place with an instrumented
-    outer wrapper.
+    """Replaces target layers of an MLX model in place with instrumented
+    wrapper modules.
 
     Parameters
     ----------
     model : nn.Module
-        The loaded MLX model to instrument.
+        MLX model to instrument
     candidates : Iterable[LayerCandidate]
-        Resolved layers whose modules are swapped for wrappers.
+        Target layers to replace, specifying module paths and block indices
     wrapper_factory : MlxWrapperFactory
-        Builds the wrapper that replaces a given module.
+        Factory function that takes the original submodule and its candidate
+        metadata, and returns an instrumented wrapper module to replace it
+        with.
 
     Raises
     ------
     RuntimeError
-        If any candidate path does not hold its wrapper afterwards. MLX has no
-        hooks, so instrumentation is a structural rewrite via `update_modules`.
-        a path it silently declines to replace would leave the layer untraced
-        and the trace short by a whole layer's worth of rows, with nothing else
-        to signal it. # TODO rewrite this slop, makes no sense
+        If any candidate layer is not successfully replaced with a wrapper in
+        the model's module tree.
     """
 
     replacements = []
@@ -54,6 +64,63 @@ def mlx_instrument_model(
     ]
     if not_instrumented:
         raise RuntimeError(
-            f"Failed to apply instrumentation to these {len(not_instrumented)} "
-            f"layer(s): {not_instrumented!r}"
+            f"Failed to apply instrumentation to the following {len(not_instrumented)} "
+            f"layer(s):\n{not_instrumented!r}"
         )
+
+
+def mlx_strip_instrumented_expert_weights(
+    model: nn.Module,
+    candidates: Iterable[LayerCandidate],
+) -> None:
+    """Strips expert weights from instrumented layers prior to evaluation, and
+    replaces each instrumented layer's `switch_mlp` module with an empty module.
+
+    When a model is loaded with `lazy=True`, this removes expert weights from the
+    model's module tree before evaluation. A subsequent `mx.eval(model.parameters())`
+    then materializes only the dense backbone (attention, embeddings, routers, and
+    shared experts) in memory, and routed expert weights are loaded as needed from
+    disk during generation.
+
+    :Note: Must be called after `mlx_instrument_model(...)` and before evaluating model
+    weights.
+
+    Parameters
+    ----------
+    model : nn.Module
+        Instrumented MLX model whose weights have not yet been evaluated.
+    candidates : Iterable[LayerCandidate]
+        Target layers containing instrumented wrappers whose expert weights will
+        be stripped.
+
+    Raises
+    ------
+    RuntimeError
+        If a candidate layer is missing the expected inner wrapper and `switch_mlp`
+        submodule
+    RuntimeError
+        If parameter groups remain in `switch_mlp` after stripping
+    """
+    modules = dict(model.named_modules())
+
+    for candidate in candidates:
+        wrapper = modules.get(candidate.layer_path)
+        inner = getattr(wrapper, _INNER_ATTR, None)
+        switch_mlp = getattr(inner, _SWITCH_MLP_ATTR, None)
+
+        if not isinstance(inner, nn.Module) or not isinstance(switch_mlp, nn.Module):
+            raise RuntimeError(
+                f"Cannot strip expert weights from {candidate.layer_path!r} because "
+                f"it lacks the expected {_INNER_ATTR}.{_SWITCH_MLP_ATTR} module."
+            )
+
+        # Replace switch_mlp with param-free module so subsequent mx.eval() calls
+        # only materialize dense backbone weights.
+        inner.update_modules(tree_unflatten([(_SWITCH_MLP_ATTR, nn.Module())]))
+
+        residual = dict(getattr(inner, _SWITCH_MLP_ATTR).parameters())
+        if residual:
+            raise RuntimeError(
+                f"Layer {candidate.layer_path!r} still contains {len(residual)} parameter "
+                f"groups after stripping ({sorted(residual)!r})."
+            )
