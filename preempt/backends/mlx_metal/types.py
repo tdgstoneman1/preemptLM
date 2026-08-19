@@ -5,6 +5,10 @@ import mlx.nn as nn
 
 from preempt.engine.layer_resolution import LayerCandidate
 
-ModuleT = TypeVar("ModuleT", bound=nn.Module)
+from .architecture import MoEArchitecture
 
-MlxWrapperFactory = Callable[[ModuleT, LayerCandidate], nn.Module]
+MlxModuleT = TypeVar("MlxModuleT", bound=nn.Module)
+
+MlxWrapperFactory = Callable[[MlxModuleT, LayerCandidate], nn.Module]
+
+MlxMoEFactory = Callable[[], MoEArchitecture]
