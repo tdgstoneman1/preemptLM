@@ -58,12 +58,12 @@ class TraceSettings(BaseModel):
 
 
 class StreamSettings(BaseModel):
-    """Settings for streaming exert weights"""
+    """Settings for streaming weights from expert bank"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     expert_bank_path: Path = Field()
-    resident_bytes_budget: int = Field(gt=0)
+    memory_bytes_budget: int = Field(gt=0)
     bypass_page_cache: bool = Field(default=True)
 
 
