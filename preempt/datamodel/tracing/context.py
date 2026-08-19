@@ -11,7 +11,7 @@ import pyarrow as pa
 
 from preempt.datamodel.arrow import arrow_metadata
 
-from preempt.core.constants import RUN_ID_TIMESTAMP_FORMAT
+from preempt.core.constants import RUN_ID_TIMESTAMP_FMT
 
 
 def generate_run_id(prefix: str, *, timestamp_fn: datetime | None = None) -> str:
@@ -21,9 +21,7 @@ def generate_run_id(prefix: str, *, timestamp_fn: datetime | None = None) -> str
 
     timestamp = timestamp_fn if timestamp_fn is not None else datetime.now(UTC)
 
-    return (
-        f"{prefix}-{timestamp.strftime(RUN_ID_TIMESTAMP_FORMAT)}-{secrets.token_hex(4)}"
-    )
+    return f"{prefix}-{timestamp.strftime(RUN_ID_TIMESTAMP_FMT)}-{secrets.token_hex(4)}"
 
 
 # TODO docstring
