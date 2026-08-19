@@ -5,11 +5,20 @@ from typing import Any
 from abc import ABC, abstractmethod
 
 from preempt.core.sinks import BaseEventSink
+
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
 
 
 class BaseEventRecorder(ABC):
-    """*Abstract, do not instantiate.*"""
+    """*Abstract, do not instantiate.* Base event recorder.
+
+    A forward pass starts tracing with `start_step(...)`, and subsequent calls
+    to `capture(...)` buffer traced events. `flush(...)` writes buffered events
+    to a sink, and `end_step` clears the buffer and closes the trace step.
+
+    Concrete subclasses implement `capture` and `flush` with support for specific
+    backends.
+    """
 
     _run_context: TraceRunContext
     _step_context: TraceStepContext | None
@@ -22,23 +31,30 @@ class BaseEventRecorder(ABC):
         self._buffer = []
         self._event_idx = 0
 
-    def start_step(self, step_context: TraceStepContext) -> None:
+    def start_step(
+        self, step_context: TraceStepContext
+    ) -> None:  # TODO rename to `start_trace`?
+        """Opens a new trace step or raises `RuntimeError` if one is already active."""
+
         if self._step_context is not None:
             raise RuntimeError(
-                "Trace already active. Use `end_step()` or `flush()` "
-                "to clear recorder's event buffer before starting a "
-                "new one."
+                "Trace already active. Call `end_step()` or `flush()` to clear event "
+                "buffer prior to starting a new trace."
             )
         self._step_context = step_context
 
-    def end_step(self) -> None:
+    def end_step(self) -> None:  # TODO rename to `end_trace`?
+        """Discards any buffered events and closes the current trace step."""
+
         self._buffer.clear()
         self._step_context = None
 
     @abstractmethod
     def capture(self, **kwargs) -> None:
-        pass
+        """Buffers one event for the active step."""
+        ...
 
     @abstractmethod
     async def flush(self, sink: BaseEventSink) -> int:
-        pass
+        """Writes event buffer to `sink` and returns the number of records written."""
+        ...
