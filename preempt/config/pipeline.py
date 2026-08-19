@@ -9,27 +9,30 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from preempt.config.target_layers import TargetLayerConfig, TargetLayerSpec
 
 
-class ModelConfig(BaseModel):
-    """Identity of the model a pipeline run executes."""
+class LlmConfig(BaseModel):
+    """Model identifiers for the LLM used in a pipeline"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    id: str = Field(min_length=1)
-    backend: str = Field(min_length=1)
-    architecture: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
     revision: str | None = Field(default=None)
+    backend: str = Field(min_length=1)
+    architecture: str = Field(
+        min_length=1
+    )  # TODO validate against HF snapshot `config.json`, e.g. `Qwen3_5MoeForConditionalGeneration` (Qwen3.6)
 
 
-class GenerationConfig(BaseModel):
+class GenerationSettings(BaseModel):
     """Decode settings for a pipeline run."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     max_tokens: int = Field(default=16, ge=1)
+    prefill_chunk_size: int = Field(default=512, ge=1)
 
 
-class TracingConfig(BaseModel):
-    """Router-trace capture settings, including the layers to instrument."""
+class TraceSettings(BaseModel):
+    """Settings for MoE router tracing"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -38,11 +41,11 @@ class TracingConfig(BaseModel):
     capture_gate_logits: bool = Field(default=False)
     run_id_prefix: str = Field(default="trace", min_length=1)
     overwrite_output: bool = Field(default=False)
-    targets: tuple[TargetLayerSpec, ...] = Field(min_length=1)
+    target_layers: tuple[TargetLayerSpec, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_targets_as_layer_config(self) -> Self:
-        """Invokes `TargetLayerConfig` validators early instead of deferring
+    def validate_target_layers_as_layer_config(self) -> Self:
+        """Calls `TargetLayerConfig` validators early to avoid deferring
         potential failures.
         """
         self.to_target_layer_config()
@@ -50,33 +53,28 @@ class TracingConfig(BaseModel):
         return self
 
     def to_target_layer_config(self) -> TargetLayerConfig:
-        """
-        Projects the tracing targets onto the layer-resolution config.
-
-        Returns
-        -------
-        TargetLayerConfig
-            The same targets in the form `resolve_target_layers` consumes.
-        """
-        return TargetLayerConfig(target_layers=self.targets)
+        """Projects traced target layers onto `TargetLayerConfig`."""
+        return TargetLayerConfig(target_layers=self.target_layers)
 
 
-class StreamingConfig(BaseModel):
-    """Expert-weight streaming settings."""
+class StreamSettings(BaseModel):
+    """Settings for streaming exert weights"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    store_path: Path = Field()
+    expert_bank_path: Path = Field()
     resident_bytes_budget: int = Field(gt=0)
+    bypass_page_cache: bool = Field(default=True)
 
 
 class PipelineConfig(BaseModel):
-    """Top-level TOML config describing one inference pipeline run."""
+    """Top-level config for inference pipeline (read from TOML)"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    llm: LlmConfig
+    generation_settings: GenerationSettings = Field(default_factory=GenerationSettings)
+    trace_settings: TraceSettings | None = Field(default=None)
+    stream_settings: StreamSettings | None = Field(default=None)
+
     version: int = Field(default=1, ge=1)
-    model: ModelConfig
-    generation: GenerationConfig = Field(default_factory=GenerationConfig)
-    tracing: TracingConfig | None = Field(default=None)
-    streaming: StreamingConfig | None = Field(default=None)
