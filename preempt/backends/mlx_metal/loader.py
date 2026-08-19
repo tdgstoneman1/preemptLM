@@ -41,8 +41,8 @@ def load_mlx_model(model_id: str, *, lazy: bool = False) -> MlxLoadedModel:
         skips its internal weight evaluation, and all weights remain unevaluated
         mmap-backed arrays. This is required for model instrumentation when streaming
         expert weights from disk as it defers weight materialization, allowing expert
-        weights to be stripped so only the dense backbone materializes in memory. By
-        default False.
+        weights to be stripped so only the dense backbone materializes in memory.
+        by default False.
 
     Returns
     -------
