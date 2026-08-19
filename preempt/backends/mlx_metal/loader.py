@@ -6,41 +6,47 @@ import attrs
 from attrs import field
 
 import mlx.nn as nn
+
 from mlx_lm import load
 
-from preempt.core.protocols.runner import TokenCodec
+from preempt.core.protocols.runner import ITokenCodec
 
 
 @attrs.define(kw_only=True, frozen=True, eq=False)
 class MlxLoadedModel:
-    """An `mlx_lm` model paired with its tokenizer.
+    """An `mlx_lm` model-tokenizer pair.
 
-    `eq=False` because `nn.Module` has no meaningful equality and comparing
-    weights would be ruinous.
+    Attributes
+    ----------
+    model : nn.Module
+        The `mlx_lm` model
+    tokenizer : ITokenCodec
+        Tokenizer for encoding text and decoding generated token
+        ids. Must implement `ITokenCodec` protocol.
     """
 
     model: nn.Module = field()
-    tokenizer: TokenCodec = field()
+    tokenizer: ITokenCodec = field()
 
 
-def load_mlx_model(model_id: str) -> MlxLoadedModel:
-    """Load an MLX model + tokenizer via `mlx_lm`.
+def load_mlx_model(model_id: str, *, lazy: bool = False) -> MlxLoadedModel:
+    """Loads an MLX model and tokenizer via `mlx_lm`.
 
     Parameters
     ----------
     model_id : str
-        Hugging Face repo id or local path accepted by `mlx_lm.load`.
+        Hugging Face repo id or local path accepted by `mlx_lm.load(...)`
+    lazy : bool
+        If False, model weights are evaluated eagerly at load time. If True, `mlx_lm`
+        skips its internal weight evaluation, and all weights remain unevaluated
+        mmap-backed arrays. This is required for model instrumentation when streaming
+        expert weights from disk as it defers weight materialization, allowing expert
+        weights to be stripped so only the dense backbone materializes in memory.
 
     Returns
     -------
     MlxLoadedModel
-        The loaded module and its tokenizer, typed as a `TokenCodec`.
-
-    Notes
-    -----
-    `mlx_lm`'s `TokenizerWrapper` forwards `encode`/`decode` through an
-    unannotated `__getattr__`; the cast to `TokenCodec` restores real
-    signatures rather than silencing the diagnostic.
+        The loaded `mlx_lm` model and its tokenizer
     """
-    model, raw_tokenizer = load(model_id)  # type: ignore[misc]
-    return MlxLoadedModel(model=model, tokenizer=cast(TokenCodec, raw_tokenizer))
+    model, tokenizer = load(model_id, lazy=lazy)  # type: ignore
+    return MlxLoadedModel(model=model, tokenizer=cast(ITokenCodec, tokenizer))
