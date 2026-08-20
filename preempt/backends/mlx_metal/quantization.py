@@ -16,7 +16,11 @@ from attrs import field
 
 import mlx.core as mx
 
-from .constants import SCALAR_DTYPE_TAGS
+from .constants import (
+    SCALAR_DTYPE_TAGS,
+    MLX_ENCODING_QUANTIZED_TEMPLATE,
+    MLX_ENCODING_UNQUANTIZED_TEMPLATE,
+)
 
 # TODO find alternative solution to uint16 for numpy incompatibility w/ bf16
 
@@ -43,6 +47,7 @@ class MlxQuantParams:
     group_size: int = field()
 
 
+# TODO rename scalar_tag to scalar_dtype for clarity
 def make_encoding_tag(quant: MlxQuantParams | None, scalar_tag: str) -> str:
     """Generates the payload encoding tag for the expert bank.
 
@@ -66,11 +71,17 @@ def make_encoding_tag(quant: MlxQuantParams | None, scalar_tag: str) -> str:
         The formatted encoding tag (e.g., `"mlx-affine-q4-g64-bf16"` or
         `"mlx-unquantized-bf16"`)
     """
-    # TODO move tag patterns to a dedicated module
     if quant is None:
-        return f"mlx-unquantized-{scalar_tag}"
+        # return f"mlx-unquantized-{scalar_tag}"
+        return MLX_ENCODING_UNQUANTIZED_TEMPLATE.substitute(scalar_tag=scalar_tag)
 
-    return f"mlx-{quant.mode}-q{quant.bits}-g{quant.group_size}-{scalar_tag}"
+    # return f"mlx-{quant.mode}-q{quant.bits}-g{quant.group_size}-{scalar_tag}"
+    return MLX_ENCODING_QUANTIZED_TEMPLATE.substitute(
+        mode=quant.mode,
+        bits=quant.bits,
+        group_size=quant.group_size,
+        scalar_tag=scalar_tag,
+    )
 
 
 # TODO rename `stacked` to `stacked_tensors`
