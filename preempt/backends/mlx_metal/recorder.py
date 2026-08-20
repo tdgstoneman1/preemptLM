@@ -16,7 +16,6 @@ from preempt.datamodel.tracing.expert_routing import (
     EventMetadata,
     LayerIdentifiers,
 )
-
 from preempt.core.sinks import BaseEventSink
 
 from preempt.engine.recorder import BaseEventRecorder
@@ -24,6 +23,13 @@ from preempt.engine.recorder import BaseEventRecorder
 
 @attrs.define(frozen=True)
 class _PendingExpertRoutingEvent:
+    """Internal buffer record for an unevaluated router selection.
+
+    Stores the raw `mx.array` tensors representing a single MoE layer's
+    expert routing decisions. These arrays are kept unevaluated to avoid
+    blocking the forward pass and are only evaluated when flushed.
+    """
+
     expert_ids: mx.array = field()
     expert_weights: mx.array = field()
     gate_logits: mx.array | None = field()
@@ -33,18 +39,26 @@ class _PendingExpertRoutingEvent:
 
 
 class MlxExpertRoutingRecorder(BaseEventRecorder):
+    """Records routing decisions from instrumented MLX MoE layers.
+
+    Captures events lazily. Calls to `capture()` buffer unevaluated
+    `mx.array` tensors to avoid serializing execution graph during
+    the forward pass.
+
+    Data is materialized and emitted as individual `ExpertRoutingEvent`
+    records when `flush()` is called (one per batch-token pair).
+    """
+
     _buffer: list[_PendingExpertRoutingEvent]
     _emitted_event_idx: int
 
     def __init__(self, run_context: TraceRunContext) -> None:
         super().__init__(run_context)
 
-        # `_event_idx` counts `capture()` calls, i.e. one per instrumented layer
-        # per step. A single capture fans out to one event per (batch, token) at
-        # flush time, so it cannot number the emitted events: a multi-token
-        # prefill emits far more events than there were captures, and the next
-        # step would restart inside the range already written. Track what has
-        # actually been emitted separately.
+        # Tracks total number of per-token events written to sink. Distinct
+        # from `_event_idx` (which counts `capture()` calls) as captured
+        # tensors expand into multiple discrete events when materialized
+        # during multi-token prefill.
         self._emitted_event_idx = 0
 
     def capture(
@@ -52,21 +66,44 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):
         *,
         layer_path: str,
         layer_class: str,
-        layer_idx: int,
+        block_idx: int,  # TODO verify block_idx = transformer_block
         expert_ids: mx.array,
         expert_weights: mx.array,
         gate_logits: mx.array | None,
     ) -> None:
+        """Buffers unevaluated routing event for a single MoE layer.
+
+        Parameters
+        ----------
+        layer_path : str
+            Dot-separated module path of the layer being captured
+        layer_class : str
+            Class name of the captured layer
+        block_idx : int
+            Index of the MoE layer's parent transformer block
+        expert_ids : mx.array
+            Indices of the router-selected experts
+        expert_weights : mx.array
+            Normalized routing weights for the selected experts
+        gate_logits : mx.array | None
+            Optional unnormalized, pre-softmax gate logits
+
+        Raises
+        ------
+        RuntimeError
+            If no `TraceStepContext` currently active (i.e. `start_step()`
+            hasn't been called, yet)
+        """
         if self._step_context is None:
             raise RuntimeError(
-                "`capture()` called without an active `TraceStepContext`, "
-                "call `start_step()` before recording events."
+                "`capture()` called without an active `TraceStepContext`. "
+                "Call `start_step()` before recording events."
             )
         event_metadata = EventMetadata(
             event_idx=self._event_idx, timestamp=datetime.now(UTC)
         )
         layer_identifiers = LayerIdentifiers(
-            layer_path=layer_path, layer_class=layer_class, layer_idx=layer_idx
+            layer_path=layer_path, layer_class=layer_class, block_idx=block_idx
         )
         self._buffer.append(
             _PendingExpertRoutingEvent(
@@ -81,23 +118,60 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):
         self._event_idx += 1
 
     async def flush(self, sink: BaseEventSink) -> int:
+        """Evaluates buffer and writes materialized events to sink.
+
+        Triggers deferred MLX computation, unpacks batched tensors into
+        discrete per-token events, and delegates async writes to sink.
+
+        Ensures current step context is closed upon completion, regardless
+        of success.
+
+        Parameters
+        ----------
+        sink : BaseEventSink
+            The active event sink to write the serialized records to
+
+        Returns
+        -------
+        int
+            The total number of flushed `ExpertRoutingEvent` records
+
+        Raises
+        ------
+        RuntimeError
+            If no capture step currently active
+        """
         if self._step_context is None:
             raise RuntimeError("No capture step currently active.")
         try:
             return await self._to_sink(sink)
-
         finally:
             self.end_step()
 
     async def _to_sink(self, sink: BaseEventSink) -> int:
+        """Internal routine orchestrating evaluation, materialization,
+        and synchronous I/O.
+
+        Parameters
+        ----------
+        sink : BaseEventSink
+            Active event sink
+
+        Returns
+        -------
+        int
+            The total number of events written `sink`
+
+        """
         if not self._buffer:
             return 0
 
         self._eval_arrays_in_buffer(self._buffer)
-        n_flushed = 0
 
+        n_flushed = 0
         for rec in self._materialize_buffered_events(self._emitted_event_idx):
             await sink.write(rec.as_arrow_record())
+
             n_flushed += 1
 
         self._emitted_event_idx += n_flushed
@@ -107,7 +181,23 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):
     def _materialize_buffered_events(
         self, current_event_idx: int
     ) -> Generator[ExpertRoutingEvent, Any, None]:
+        """Converts evaluated batched tensors into a sequence of discrete
+        routing events.
 
+        Iterates over the evaluated batch dimensions and sequence offsets to
+        yield one `ExpertRoutingEvent` per token processed by the MoE router.
+
+        Parameters
+        ----------
+        current_event_idx : int
+            The global index counter starting value for assigning unique IDs
+            to emitted records
+
+        Yields
+        ------
+        ExpertRoutingEvent
+            A fully materialized and context-aware routing record
+        """
         for record in self._buffer:
             expert_ids = record.expert_ids.tolist()
             expert_weights = record.expert_weights.tolist()
@@ -115,13 +205,17 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):
             gate_logits = (
                 record.gate_logits.tolist() if record.gate_logits is not None else None
             )
-
             for batch_idx, (batch_ids, batch_weights) in enumerate(
                 zip(expert_ids, expert_weights, strict=True)
             ):
                 for offset, (ids, weights) in enumerate(
                     zip(batch_ids, batch_weights, strict=True)
                 ):
+                    logits = (
+                        gate_logits[batch_idx][offset]
+                        if gate_logits is not None
+                        else None
+                    )
                     yield self._to_final_record(
                         record,
                         batch_idx,
@@ -129,11 +223,7 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):
                         current_event_idx,
                         ids,
                         weights,
-                        (
-                            gate_logits[batch_idx][offset]
-                            if gate_logits is not None
-                            else None
-                        ),
+                        logits,
                     )
                     current_event_idx += 1
 
@@ -147,6 +237,31 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):
         weights: list[float],
         logits: list[float] | None,
     ) -> ExpertRoutingEvent:
+        """Constructs an `ExpertRoutingEvent` with full provenance and trace
+        context.
+
+        Parameters
+        ----------
+        record : _PendingExpertRoutingEvent
+            Evaluated parent buffer record containing baseline context data
+        batch_idx : int
+            Batch index of the specific token
+        offset : int
+            Sequence token index offset
+        current_event_idx : int
+            The assigned global event identifier
+        ids : list[int]
+            Indices of the top-k experts selected by MoE router for this token
+        weights : list[float]
+            Normalized routing weights for the selected experts
+        logits : list[float] | None
+            Optional unnormalized, pre-softmax gate logits
+
+        Returns
+        -------
+        ExpertRoutingEvent
+            The final tracing record ready for Parquet serialization
+        """
         step_context = TraceStepContext(
             sequence_id=record.step_context.sequence_id + batch_idx,
             token_idx=record.step_context.token_idx + offset,
@@ -167,6 +282,15 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):
         )
 
     def _eval_arrays_in_buffer(self, buffer: list[_PendingExpertRoutingEvent]) -> None:
+        """Consolidates unevaluated expert IDs, weights, and logits across all
+        captured layers in `buffer` into a flat list, and enforces execution in
+        one synchronous `mx.eval()` call.
+
+        Parameters
+        ----------
+        buffer : list[_PendingExpertRoutingEvent]
+            The active list of unevaluated capture records
+        """
         to_evaluate = [
             arr
             for item in buffer
