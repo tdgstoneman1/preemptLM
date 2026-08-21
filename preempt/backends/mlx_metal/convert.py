@@ -1,125 +1,90 @@
-"""Convert an MLX-quantized MoE checkpoint into a packed expert store.
+"""Repacks an MLX MoE checkpoint into a streaming-optimized expert bank.
 
-Offline, one-time-per-model. MLX-layout-aware by design: this module knows
-mlx_lm's stacked `[num_experts, ...]` tensor naming; the container layout it
-feeds belongs entirely to `preempt.storage.writer.PackedStoreWriter`.
+Standard MLX checkpoints fuse expert weights into stacked `[num_routed_experts, ...]` 
+tensors. This offline utility slices those fused tensors apart and writes them into 
+an expert bank. This custom disk layout stores each expert as an independent, 
+contiguous blob ready for targeted `pread` streaming.
 
-Blob bytes are the checkpoint's bytes, unmodified: nothing here dequantizes,
-casts, or reorders within a tensor. numpy has no `bfloat16`, so a `bfloat16`
-tensor is bit-viewed as `uint16` on the way out: its bytes stay exact, but its
-`TensorSpec.dtype` reads `uint16` and cannot be told apart from `float16` by
-shape or size. The logical scalar type is therefore recorded in the store's
-`payload_encoding` tag, which reads `mlx-<mode>-q<bits>-g<group>-<scalar>`
-(e.g. `mlx-affine-q4-g64-bf16`) or `mlx-unquantized-<scalar>`.
-
-What a reader can recover from a store alone: the per-tensor byte layout
-(`tensor_specs`), the quantization mode/bits/group size, and the scalar type
-of `scales`/`biases`. What it cannot: anything else about the source model —
-that is what `model_id` plus `model_fingerprint` are for.
+The conversion process is byte-preserving, and no dequantization, casting, or 
+reordering occurs. The resulting expert bank utilizes a `payload_encoding` tag to 
+preserve quantization parameters (mode, bits, group size) and scalar dtype.
 
 Usage (macOS host)::
 
-    python -m preempt.backends.mlx_metal.convert \
-        --model <hf-id-or-local-dir> --output out/expert-store
+    python -m preempt.backends.mlx_metal.convert \\
+        --model <hf-id-or-local-dir> --output out/expert-bank
 """
 
 from __future__ import annotations
 
-from typing import Any
 from collections.abc import Mapping, Sequence
 
 import argparse
+
 import hashlib
+
 import json
-import re
+
 from pathlib import Path
 
 import attrs
 from attrs import field
+
 import numpy as np
 
 import mlx.core as mx
 
 from preempt.storage.blob import assemble_expert_blob, derive_tensor_specs
-from preempt.storage.manifest import ExpertStoreManifest, ExpertTopology
-from preempt.storage.writer import PackedStoreWriter
+from preempt.storage.manifest import ExpertBankManifest
+from preempt.storage.expert_io import ExpertBankWriter
 
-# Blob order: for each projection, weight then scales then biases.
-EXPERT_PROJECTIONS = ("gate_proj", "up_proj", "down_proj")
-QUANT_PARTS = ("weight", "scales", "biases")
-TENSOR_ORDER = tuple(
-    f"{projection}.{part}" for projection in EXPERT_PROJECTIONS for part in QUANT_PARTS
-)
+from .quantization import make_encoding_tag
+from .architecture import MoEArchitecture
+from .architectures.qwen3_next import Qwen3NextMoEArchitecture
 
-# A multimodal checkpoint namespaces its text stack (Qwen3.6-35B-A3B ships as
-# `language_model.model.layers.<i>....`), so leading segments are optional and
-# captured: two stacks matching this shape must never be merged silently.
-_EXPERT_MODULE_PATTERN = (
-    r"(?P<prefix>(?:[A-Za-z0-9_]+\.)*)model\.layers\.(?P<layer>\d+)\.mlp\.switch_mlp\."
-    r"(?P<projection>gate_proj|up_proj|down_proj)"
-)
-_EXPERT_TENSOR_RE = re.compile(
-    rf"^{_EXPERT_MODULE_PATTERN}\.(?P<part>weight|scales|biases)$"
-)
-_EXPERT_MODULE_RE = re.compile(rf"^{_EXPERT_MODULE_PATTERN}$")
-
-# Short, stable tags for the scalar type `scales`/`biases` decode as; numpy
-# cannot represent bfloat16, so the tag is the only durable record of it.
-_SCALAR_DTYPE_TAGS: tuple[tuple[Any, str], ...] = (
-    (mx.bfloat16, "bf16"),
-    (mx.float16, "f16"),
-    (mx.float32, "f32"),
-)
+# TODO refactor, `main()` shouln't be in source code -> write `cli` module or script
 
 
-@attrs.define(frozen=True, kw_only=True)
-class QuantParams:
-    """Quantization parameters governing one routed-expert module."""
-
-    mode: str = field()
-    bits: int = field()
-    group_size: int = field()
-
-
-def resolve_model_dir(model: str) -> Path:
-    """Resolve a model id or local path to a checkpoint directory.
+def resolve_model_dir(model_path_or_id: str) -> Path:
+    """Resolves `model_path_or_id`, and downloads it from Hugging Face if it is
+    not a local model checkpoint directory.
 
     Parameters
     ----------
-    model : str
-        Local directory, or a Hugging Face repo id to snapshot-download.
+    model_path_or_id : str
+        Path to local model directory or Hugging Face repo ID
 
     Returns
     -------
     Path
-        Directory holding `config.json` and the safetensors shards.
+        The resolved absolute path to the directory containing the model's
+        `config.json` and safetensors shards
     """
-    path = Path(model)
+    path = Path(model_path_or_id)
     if path.exists():
         return path
 
-    from huggingface_hub import snapshot_download  # mlx_lm transitive dependency
+    from huggingface_hub import snapshot_download
 
-    return Path(snapshot_download(model))
+    return Path(snapshot_download(model_path_or_id))
 
 
-def compute_mlx_fingerprint(model_dir: Path) -> str:
-    """Fingerprint the checkpoint a store is packed from.
+# TODO rename model_dir to ckpt_dir
+def hash_model_ckpt(model_dir: Path) -> str:
+    """Returns a fingerprint of the model checkpoint directory.
 
-    Cheap and stable: sha256 of `config.json` bytes plus the sorted
-    `(name, size)` list of safetensors shards. Catches shape/layout/quant
-    changes; does not detect in-place bit flips (acceptable — deep hashing
-    20 GB per run is not).
+    Calculates a SHA-256 digest of the contents in `config.json` combined with
+    the names and byte sizes of all `*.safetensors` shards in the checkpoint.
 
     Parameters
     ----------
     model_dir : Path
-        Checkpoint directory.
+        Directory containing the model checkpoint and its configuration files
 
     Returns
     -------
     str
-        Hex sha256 digest identifying the checkpoint.
+        The checkpoint's unique fingerprint.
     """
     digest = hashlib.sha256((model_dir / "config.json").read_bytes())
 
@@ -129,67 +94,79 @@ def compute_mlx_fingerprint(model_dir: Path) -> str:
     return digest.hexdigest()
 
 
-def build_tensor_shard_index(model_dir: Path) -> dict[str, Path]:
-    """Map expert tensor name to the shard file holding it.
+def build_tensor_shard_index(
+    model_dir: Path, architecture: MoEArchitecture
+) -> dict[str, Path]:
+    """Indexes the file locations of all routed expert tensors in a checkpoint.
+
+    Consults the `model.safetensors.index.json` weight map (or falls back to
+    scanning a monolithic `model.safetensors` file) to map each expert tensor's
+    full, dotted path (e.g., `model.layers.0.block_sparse_moe.w1.weight`)
+    to the physical shard file that contains it.
 
     Parameters
     ----------
     model_dir : Path
-        Checkpoint directory.
+        Directory containing the model checkpoint and shard files
+    architecture : MoEArchitecture
+        The architecture definition providing the regex to identify expert
+        weight tensors
 
     Returns
     -------
     dict[str, Path]
-        Routed-expert tensor names mapped to their safetensors shard; read
-        from the safetensors index, or from the single `model.safetensors`
-        when the checkpoint is unsharded.
+        Mapping of tensor dotted paths to tensor shard file paths
     """
+    tensor_re = architecture.expert_tensor_regex()
     index_path = model_dir / "model.safetensors.index.json"
+    # TODO move path parts like 'model.safetensors' to .constants
+
     if index_path.exists():
         weight_map = json.loads(index_path.read_text())["weight_map"]
         return {
             name: model_dir / shard
             for name, shard in weight_map.items()
-            if _EXPERT_TENSOR_RE.match(name)
+            if tensor_re.match(name)
         }
 
     single = model_dir / "model.safetensors"
-    return {
-        name: single for name in mx.load(str(single)) if _EXPERT_TENSOR_RE.match(name)
-    }
+    return {name: single for name in mx.load(str(single)) if tensor_re.match(name)}
 
 
 def group_expert_tensors_by_layer(
     shard_index: Mapping[str, Path],
+    architecture: MoEArchitecture,
 ) -> dict[int, dict[str, str]]:
-    """Group expert tensor names by MoE layer.
+    """Returns a dictionary of weight tensors grouped and keyed by layer index.
+    Each group's nested dictionary maps a tensor paths relative to parent layers
+    (e.g., `w1.weight`) to full paths in the model.
 
     Parameters
     ----------
     shard_index : Mapping[str, Path]
-        Expert tensor names mapped to their shard, as built by
-        `build_tensor_shard_index`.
+        Mapping of a tensor's full, dotted path to its file location
+    architecture : MoEArchitecture
+        Adapter providing regex patterns to parse tensor paths
 
     Returns
     -------
     dict[int, dict[str, str]]
-        Layer index mapped to `{tensor suffix: full tensor name}`, where the
-        suffix is expert-relative, e.g. `gate_proj.weight`.
+        A nested dictionary of tensors grouped by layer index
 
     Raises
     ------
     ValueError
-        If matched tensors come from more than one namespace prefix — two
-        stacks (say a vision tower with its own `switch_mlp`) key identically
-        on (layer, suffix) and would silently overwrite each other.
+        If tensor weights from multiple model prefixes are found.
     """
+    tensor_re = architecture.expert_tensor_regex()
     by_layer: dict[int, dict[str, str]] = {}
     prefixes: set[str] = set()
 
     for name in shard_index:
-        match = _EXPERT_TENSOR_RE.match(name)
+        match = tensor_re.match(name)
         if match is None:
             continue
+
         prefixes.add(match.group("prefix"))
         suffix = f"{match.group('projection')}.{match.group('part')}"
         by_layer.setdefault(int(match.group("layer")), {})[suffix] = name
@@ -203,408 +180,188 @@ def group_expert_tensors_by_layer(
     return by_layer
 
 
-def resolve_tensor_order(layer_tensors: Mapping[str, str]) -> tuple[str, ...]:
-    """Pick the blob tensor order present in this checkpoint.
+def mlx_to_numpy(tensor: mx.array) -> np.ndarray:
+    """Converts an MLX array to NumPy with zero mutation.
 
-    An unquantized checkpoint has no `scales`/`biases`, so the canonical
-    `TENSOR_ORDER` is filtered rather than assumed.
-
-    Parameters
-    ----------
-    layer_tensors : Mapping[str, str]
-        One layer's `{tensor suffix: full tensor name}` mapping.
-
-    Returns
-    -------
-    tuple[str, ...]
-        Tensor suffixes in blob order.
-
-    Raises
-    ------
-    ValueError
-        If a projection's `weight` tensor is missing, or the layer holds a
-        tensor `TENSOR_ORDER` does not name.
-    """
-    order = tuple(suffix for suffix in TENSOR_ORDER if suffix in layer_tensors)
-
-    missing = [
-        f"{projection}.weight"
-        for projection in EXPERT_PROJECTIONS
-        if f"{projection}.weight" not in layer_tensors
-    ]
-    if missing:
-        raise ValueError(f"Checkpoint is missing expert tensors: {missing!r}")
-
-    unexpected = sorted(set(layer_tensors) - set(order))
-    if unexpected:
-        raise ValueError(f"Unrecognized expert tensors: {unexpected!r}")
-
-    return order
-
-
-def text_config_of(config: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Returns the config section describing the text stack.
-
-    Parameters
-    ----------
-    config : Mapping[str, Any]
-        Parsed `config.json` of the source checkpoint.
-
-    Returns
-    -------
-    Mapping[str, Any]
-        `config["text_config"]` for a multimodal checkpoint, otherwise `config`
-        itself — the routed-expert topology lives in whichever holds it.
-    """
-    text_config = config.get("text_config")
-    return text_config if isinstance(text_config, dict) else config
-
-
-def quantization_section(config: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    """Return the checkpoint's quantization section, wherever it lives.
-
-    Parameters
-    ----------
-    config : Mapping[str, Any]
-        Parsed `config.json` of the source checkpoint.
-
-    Returns
-    -------
-    Mapping[str, Any] | None
-        The `quantization` mapping from the config root, else from
-        `text_config`; `None` for an unquantized checkpoint.
-    """
-    for section in (config, text_config_of(config)):
-        quantization = section.get("quantization")
-        if isinstance(quantization, dict):
-            return quantization
-    return None
-
-
-def resolve_expert_quantization(
-    config: Mapping[str, Any], layer_idxs: Sequence[int]
-) -> QuantParams | None:
-    """Resolve the quantization the routed experts of `layer_idxs` actually use.
-
-    A dynamically quantized checkpoint (Unsloth "UD" and friends) overrides
-    bits/group size per module, so the config root's defaults may describe
-    nothing the experts use. Per-module `switch_mlp` entries therefore win, and
-    the root default applies only to modules with no entry of their own.
-
-    Parameters
-    ----------
-    config : Mapping[str, Any]
-        Parsed `config.json` of the source checkpoint.
-    layer_idxs : Sequence[int]
-        MoE layer indices being packed.
-
-    Returns
-    -------
-    QuantParams | None
-        The parameters every packed expert module shares; `None` if the
-        checkpoint is unquantized.
-
-    Raises
-    ------
-    ValueError
-        If the packed expert modules do not all share one set of parameters —
-        one store carries one `payload_encoding`, so a mixed selection must
-        fail here rather than stamp blobs with parameters they do not use.
-    """
-    quantization = quantization_section(config)
-    if quantization is None:
-        return None
-
-    mode = str(quantization.get("mode", "affine"))
-    default: QuantParams | None = None
-    if "bits" in quantization and "group_size" in quantization:
-        default = QuantParams(
-            mode=mode,
-            bits=int(quantization["bits"]),
-            group_size=int(quantization["group_size"]),
-        )
-
-    overrides: dict[tuple[int, str], QuantParams | None] = {}
-    for key, value in quantization.items():
-        match = _EXPERT_MODULE_RE.match(key)
-        if match is None:
-            continue
-        identity = (int(match.group("layer")), match.group("projection"))
-        overrides[identity] = (
-            QuantParams(
-                mode=mode,
-                bits=int(value["bits"]),
-                group_size=int(value["group_size"]),
-            )
-            if isinstance(value, dict)
-            else None  # an explicitly unquantized expert module
-        )
-
-    resolved = {
-        overrides.get((layer_idx, projection), default)
-        for layer_idx in layer_idxs
-        for projection in EXPERT_PROJECTIONS
-    }
-
-    if resolved == {None}:
-        return None
-    if len(resolved) != 1:
-        raise ValueError(
-            "Routed experts are not uniformly quantized across the packed "
-            f"layers: {sorted(repr(params) for params in resolved)!r}"
-        )
-
-    return resolved.pop()
-
-
-def scalar_dtype_tag(stacked: Mapping[str, mx.array], *, quantized: bool) -> str:
-    """Name the scalar type the blob's non-packed tensors decode as.
-
-    Parameters
-    ----------
-    stacked : Mapping[str, mx.array]
-        One layer's stacked tensors, keyed by expert-relative suffix.
-    quantized : bool
-        Whether the checkpoint is quantized; if so the scalar type is that of
-        `scales`/`biases`, otherwise that of the weights themselves.
-
-    Returns
-    -------
-    str
-        Short tag, one of `bf16`, `f16`, `f32`.
-
-    Raises
-    ------
-    ValueError
-        If the relevant tensors disagree on dtype, or use a dtype this
-        converter has no tag for.
-    """
-    names = sorted(
-        name
-        for name in stacked
-        if not quantized or name.endswith((".scales", ".biases"))
-    )
-    if not names:
-        raise ValueError("Layer holds no tensor to read a scalar dtype from.")
-
-    dtypes = {str(stacked[name].dtype) for name in names}
-    if len(dtypes) != 1:
-        raise ValueError(f"Expert tensors disagree on dtype: {sorted(dtypes)!r}")
-
-    dtype = stacked[names[0]].dtype
-    for candidate, tag in _SCALAR_DTYPE_TAGS:
-        if dtype == candidate:
-            return tag
-
-    raise ValueError(f"Unsupported expert scalar dtype: {dtype}")
-
-
-def payload_encoding_for(quant: QuantParams | None, scalar_tag: str) -> str:
-    """Build the store's opaque encoding tag.
-
-    Parameters
-    ----------
-    quant : QuantParams | None
-        Parameters the packed experts are quantized with; `None` if they are
-        not quantized.
-    scalar_tag : str
-        Scalar type tag from `scalar_dtype_tag`.
-
-    Returns
-    -------
-    str
-        Encoding tag, e.g. `mlx-affine-q4-g64-bf16` or `mlx-unquantized-bf16`.
-    """
-    if quant is None:
-        return f"mlx-unquantized-{scalar_tag}"
-    return f"mlx-{quant.mode}-q{quant.bits}-g{quant.group_size}-{scalar_tag}"
-
-
-def to_numpy(tensor: mx.array) -> np.ndarray:
-    """Convert an MLX tensor to numpy without altering a single bit.
+    :Note: MLX arrays of dtype `bfloat16` reinterpreted as `uint16`
+    to account for NumPy's lack of native `bfloat16` support.
 
     Parameters
     ----------
     tensor : mx.array
-        Tensor sliced out of a checkpoint shard.
+        An MLX array
 
     Returns
     -------
     np.ndarray
-        The same bytes; a `bfloat16` tensor comes back as `uint16` because
-        numpy has no `bfloat16` and casting would change the payload.
+        The converted array
     """
     if tensor.dtype == mx.bfloat16:
         return np.array(tensor.view(mx.uint16))
+
     return np.array(tensor)
 
 
 @attrs.define
 class ShardTensorCache:
-    """Load stacked expert tensors, holding at most one shard at a time.
-
-    Consecutive MoE layers almost always live in the same shard, so caching
-    the last-loaded one keeps a full-model conversion to a single pass over
-    the checkpoint without ever holding two shards resident.
-    """
+    """Bounded cache managing the deferred loading of stacked expert tensors."""
 
     shard_index: Mapping[str, Path] = field()
     _loaded_path: Path | None = field(default=None, init=False)
     _loaded: dict[str, mx.array] = field(factory=dict, init=False)
 
     def get(self, name: str) -> mx.array:
-        """Return one stacked `[num_experts, ...]` tensor.
+        """Returns one stacked `[num_routed_experts, ...]` tensor keyed under
+        `name`.
 
         Parameters
         ----------
         name : str
-            Full checkpoint tensor name.
+            Full checkpoint tensor name
 
         Returns
         -------
         mx.array
-            The stacked tensor, still lazy.
+            The stacked tensor (unevaluated)
         """
         path = self.shard_index[name]
         if path != self._loaded_path:
             self._loaded = mx.load(str(path))
             self._loaded_path = path
+
         return self._loaded[name]
 
     def load_layer(self, layer_tensors: Mapping[str, str]) -> dict[str, mx.array]:
-        """Return one layer's stacked tensors, keyed by expert-relative suffix.
+        """Loads `layer_tensors` from tensorshards.
 
         Parameters
         ----------
         layer_tensors : Mapping[str, str]
-            One layer's `{tensor suffix: full tensor name}` mapping.
+            A mapping of dotted module-relative tensor paths (e.g., `w1.weight`)
+            to full, dotted tensor paths in the checkpoint
 
         Returns
         -------
         dict[str, mx.array]
-            Stacked tensors for that layer.
+            Mapping of dotted layer  semantic names to the loaded,
+            stacked MLX tensors
         """
-        # Shard-major request order: a layer split across two shards would
-        # otherwise reload each of them once per alternation.
+        # Sort based on shard order to mitigate unnecessary disk reads
+        # when a layer's tensors are split across multiple shards.
         ordered = sorted(
             layer_tensors.items(), key=lambda item: self.shard_index[item[1]]
         )
-        return {suffix: self.get(name) for suffix, name in ordered}
+        return {path: self.get(name) for path, name in ordered}
 
 
-def expert_arrays(
+def expert_ndarrays(
     stacked: Mapping[str, mx.array], expert_idx: int
 ) -> dict[str, np.ndarray]:
-    """Slice one expert out of a layer's stacked tensors.
-
-    Parameters
-    ----------
-    stacked : Mapping[str, mx.array]
-        One layer's stacked `[num_experts, ...]` tensors.
-    expert_idx : int
-        Router-local expert index to extract.
-
-    Returns
-    -------
-    dict[str, np.ndarray]
-        That expert's tensors, keyed by expert-relative suffix.
+    """Returns a dictionary mapping tensor paths to numpy arrays for the cache's
+    `expert_idx`th expert layer.
     """
-    return {suffix: to_numpy(tensor[expert_idx]) for suffix, tensor in stacked.items()}
+    return {path: mlx_to_numpy(tensor[expert_idx]) for path, tensor in stacked.items()}
 
 
-def convert_mlx_model_to_store(
-    model_dir: Path,
-    store_dir: Path,
+def convert_mlx_model_to_expert_bank(
+    model_dir: Path,  # TODO rename to ckpt_dir
+    expert_bank_dir: Path,
     *,
+    architecture: MoEArchitecture | None = None,
     model_id: str | None = None,
-    max_layers: int | None = None,
+    max_moe_blocks: int | None = None,
     overwrite: bool = False,
-) -> ExpertStoreManifest:
-    """Pack an MLX checkpoint's routed experts into a packed expert store.
-
-    Memory stays bounded: one shard and one layer's stacked tensors are in
-    flight at a time, regardless of checkpoint size.
+) -> ExpertBankManifest:
+    """Writes an MLX checkpoint's routed experts into an expert bank.
 
     Parameters
     ----------
     model_dir : Path
-        Checkpoint directory holding `config.json` and safetensors shards.
-    store_dir : Path
-        Destination directory for `experts.bin` and `manifest.json`.
+        The checkpoint directory housing the `config.json` and safetensors shards
+    expert_bank_dir : Path
+        The destination directory where `experts.bin` and `manifest.json` will be written
+    architecture : MoEArchitecture | None
+        Adapter defining the checkpoint's MoE structural patterns.
     model_id : str | None
-        Identifier to record in the manifest — the id the engine will load the
-        model under, since `PackedExpertStore.ensure_compatible` compares
-        against it. Defaults to the checkpoint directory name, which for a
-        Hugging Face cache is a snapshot sha and matches nothing.
-    max_layers : int | None
-        Convert only the first `max_layers` MoE layers, by default all of them.
+        A unique identifier used for compatibility checks when loading the saved expert bank.
+        Defaults to checkpoint directory name, but should be explicitly provided for cached
+        Hugging Face snapshots.
+    max_moe_blocks : int | None
+        Limits conversion to the first `max_moe_blocks` MoE blocks. If `None` (default),
+        all layers are converted.
     overwrite : bool
-        Whether to replace an existing store in `store_dir`, by default False.
+        If `True`, an existing expert bank in the output directory will be overwritten.
+        Defaults to False.
 
     Returns
     -------
-    ExpertStoreManifest
-        The manifest written into `store_dir`.
+    ExpertBankManifest
+        The metadata manifest for the expert bank
 
     Raises
     ------
     ValueError
-        If the checkpoint holds no routed expert tensors, or a layer's tensors
-        disagree with the layout derived from the first layer.
+        If no routed expert tensors are found in the checkpoint, or if a layer's tensors
+        deviate from the expected structural layout for the model's architecture.
     """
-    shard_index = build_tensor_shard_index(model_dir)
-    by_layer = group_expert_tensors_by_layer(shard_index)
+    if architecture is None:
+        architecture = Qwen3NextMoEArchitecture()
+
+    shard_index = build_tensor_shard_index(model_dir, architecture)
+    by_layer = group_expert_tensors_by_layer(shard_index, architecture)
     if not by_layer:
         raise ValueError(f"No routed expert tensors found in `{model_dir}`.")
 
-    layer_idxs = sorted(by_layer)
-    if max_layers is not None:
-        layer_idxs = layer_idxs[:max_layers]
+    block_idxs = sorted(by_layer)
+    if max_moe_blocks is not None:
+        block_idxs = block_idxs[:max_moe_blocks]
 
     config = json.loads((model_dir / "config.json").read_text())
     cache = ShardTensorCache(shard_index=shard_index)
 
-    first_stacked = cache.load_layer(by_layer[layer_idxs[0]])
-    order = resolve_tensor_order(by_layer[layer_idxs[0]])
-    specs = derive_tensor_specs(expert_arrays(first_stacked, 0), order)
-    num_experts = int(next(iter(first_stacked.values())).shape[0])
+    first_stacked = cache.load_layer(by_layer[block_idxs[0]])
+    order = architecture.validate_layer_tensors(by_layer[block_idxs[0]])
+    specs = derive_tensor_specs(expert_ndarrays(first_stacked, 0), order)
+    num_routed_experts = int(next(iter(first_stacked.values())).shape[0])
 
-    quant = resolve_expert_quantization(config, layer_idxs)
-    encoding = payload_encoding_for(
-        quant, scalar_dtype_tag(first_stacked, quantized=quant is not None)
+    quant = architecture.resolve_quantization(config, block_idxs)
+    encoding = make_encoding_tag(
+        quant,
+        architecture.scalar_dtype_tag(first_stacked, quantized=quant is not None),
     )
     del first_stacked
 
-    topology = ExpertTopology(
-        moe_layer_idxs=tuple(layer_idxs),
-        num_experts=num_experts,
-        top_k=int(text_config_of(config)["num_experts_per_tok"]),
+    model_moe_spec = architecture.extract_model_moe_spec(
+        config, block_idxs, num_routed_experts
     )
 
-    with PackedStoreWriter(
-        store_dir,
+    with ExpertBankWriter(
+        expert_bank_dir,
         model_id=model_id if model_id is not None else model_dir.name,
-        model_fingerprint=compute_mlx_fingerprint(model_dir),
+        model_fingerprint=hash_model_ckpt(model_dir),
         payload_encoding=encoding,
         tensor_specs=specs,
-        topology=topology,
+        model_moe_spec=model_moe_spec,
         overwrite=overwrite,
     ) as writer:
-        for layer_idx in layer_idxs:
-            layer_order = resolve_tensor_order(by_layer[layer_idx])
+
+        for block_idx in block_idxs:
+
+            layer_order = architecture.validate_layer_tensors(by_layer[block_idx])
             if layer_order != order:
                 raise ValueError(
-                    f"Layer {layer_idx} holds tensors {layer_order!r}; the store's "
+                    f"Layer {block_idx} holds tensors {layer_order!r}; the expert bank's "
                     f"layout is {order!r}."
                 )
 
-            stacked = cache.load_layer(by_layer[layer_idx])
-            for expert_idx in range(num_experts):
+            stacked = cache.load_layer(by_layer[block_idx])
+
+            for expert_idx in range(num_routed_experts):
                 writer.add_expert(
-                    layer_idx=layer_idx,
+                    block_idx=block_idx,
                     expert_idx=expert_idx,
                     data=assemble_expert_blob(
-                        expert_arrays(stacked, expert_idx), specs
+                        expert_ndarrays(stacked, expert_idx), specs
                     ),
                 )
             del stacked
@@ -613,71 +370,74 @@ def convert_mlx_model_to_store(
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse the converter CLI arguments.
 
-    Parameters
-    ----------
-    argv : Sequence[str] | None
-        Argument vector, by default `sys.argv[1:]`.
-
-    Returns
-    -------
-    argparse.Namespace
-        Parsed arguments.
-    """
     parser = argparse.ArgumentParser(
-        description="Pack an MLX MoE checkpoint's routed experts into a store."
+        description="Writes a MoE model's experts to an expert bank on disk."
     )
     parser.add_argument(
         "--model",
         required=True,
-        help="MLX model id or local checkpoint directory.",
+        help="Hugging Face model id (for an MLX model) or path to a local"
+        "model checkpoint directory",
     )
     parser.add_argument(
         "--output",
         required=True,
         type=Path,
-        help="Destination store directory.",
+        help="Output directory to write the expert bank in.",
     )
     parser.add_argument(
-        "--max-layers",
+        "--max-moe-blocks",
         type=int,
         default=None,
-        help="Convert only the first N MoE layers; default is all of them.",
+        help="Limits conversion to the first 'max_moe_blocks' MoE blocks",
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Replace an existing store in the output directory.",
+        help="Whether to overwrite an existing expert bank in the output directory",
+    )
+    parser.add_argument(
+        "--architecture",
+        default="qwen",
+        help="Registered MoE architecture for the model, by default 'qwen'",
     )
     return parser.parse_args(argv)
 
 
+# TODO use logging instead of print statements
 def main() -> None:
-    """Run the converter from the command line."""
     args = parse_args()
 
-    model_dir = resolve_model_dir(args.model)
-    print(f"Converting {model_dir} -> {args.output}")
+    from preempt.backends.mlx_metal.registry import DefaultMoEArchRegistry
 
-    manifest = convert_mlx_model_to_store(
+    registry = DefaultMoEArchRegistry()
+    architecture = registry.get(args.architecture)
+
+    model_dir = resolve_model_dir(args.model)
+    print(
+        f"Converting {model_dir} -> {args.output} (architecture: {args.architecture})"
+    )
+
+    manifest = convert_mlx_model_to_expert_bank(
         model_dir,
         args.output,
+        architecture=architecture,
         model_id=args.model,
-        max_layers=args.max_layers,
+        max_moe_blocks=args.max_moe_blocks,
         overwrite=args.overwrite,
     )
 
-    expert_nbytes = manifest.expert_nbytes()
+    expert_num_bytes = manifest.expert_num_bytes()
     print(
         f"Packed {len(manifest.blobs)} expert blob(s) across "
-        f"{len(manifest.topology.moe_layer_idxs)} layer(s); "
-        f"{expert_nbytes} bytes each, "
-        f"{expert_nbytes * len(manifest.blobs)} payload bytes total."
+        f"{len(manifest.model_moe_spec.moe_block_idxs)} layer(s); "
+        f"{expert_num_bytes} bytes each, "
+        f"{expert_num_bytes * len(manifest.blobs)} payload bytes total."
     )
     print(f"Model id: {manifest.model_id}")
     print(f"Encoding: {manifest.payload_encoding}")
-    print(f"Fingerprint: {manifest.model_fingerprint}")
+    print(f"Hash: {manifest.model_fingerprint}")
 
 
 if __name__ == "__main__":
