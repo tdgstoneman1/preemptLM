@@ -57,8 +57,8 @@ class MoEArchRegistry:
 
         except KeyError:
             raise KeyError(
-                f"'{name!r}' is not a known MoE architecture. Registered "
-                f"architectures:\n{sorted(self._factories.keys())}"
+                f"Unknown architecture {name!r}. Registered MoE architectures: "
+                f"{sorted(self._factories.keys())}"
             ) from None
 
         return factory()
