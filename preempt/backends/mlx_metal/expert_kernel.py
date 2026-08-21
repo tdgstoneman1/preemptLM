@@ -264,7 +264,7 @@ def _reassemble(
 # TODO rewrite docstring slop
 # TODO rename 'row_experts' for clarity
 # TODO docstring, 'input_dims' ambiguous
-def expertwise_apply_routed_experts(
+def sequential_apply_routed_experts(
     x: mx.array,
     row_experts: Sequence[int],
     *,
