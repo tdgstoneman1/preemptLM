@@ -308,7 +308,6 @@ def expertwise_apply_routed_experts(
     n_tokens = math.prod(x.shape[:-1])
     n_rows = len(row_experts)
 
-    # TODO finish reworking error msg, unclear what 'row' means, here
     if n_rows != n_tokens * top_k:
         raise ValueError(
             f"Number of router assignments ({n_rows}) does not match expected "
