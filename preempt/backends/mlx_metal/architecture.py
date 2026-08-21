@@ -9,7 +9,7 @@ import re
 
 import mlx.core as mx
 
-from preempt.storage.manifest import ModelMoEConfig
+from preempt.storage.manifest import ModelMoESpec
 
 from .quantization import MlxQuantParams
 
@@ -200,15 +200,15 @@ class MoEArchitecture(ABC):
 
     # TODO verify that block_idxs refers to transformer block
     @abstractmethod
-    def extract_model_moe_config(
+    def extract_model_moe_spec(
         self,
         config: Mapping[str, Any],  # TODO rename, too vague
         block_idxs: Sequence[int],
         num_routed_experts: int,
-    ) -> ModelMoEConfig:
+    ) -> ModelMoESpec:
         """Extracts MoE-specific configuration from checkpoint.
 
-        Parses the model's `config.json` to create a `ModelMoEConfig` object,
+        Parses the model's `config.json` to create a `ModelMoESpec` object,
         which includes the number of experts, top-k routing, and the indices
         of the transformer blocks that contain MoE layers.
 
@@ -223,7 +223,7 @@ class MoEArchitecture(ABC):
 
         Returns
         -------
-        ModelMoEConfig
+        ModelMoESpec
             The model's MoE config for its manifest
         """
         ...
