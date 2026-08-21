@@ -13,7 +13,7 @@ class ExpertKey:
 
     Attributes
     ----------
-    model_hash : str
+    model_fingerprint : str
         Model fingerprint (SHA256 of config.json + safetensors shard manifest)
     block_idx : int
         Index of the MoE layer's parent transformer block
@@ -23,7 +23,7 @@ class ExpertKey:
         Weight variant name, by default `'all'` for the full fused expert blob
     """
 
-    model_hash: str = field(validator=validators.min_len(1))
+    model_fingerprint: str = field(validator=validators.min_len(1))
     block_idx: int = field(validator=validators.ge(0))
     expert_idx: int = field(validator=validators.ge(0))
     variant: str = field(default="all", validator=validators.min_len(1))
