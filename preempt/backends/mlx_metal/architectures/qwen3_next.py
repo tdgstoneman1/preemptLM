@@ -20,7 +20,7 @@ from preempt.backends.mlx_metal.constants import (
 )
 from preempt.backends.mlx_metal.quantization import (
     MlxQuantParams,
-    scalar_dtype_tag,
+    dtype_tag_from_arrays,
 )
 from preempt.storage.manifest import ModelMoESpec
 
@@ -229,11 +229,9 @@ class Qwen3NextMoEArchitecture(MoEArchitecture):
 
         return resolved.pop()
 
-    def scalar_dtype_tag(
-        self, stacked: Mapping[str, mx.array], *, quantized: bool
-    ) -> str:
+    def dtype_tag(self, stacked: Mapping[str, mx.array], *, quantized: bool) -> str:
         """Returns a scalar dtype tag for the weight tensors in `stacked`."""
-        return scalar_dtype_tag(stacked, quantized=quantized)
+        return dtype_tag_from_arrays(stacked, quantized=quantized)
 
     # TODO rename, MoE spec is composed, not extracted
     # TODO verify block_idxs = transformer blocks

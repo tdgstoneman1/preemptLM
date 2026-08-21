@@ -175,19 +175,16 @@ class MoEArchitecture(ABC):
         ...
 
     @abstractmethod
-    def scalar_dtype_tag(
-        self, stacked: Mapping[str, mx.array], *, quantized: bool
-    ) -> str:
+    def dtype_tag(self, stacked: Mapping[str, mx.array], *, quantized: bool) -> str:
         """Returns a tag representing the scalar dtype.
 
         For quantized models, this inspects `scales`/`biases`. For unquantized
-        models, it inspects the `weight` tensors. The tag provides a durable
-        record for dtypes like `bfloat16` that are not native to all tools.
+        models, it inspects the weights.
 
         Parameters
         ----------
         stacked : Mapping[str, mx.array]
-            A layer's stacked tensors.
+            A layer's stacked tensors
         quantized : bool
             True if the model is quantized, False otherwise
 

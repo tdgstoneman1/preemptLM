@@ -327,7 +327,7 @@ def convert_mlx_model_to_expert_bank(
     quant = architecture.resolve_quantization(config, block_idxs)
     encoding = make_encoding_tag(
         quant,
-        architecture.scalar_dtype_tag(first_stacked, quantized=quant is not None),
+        architecture.dtype_tag(first_stacked, quantized=quant is not None),
     )
     del first_stacked
 
