@@ -6,16 +6,16 @@ backend = "mlx_metal"
 architecture = "qwen3-next"
 
 [generation_settings]
-max_tokens = 1028
+max_tokens = 4096
 prefill_chunk_size = 512
 
 # Currently, this has to be commented out to disable disk reads
 [stream_settings]
-expert_bank_path = "../expert-bank/qwen3.5-35b"
+expert_bank_path = "../expert-bank/qwen3.6-35b-4bit"
 memory_bytes_budget = 4_000_000_000
 bypass_page_cache = true
 
-[trace_settings]
+# [trace_settings]
 output_path = "../traces/router-events.parquet" # relative to this file, NOT cwd
 overwrite_output = true
 
