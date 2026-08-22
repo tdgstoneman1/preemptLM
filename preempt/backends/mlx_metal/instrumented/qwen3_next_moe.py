@@ -17,7 +17,7 @@ from ..expert_kernel import (
     ExpertProjections,
     QuantizedProjection,
     SwitchQuantParams,
-    sequential_apply_routed_experts,
+    sequential_run_selected_experts,
     describe_switch_quantization,
     project_rows,
 )
@@ -150,7 +150,7 @@ class InstrumentedQwen3NextMoE(nn.Module):
         else:
             activation = self.activation
 
-            def _swiglu_apply_expert(
+            def _swiglu_forward(
                 x_rows: mx.array,
                 projections: Mapping[str, QuantizedProjection],
             ) -> mx.array:
@@ -159,12 +159,12 @@ class InstrumentedQwen3NextMoE(nn.Module):
 
                 return project_rows(activation(x_up, x_gate), projections["down_proj"])
 
-            y = sequential_apply_routed_experts(
+            y = sequential_run_selected_experts(
                 x,
                 [int(expert) for expert in inds.flatten().tolist()],
                 top_k=k,
-                apply_expert_fn=_swiglu_apply_expert,
-                load_expert_weights_fn=self._read_expert_from_disk,
+                expert_forward_fn=_swiglu_forward,
+                expert_load_weights_fn=self._read_expert_from_disk,
             )
 
         # TODO move do separate method, copied from original __call__
