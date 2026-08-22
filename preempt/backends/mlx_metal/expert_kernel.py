@@ -25,8 +25,11 @@ from preempt.core.exceptions import EngineIncompatibilityError
 
 # TODO add support for unquantized models--URGENT
 # TODO add support for expert layer bias terms in forward pass--URGENT
-# TODO rename module
+
+# TODO move dataclasses to separate module
 # TODO prepend attrs dataclass names with `Mlx` prefix
+
+# TODO fix hallucinated 'row' terminology, confusing
 
 
 @attrs.define(kw_only=True, frozen=True)
@@ -141,8 +144,8 @@ def describe_switch_quantization(  # TODO rename
         # TODO add support for non-quantized layers!
         if not isinstance(module, QuantizedSwitchLinear):
             raise TypeError(
-                f"`{name}` is of type `{type(module).__name__}`, not `QuantizedSwitchLinear`, "
-                "but the per-expert forward pass implements the quantized kernel only."
+                f"`{name}` is of unsupported type `{type(module).__name__}`. Only "
+                "`QuantizedSwitchLinear` is currently supported."
             )
         # TODO add support for bias!
         if "bias" in module:
@@ -192,8 +195,7 @@ def project_rows(x_rows: mx.array, projection: QuantizedProjection) -> mx.array:
     )
 
 
-# TODO rename
-def _iter_expert_rows(
+def _iter_expert_rows(  # TODO rename
     x_flat: mx.array,
     row_experts: Sequence[int],
     top_k: int,
@@ -261,20 +263,20 @@ def _reassemble(
     return grouped[mx.array(inverse)].reshape(*leading_shape, top_k, -1)
 
 
-# TODO rewrite docstring slop
-# TODO rename 'row_experts' for clarity
 # TODO docstring, 'input_dims' ambiguous
-def sequential_apply_routed_experts(
+def sequential_run_selected_experts(
     x: mx.array,
-    row_experts: Sequence[int],
+    row_experts: Sequence[int],  # TODO rename, these aren't rows!
     *,
     top_k: int,
-    apply_expert_fn: Callable[[mx.array, Mapping[str, QuantizedProjection]], mx.array],
-    load_expert_weights_fn: Callable[[int], ExpertProjections],
+    expert_forward_fn: Callable[
+        [mx.array, Mapping[str, QuantizedProjection]], mx.array
+    ],
+    expert_load_weights_fn: Callable[[int], ExpertProjections],
 ) -> mx.array:
-    """Executes an MoE layer's routing assignments sequentially by expert.
+    """Sequentially runs the `top_k` selected experts for an MoE block.
 
-    Replaces fused grouped matrix multiplications with a sequential evaluation
+    Replaces MLX fused grouped matrix multiplications with a sequential evaluation
     loop, enabling strict memory controls by loading and applying only one expert's
     weights at a time.
 
@@ -287,9 +289,9 @@ def sequential_apply_routed_experts(
         The router's selections, flattened in `(batch, tokens, top_k)` order
     top_k : int
         Router selections per token
-    apply_expert_fn : Callable[[mx.array, Mapping[str, QuantizedProjection]], mx.array]
+    expert_forward_fn : Callable[[mx.array, Mapping[str, QuantizedProjection]], mx.array]
         Callback applying one expert's projections to its assigned activations
-    load_expert_weights_fn : Callable[[int], ExpertProjections]
+    expert_load_weights_fn : Callable[[int], ExpertProjections]
         Callback retrieving one expert's parameters, invoked immediately prior
         to computation to support streaming paradigms
 
@@ -319,8 +321,8 @@ def sequential_apply_routed_experts(
     perm: list[np.ndarray] = []
 
     for expert_idx, x_rows, row_array in _iter_expert_rows(x_flat, row_experts, top_k):
-        expert_proj = load_expert_weights_fn(expert_idx)
-        y_rows = apply_expert_fn(x_rows, expert_proj.projections)
+        expert_proj = expert_load_weights_fn(expert_idx)
+        y_rows = expert_forward_fn(x_rows, expert_proj.projections)
 
         outputs.append(y_rows)
         perm.append(row_array)
