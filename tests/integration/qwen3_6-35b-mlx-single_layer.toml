@@ -1,9 +1,0 @@
-version = 1
-
-[[target_layers]]
-name = "first-qwen-router"
-
-[target_layers.search_params]
-layer_class = "Qwen3NextSparseMoeBlock"
-layer_idx = 0
-count = 1
