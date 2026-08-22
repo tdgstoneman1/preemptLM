@@ -63,7 +63,7 @@ def make_encoding_tag(quant: MlxQuantParams | None, scalar_tag: str) -> str:
         unquantized
     scalar_tag : str
         The short tag representing the scalar dtype (e.g. `"bf16"`) as
-        derived from `scalar_dtype_tag()`
+        derived from `dtype_tag_from_arrays()`
 
     Returns
     -------
@@ -84,17 +84,10 @@ def make_encoding_tag(quant: MlxQuantParams | None, scalar_tag: str) -> str:
     )
 
 
-# TODO rename `stacked` to `stacked_tensors`
-# TODO rename `quantized` to `is_quantized`
-# TODO add support for other dtypes, e.g. int8
+# TODO rename `stacked`
 # TODO use literal or enum for return type, e.g. Literal["bf16", "f16", "f32"]
-def scalar_dtype_tag(stacked: Mapping[str, mx.array], quantized: bool) -> str:
-    """Determines the standard string tag for the scalar dtype of a
-    tensor collection.
-
-    For quantized checkpoints, this identifies the scalar dtype used for
-    the `scales` and `biases`. For unquantized checkpoints, it identifies
-    the dtype of the weights themselves.
+def dtype_tag_from_arrays(stacked: Mapping[str, mx.array], quantized: bool) -> str:
+    """Returns a the scalar dtype of the arrays in `stacked` as a string tag.
 
     Parameters
     ----------
@@ -107,19 +100,17 @@ def scalar_dtype_tag(stacked: Mapping[str, mx.array], quantized: bool) -> str:
     Returns
     -------
     str
-        A short string tag representing the detected scalar dtype, e.g.
-        `"bf16"`, `"f16"`, or `"f32"`
+        Scalar dtype tag, e.g. `"bf16"`, `"f16"`, or `"f32"`
 
     Raises
     ------
     ValueError
-        If no applicable tensors are found in the layer.
+        If no applicable tensors were found in the layer.
     ValueError
         If the examined tensors contain mixed dtypes.
     ValueError
-        If the detected dtype is not supported by the tag mapping.
+        If the detected dtype is not currently supported for tagging.
     """
-
     names = sorted(
         name
         for name in stacked
@@ -127,15 +118,15 @@ def scalar_dtype_tag(stacked: Mapping[str, mx.array], quantized: bool) -> str:
     )  # TODO verify that '.scales' and '.biases' names aren't specific to Qwen
 
     if not names:
-        raise ValueError("Layer holds no tensors to read scalar dtype from.")
+        raise ValueError()
 
     dtypes = {str(stacked[name].dtype) for name in names}
     if len(dtypes) != 1:
-        raise ValueError(f"Expert tensors have multiple dtypes: {sorted(dtypes)!r}")
+        raise ValueError(f"Stacked arrays have multiple dtypes: {sorted(dtypes)!r}")
 
     dtype = stacked[names[0]].dtype
     for candidate, tag in SCALAR_DTYPE_TAGS:
         if dtype == candidate:
             return tag
 
-    raise ValueError(f"Got unsupported expert scalar dtype: {dtype}.")
+    raise ValueError(f"Stacked arrays have a currently unsupported dtype: {dtype}.")
