@@ -15,9 +15,9 @@ from .expert_cache import ExpertCache
 from .metrics import GenerationMetrics
 
 
-class AllResidentLoader:  # TODO rename
-    """Implements `IExpertLoader` protocol for models that can fit all experts in
-    memory (`load(...)` is a no-op placeholder).
+class DummyExpertLoader:
+    """Dummy `IExpertLoader` interface as a placeholder for models that are fully loaded
+    in memory and don't require reading experts from disk (`load(...)` is a no-op).
     """
 
     def load(self, keys: Sequence[ExpertKey]) -> None:
