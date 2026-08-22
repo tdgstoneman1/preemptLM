@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import inspect
-import re
-
 import pytest
+
+import inspect
 
 from preempt.backends.mlx_metal.architecture import MoEArchitecture
 from preempt.backends.mlx_metal.architectures.qwen3_next import Qwen3NextMoEArchitecture
@@ -59,6 +58,7 @@ class TestQwenRegexes:
     ) -> None:
         name = "language_model.model.layers.5.mlp.switch_mlp.gate_proj.weight"
         m = arch.expert_tensor_regex().match(name)
+
         assert m is not None
         assert m.group("layer") == "5"
         assert m.group("projection") == "gate_proj"
@@ -75,6 +75,7 @@ class TestQwenRegexes:
     ) -> None:
         name = "model.layers.3.mlp.switch_mlp.up_proj"
         m = arch.expert_module_regex().match(name)
+
         assert m is not None
         assert m.group("layer") == "3"
         assert m.group("projection") == "up_proj"
@@ -83,6 +84,7 @@ class TestQwenRegexes:
 class TestQwenTensorOrder:
     def test_full_order(self, arch: Qwen3NextMoEArchitecture) -> None:
         order = arch.tensor_order()
+
         assert order[0] == "gate_proj.weight"
         assert order[1] == "gate_proj.scales"
         assert order[2] == "gate_proj.biases"
@@ -95,6 +97,7 @@ class TestQwenTensorOrder:
             for part in arch.quantized_tensor_parts
         }
         result = arch.validate_layer_tensors(layer_tensors)
+
         assert result == arch.tensor_order()
 
     def test_validate_layer_tensors_missing_weight_raises(
@@ -116,6 +119,7 @@ class TestQwenTensorOrder:
             "down_proj.weight": "x",
         }
         result = arch.validate_layer_tensors(layer_tensors)
+
         assert result == ("gate_proj.weight", "up_proj.weight", "down_proj.weight")
 
     def test_validate_layer_tensors_unexpected_raises(
@@ -187,13 +191,15 @@ class TestQwenQuantization:
             }
         }
         result = arch.resolve_quantization(config, (0,))
+
         assert result == MlxQuantParams(mode="affine", bits=4, group_size=64)
 
 
-class TestQwenExtractTopology:
+class TestQwenMoESpec:
     def test_extract(self, arch: Qwen3NextMoEArchitecture) -> None:
         config = {"text_config": {"num_routed_experts": 256, "num_experts_per_tok": 8}}
         topo = arch.extract_model_moe_spec(config, (0, 1, 2), num_routed_experts=256)
+
         assert topo.moe_block_idxs == (0, 1, 2)
         assert topo.num_routed_experts == 256
         assert topo.top_k == 8
@@ -201,6 +207,7 @@ class TestQwenExtractTopology:
     def test_extract_non_text_config(self, arch: Qwen3NextMoEArchitecture) -> None:
         config = {"num_routed_experts": 128, "num_experts_per_tok": 4}
         topo = arch.extract_model_moe_spec(config, (5,), num_routed_experts=128)
+
         assert topo.moe_block_idxs == (5,)
         assert topo.num_routed_experts == 128
         assert topo.top_k == 4
@@ -208,6 +215,7 @@ class TestQwenExtractTopology:
 
 def test_convert_accepts_architecture_parameter() -> None:
     sig = inspect.signature(convert_mlx_model_to_expert_bank)
+
     assert "architecture" in sig.parameters
     # Temporary default should be None (creates Qwen3NextMoEArchitecture internally)
     assert sig.parameters["architecture"].default is None
@@ -215,6 +223,7 @@ def test_convert_accepts_architecture_parameter() -> None:
 
 def test_apply_experts_accepts_apply_expert_fn() -> None:
     sig = inspect.signature(sequential_run_selected_experts)
+
     assert "expert_forward_fn" in sig.parameters
     # The old `activation` parameter should be gone
     assert "activation" not in sig.parameters
