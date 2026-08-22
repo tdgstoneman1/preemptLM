@@ -15,7 +15,7 @@ def test_search_params_reject_unknown_keys() -> None:
 
 
 def test_config_rejects_duplicate_target_names() -> None:
-    spec = {"name": "same", "search_params": {"layer_idx": 0}}
+    spec = {"name": "same", "search_params": {"block_idx": 0}}
     with pytest.raises(ValidationError, match="unique"):
         TargetLayerConfig.model_validate({"target_layers": [spec, spec]})
 

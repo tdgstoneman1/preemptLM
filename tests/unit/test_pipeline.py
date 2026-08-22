@@ -5,7 +5,7 @@ import pytest
 
 from preempt.core.sinks import BaseEventSink
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
-from preempt.engine.pipeline import InferencePipeline
+from preempt.engine.pipeline import GenerationPipeline
 from preempt.engine.recorder import BaseEventRecorder
 
 
@@ -55,7 +55,7 @@ class SpySink(BaseEventSink):
 
 async def test_generate_encodes_decodes_and_counts() -> None:
     runner = ScriptedRunner([65, 66])
-    pipeline = InferencePipeline(runner=runner, tokenizer=StubCodec(), max_tokens=2)
+    pipeline = GenerationPipeline(runner=runner, tokenizer=StubCodec(), max_tokens=2)
     result = await pipeline.generate("hi")
     assert result.token_ids == [65, 66]
     assert result.text == "AB"
@@ -67,7 +67,7 @@ async def test_untraced_pipeline_prepares_once_per_generate() -> None:
     # An untraced pipeline is reusable, and every generate must start from a
     # fresh cache -- one `prepare()` per call, never a shared one.
     runner = ScriptedRunner([65, 66, 67])
-    pipeline = InferencePipeline(runner=runner, tokenizer=StubCodec(), max_tokens=1)
+    pipeline = GenerationPipeline(runner=runner, tokenizer=StubCodec(), max_tokens=1)
 
     await pipeline.generate("hi")
     assert runner.prepare_calls == 1
@@ -79,7 +79,7 @@ async def test_untraced_pipeline_prepares_once_per_generate() -> None:
 async def test_traced_generate_closes_sink_and_is_single_use() -> None:
     sink = SpySink()
     runner = ScriptedRunner([65, 66])
-    pipeline = InferencePipeline(
+    pipeline = GenerationPipeline(
         runner=runner,
         tokenizer=StubCodec(),
         max_tokens=1,
@@ -96,14 +96,14 @@ async def test_traced_generate_closes_sink_and_is_single_use() -> None:
 
 
 async def test_max_tokens_override_and_recorder_sink_pairing() -> None:
-    pipeline = InferencePipeline(
+    pipeline = GenerationPipeline(
         runner=ScriptedRunner([1, 2, 3]), tokenizer=StubCodec(), max_tokens=1
     )
     result = await pipeline.generate("xyz", max_tokens=3)
     assert len(result.token_ids) == 3
 
     with pytest.raises(ValueError, match="both"):
-        InferencePipeline(
+        GenerationPipeline(
             runner=ScriptedRunner([1]),
             tokenizer=StubCodec(),
             max_tokens=1,

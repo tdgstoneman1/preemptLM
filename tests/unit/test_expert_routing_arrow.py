@@ -21,7 +21,7 @@ def make_event(*, gate_logits: tuple[float, ...] | None = None) -> ExpertRouting
         step_context=TraceStepContext(sequence_id=0, token_idx=3, token_id=7),
         event_metadata=EventMetadata(event_idx=0, timestamp=datetime.now(UTC)),
         layer_identifiers=LayerIdentifiers(
-            layer_path="model.layers.0.mlp", layer_class="Blk", layer_idx=0
+            layer_path="model.layers.0.mlp", layer_class="Blk", block_idx=0
         ),
         expert_ids=(4, 9),
         expert_weights=(0.7, 0.3),

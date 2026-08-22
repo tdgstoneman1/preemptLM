@@ -1,8 +1,9 @@
-import asyncio
 from typing import Any
 from collections.abc import Mapping, Sequence
 
 import pytest
+
+import asyncio
 
 from preempt.core.sinks import BaseEventSink
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
@@ -26,6 +27,31 @@ class ScriptedRunner:
         assert self.prepared, "step() before prepare()"
         self.calls.append(list(tokens))
         return self.outputs.pop(0)
+
+
+class ContextRunner:
+    """Next token is a deterministic function of the full accumulated context.
+
+    Models a KV cache: because the return depends only on every token fed so
+    far and not on how those tokens were split across `step` calls, chunking a
+    prompt cannot change the generated sequence — the property this fake exists
+    to prove.
+    """
+
+    def __init__(self) -> None:
+        self.prepared = False
+        self.context: list[int] = []
+        self.calls: list[list[int]] = []
+
+    def prepare(self) -> None:
+        self.prepared = True
+        self.context = []
+
+    def step(self, tokens: Sequence[int]) -> int:
+        assert self.prepared, "step() before prepare()"
+        self.calls.append(list(tokens))
+        self.context.extend(tokens)
+        return (sum(self.context) + len(self.context)) % 50
 
 
 class SpyRecorder(BaseEventRecorder):
@@ -65,6 +91,42 @@ async def test_prefill_then_single_token_decode_steps() -> None:
     assert [s.n_tokens for s in metrics.steps] == [3, 1, 1]
 
 
+async def test_prefill_chunks_reconstruct_prompt_in_order() -> None:
+    runner = ScriptedRunner([10, 20, 30, 40])
+    tokens, _ = await generate_greedy(
+        runner=runner,
+        prompt_ids=[1, 2, 3, 4, 5],
+        max_tokens=2,
+        prefill_chunk_size=2,
+    )
+    # Three prefill chunks then one decode step; the chunk slices, concatenated
+    # in order, are exactly the prompt with nothing dropped or duplicated.
+    prefill_calls = runner.calls[:3]
+    assert prefill_calls == [[1, 2], [3, 4], [5]]
+    assert [t for chunk in prefill_calls for t in chunk] == [1, 2, 3, 4, 5]
+    # The first generated token is the final prefill chunk's `step` return.
+    assert tokens[0] == 30
+    assert runner.calls[3] == [30]
+    assert tokens == [30, 40]
+
+
+async def test_chunked_and_unchunked_prefill_match() -> None:
+    prompt = [7, 3, 9, 1, 4, 8, 2]
+
+    unchunked = ContextRunner()
+    chunked = ContextRunner()
+
+    tokens_unchunked, _ = await generate_greedy(
+        runner=unchunked, prompt_ids=prompt, max_tokens=5, prefill_chunk_size=64
+    )
+    tokens_chunked, _ = await generate_greedy(
+        runner=chunked, prompt_ids=prompt, max_tokens=5, prefill_chunk_size=2
+    )
+
+    assert unchunked.calls == [prompt, *[[t] for t in tokens_unchunked[:-1]]]
+    assert tokens_chunked == tokens_unchunked
+
+
 async def test_traced_run_stamps_step_contexts_and_counts_records() -> None:
     runner = ScriptedRunner([9, 8])
     recorder = SpyRecorder()
@@ -79,6 +141,26 @@ async def test_traced_run_stamps_step_contexts_and_counts_records() -> None:
     prefill, decode = recorder.step_contexts
     assert (prefill.token_idx, prefill.token_id) == (0, None)  # multi-token: id null
     assert (decode.token_idx, decode.token_id) == (2, 9)
+
+
+async def test_traced_chunked_prefill_advances_token_idx_per_chunk() -> None:
+    runner = ScriptedRunner([10, 20, 30])
+    recorder = SpyRecorder()
+    _, metrics = await generate_greedy(
+        runner=runner,
+        prompt_ids=[1, 2, 3, 4],
+        max_tokens=2,
+        prefill_chunk_size=2,
+        recorder=recorder,
+        sink=NullSink(),
+    )
+    # Two multi-token prefill chunks then one single-token decode: token_idx
+    # advances by each chunk's length, token_id is null for the multi-token
+    # chunks and set only for the single-token decode step.
+    stamped = [(c.token_idx, c.token_id) for c in recorder.step_contexts]
+    assert stamped == [(0, None), (2, None), (4, 20)]
+    # SpyRecorder yields 3 records per forward; three forwards were bracketed.
+    assert metrics.records_written == 9
 
 
 async def test_recorder_without_sink_rejected() -> None:
