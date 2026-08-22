@@ -95,8 +95,12 @@ class GenerationPipeline:
         self._on_step = on_step
         self._sink_consumed = False
 
+    @property
+    def tokenizer(self) -> ITokenCodec:
+        return self._tokenizer
+
     async def generate(
-        self, prompt: str, *, max_tokens: int | None = None
+        self, prompt: str, *, max_tokens: int | None = None, on_step: Callable[[StepMetrics], None] | None = None
     ) -> GenerationResult:
         """Runs greedy generation on text prompt and returns token ids, decoded text,
         and generation metrics.
@@ -140,7 +144,7 @@ class GenerationPipeline:
                     prefill_chunk_size=self._prefill_chunk_size,
                     recorder=self._recorder,
                     sink=sink,
-                    on_step=self._on_step,
+                    on_step=on_step if on_step is not None else self._on_step,
                 )
         else:
             token_ids, metrics = await generate_greedy(
@@ -148,7 +152,7 @@ class GenerationPipeline:
                 prompt_ids=prompt_ids,
                 max_tokens=budget,
                 prefill_chunk_size=self._prefill_chunk_size,
-                on_step=self._on_step,
+                on_step=on_step if on_step is not None else self._on_step,
             )
 
         return GenerationResult(
