@@ -1,12 +1,13 @@
 from collections.abc import Sequence
 
-from preempt.core.identity import ExpertKey, TensorSpec
 from preempt.core.protocols.loader import IExpertLoader
 from preempt.core.protocols.residency import IExpertResidency
 from preempt.core.protocols.runner import IModelRunner, ITokenCodec
 from preempt.core.protocols.expert_bank import ExpertPayload, IExpertBank, ReadPriority
 
-from preempt.engine.expert_loaders import AllResidentLoader
+from preempt.core.identity import ExpertKey, TensorSpec
+
+from preempt.engine.expert_loaders import DummyExpertLoader
 
 KEY = ExpertKey(model_fingerprint="fp", block_idx=0, expert_idx=0)
 SPECS = (TensorSpec(name="w", dtype="uint8", shape=(1,), num_bytes=1),)
@@ -48,7 +49,7 @@ def test_fakes_satisfy_protocols_structurally() -> None:
     assert isinstance(FakeCodec(), ITokenCodec)
     assert isinstance(FakeResidency(), IExpertResidency)
     assert isinstance(FakeExpertBank(), IExpertBank)
-    assert isinstance(AllResidentLoader(), IExpertLoader)
+    assert isinstance(DummyExpertLoader(), IExpertLoader)
 
 
 def test_demand_orders_before_prefetch() -> None:
@@ -56,4 +57,4 @@ def test_demand_orders_before_prefetch() -> None:
 
 
 def test_all_resident_provider_acquire_is_noop() -> None:
-    AllResidentLoader().load((KEY,))  # must not raise or block
+    DummyExpertLoader().load((KEY,))  # must not raise or block
