@@ -22,6 +22,7 @@ class StepMetrics:
     step_idx: int = field(validator=validators.ge(0))
     n_tokens: int = field(validator=validators.ge(1))  # TODO rename to `num_tokens`
     duration_s: float = field(validator=validators.ge(0.0))
+    generated_token_id: int = field(validator=validators.ge(0))
 
 
 @attrs.define(kw_only=True)
