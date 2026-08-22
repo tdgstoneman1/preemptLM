@@ -1,3 +1,4 @@
+**/.DS_Store
 __pycache__/
 *.py[oc]
 build/
@@ -9,8 +10,11 @@ wheels/
 README.md
 traces/**
 
-**/.DS_Store
+expert-bank/**
 
 .host-bridge-mcp-token
 .mcp.json
-expert-store/**
+
+AGENTS.md
+.config/**
+.opencode/**
