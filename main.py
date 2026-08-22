@@ -313,7 +313,7 @@ def build_pipeline(
         prefill_chunk_size=config.generation_settings.prefill_chunk_size,
         recorder=recorder,
         sink=sink,
-        on_step=_print_step,
+        on_step=None,
     )
 
 
@@ -330,11 +330,28 @@ async def _run(
     metrics = GenerationMetrics()
 
     pipeline = build_pipeline(config, config_dir=config_dir, loop=loop, metrics=metrics)
-    result = await pipeline.generate(args.prompt, max_tokens=args.max_tokens)
 
-    print(f"Output:\n{result.text!r}")
+    generated_tokens: list[int] = []
+    decoded_text = ""
+
+    def stream_printer(step: StepMetrics) -> None:
+        nonlocal generated_tokens, decoded_text
+        generated_tokens.append(step.generated_token_id)
+
+        # Decoding whole current sequence prevents multi-byte/emoji splitting glitches
+        full_text = pipeline.tokenizer.decode(generated_tokens)
+        new_text = full_text[len(decoded_text) :]
+        decoded_text = full_text
+
+        print(new_text, end="", flush=True)
+
+    print(f"Output:\n", end="", flush=True)
+    result = await pipeline.generate(
+        args.prompt, max_tokens=args.max_tokens, on_step=stream_printer
+    )
+
     print(
-        f"\n{result.metrics.tokens_forwarded} token position(s) forwarded, "
+        f"\n\n{result.metrics.tokens_forwarded} token position(s) forwarded, "
         f"\n{result.metrics.records_written} trace record(s), "
         f"\n{result.metrics.total_duration_s:.1f}s total."
     )
@@ -343,6 +360,7 @@ async def _run(
         demands = metrics.cache_hits + metrics.cache_misses
         hit_rate = metrics.cache_hits / demands if demands else 0.0
         print(
+            f"\n\nExpert I/O stats:"
             f"\nExpert cache: {metrics.cache_hits} hit(s), "
             f"\n{metrics.cache_misses} miss(es) over {demands} demand(s) "
             f"(hit rate {hit_rate:.1%}), {metrics.demand_stall_s:.1f}s demand stall."
