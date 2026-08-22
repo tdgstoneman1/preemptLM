@@ -43,6 +43,7 @@ from .architecture import MoEArchitecture
 from .architectures.qwen3_next import Qwen3NextMoEArchitecture
 
 # TODO refactor, `main()` shouln't be in source code -> write `cli` module or script
+# TODO finish editing slop docstrings.
 
 
 def resolve_model_dir(model_path_or_id: str) -> Path:
@@ -71,15 +72,15 @@ def resolve_model_dir(model_path_or_id: str) -> Path:
 
 # TODO rename model_dir to ckpt_dir
 def hash_model_ckpt(model_dir: Path) -> str:
-    """Returns a fingerprint of the model checkpoint directory.
+    """Hashes an MLX model checkpoint.
 
-    Calculates a SHA-256 digest of the contents in `config.json` combined with
-    the names and byte sizes of all `*.safetensors` shards in the checkpoint.
+    Returns a SHA-256 digest of the checkpoint's `config.json` and the names
+    and byte sizes of its `*.safetensors` shards.
 
     Parameters
     ----------
     model_dir : Path
-        Directory containing the model checkpoint and its configuration files
+        An MLX model's checkpoint directory
 
     Returns
     -------
@@ -272,12 +273,12 @@ def convert_mlx_model_to_expert_bank(
     max_moe_blocks: int | None = None,
     overwrite: bool = False,
 ) -> ExpertBankManifest:
-    """Writes an MLX checkpoint's routed experts into an expert bank.
+    """Writes the routed expert layers of an MLX model to an expert bank.
 
     Parameters
     ----------
     model_dir : Path
-        The checkpoint directory housing the `config.json` and safetensors shards
+        The MLX model's checkpoint directory containing `config.json` and safetensors shards
     expert_bank_dir : Path
         The destination directory where `experts.bin` and `manifest.json` will be written
     architecture : MoEArchitecture | None
@@ -384,7 +385,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--output",
         required=True,
         type=Path,
-        help="Output directory to write the expert bank in.",
+        help="Expert bank's output directory",
     )
     parser.add_argument(
         "--max-moe-blocks",
@@ -395,7 +396,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Whether to overwrite an existing expert bank in the output directory",
+        help="Whether to overwrite existing files in the output directory",
     )
     parser.add_argument(
         "--architecture",
