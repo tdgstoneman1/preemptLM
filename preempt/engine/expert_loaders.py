@@ -16,8 +16,8 @@ from .metrics import GenerationMetrics
 
 
 class DummyExpertLoader:
-    """Dummy `IExpertLoader` interface as a placeholder for models that are fully loaded
-    in memory and don't require reading experts from disk (`load(...)` is a no-op).
+    """Dummy `IExpertLoader` interface as a placeholder when models are fully loaded
+    in memory and don't expert reads from disk (`load(...)` is a no-op).
     """
 
     def load(self, keys: Sequence[ExpertKey]) -> None:
@@ -31,35 +31,42 @@ class DiskBackedExpertLoader:
     :Note: Failed disk reads are fatal. No fallback strategy currently in place
     since falling back to in-memory experts or skipping rows would make inference
     inexact.
-
-    Parameters
-    ----------
-    expert_bank : IExpertBank
-        Source of expert payloads. Read when an MoE router selects an expert that has not
-        been loaded into memory and must be read from disk.
-    residency : IExpertCache
-        Decodes expert payloads into live device tensors and manages their lifecycle in
-        memory.
-    cache : ExpertCacheManager
-        Tracks and manages cached experts within allowed memory budget
-    loop : asyncio.AbstractEventLoop
-        Event loop on which expert bank reads are scheduled
-    metrics : GenerationMetrics | None
-        Optional counters to accumulate into during a generation run
     """
+
+    _expert_bank: IExpertBank
+    _cache: IExpertCache
+    _cache_manager: ExpertCacheManager
+    _loop: asyncio.AbstractEventLoop
+    _metrics: GenerationMetrics | None
 
     def __init__(
         self,
         *,
         expert_bank: IExpertBank,
-        residency: IExpertCache,
-        cache: ExpertCacheManager,
+        cache: IExpertCache,  # TODO rename
+        cache_manager: ExpertCacheManager,
         loop: asyncio.AbstractEventLoop,
         metrics: GenerationMetrics | None = None,
     ) -> None:
+        """
+        Parameters
+        ----------
+        expert_bank : IExpertBank
+            Source of expert payloads. Read when an MoE router selects an expert that has not
+            been loaded into memory and must be read from disk.
+        residency : IExpertCache
+            Decodes expert payloads into live device tensors and manages their lifecycle in
+            memory.
+        cache : ExpertCacheManager
+            Tracks and manages cached experts within allowed memory budget
+        loop : asyncio.AbstractEventLoop
+            Event loop on which expert bank reads are scheduled
+        metrics : GenerationMetrics | None
+            Optional counters to accumulate into during a generation run
+        """
         self._expert_bank = expert_bank
-        self._residency = residency
         self._cache = cache
+        self._cache_manager = cache_manager
         self._loop = loop
         self._metrics = metrics
 
@@ -81,7 +88,7 @@ class DiskBackedExpertLoader:
             If the expert bank returns fewer bytes than it recorded
         """
         for key in keys:
-            if self._cache.touch(key):
+            if self._cache_manager.touch(key):
                 if self._metrics is not None:
                     self._metrics.cache_hits += 1
                 continue
@@ -94,10 +101,10 @@ class DiskBackedExpertLoader:
                 self._expert_bank.read(key, ReadPriority.DEMAND), self._loop
             ).result()
 
-            for victim in self._cache.admit(key, len(payload.data)):
-                self._residency.evict(victim)
+            for victim in self._cache_manager.admit(key, len(payload.data)):
+                self._cache.evict(victim)
 
-            self._residency.install(key, payload)
+            self._cache.install(key, payload)
 
             if self._metrics is not None:
                 self._metrics.demand_stall_s += time.perf_counter() - started
