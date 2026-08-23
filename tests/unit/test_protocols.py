@@ -27,7 +27,7 @@ class FakeCodec:
         return "x"
 
 
-class FakeResidency:
+class FakeCache:
     def install(self, key: ExpertKey, payload: ExpertPayload) -> None: ...
     def evict(self, key: ExpertKey) -> None: ...
     def is_resident(self, key: ExpertKey) -> bool:
@@ -47,7 +47,7 @@ class FakeExpertBank:
 def test_fakes_satisfy_protocols_structurally() -> None:
     assert isinstance(FakeRunner(), IModelRunner)
     assert isinstance(FakeCodec(), ITokenCodec)
-    assert isinstance(FakeResidency(), IExpertCache)
+    assert isinstance(FakeCache(), IExpertCache)
     assert isinstance(FakeExpertBank(), IExpertBank)
     assert isinstance(DummyExpertLoader(), IExpertLoader)
 
