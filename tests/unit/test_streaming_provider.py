@@ -51,7 +51,7 @@ class FakeExpertBank:
         )
 
 
-class FakeResidency:
+class FakeCache:
     """`IExpertCache` mirroring `MlxExpertCache`'s strict `evict`.
 
     Evicting a key that is not resident raises, exactly as the MLX residency
@@ -75,7 +75,7 @@ class FakeResidency:
     def is_resident(self, key: ExpertKey) -> bool:
         return key in self.payloads
 
-    def resident_bytes(self) -> int:
+    def size(self) -> int:
         return sum(len(payload.data) for payload in self.payloads.values())
 
 
@@ -84,10 +84,10 @@ def build(
     budget_experts: int = 4,
     expert_bank: FakeExpertBank | None = None,
     policy: CachePolicy = CachePolicy.LFRU,
-) -> tuple[FakeExpertBank, FakeResidency, ExpertCacheManager, GenerationMetrics]:
+) -> tuple[FakeExpertBank, FakeCache, ExpertCacheManager, GenerationMetrics]:
     return (
         expert_bank if expert_bank is not None else FakeExpertBank(),
-        FakeResidency(),
+        FakeCache(),
         ExpertCacheManager(
             budget_bytes=budget_experts * PAYLOAD_BYTES, policy=policy, sample_size=8
         ),
@@ -212,8 +212,8 @@ async def test_residency_bytes_track_the_cache_and_never_exceed_the_budget() -> 
         batches=[(key(idx % 7),) for idx in range(30)],
     )
 
-    assert residency.resident_bytes() == cache.resident_bytes
-    assert residency.resident_bytes() <= budget_experts * PAYLOAD_BYTES
+    assert residency.size() == cache.size
+    assert residency.size() <= budget_experts * PAYLOAD_BYTES
     assert cache.evictions > 0
 
 
@@ -306,7 +306,7 @@ async def test_a_short_read_is_fatal_and_propagates() -> None:
 
 async def test_a_failure_mid_batch_does_not_continue_with_the_experts_it_had() -> None:
     expert_bank = FakeExpertBank()
-    residency = FakeResidency()
+    residency = FakeCache()
     cache = ExpertCacheManager(budget_bytes=8 * PAYLOAD_BYTES, sample_size=8)
     metrics = GenerationMetrics()
 
