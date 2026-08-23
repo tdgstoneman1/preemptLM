@@ -54,9 +54,9 @@ class FakeExpertBank:
 class FakeCache:
     """`IExpertCache` mirroring `MlxExpertCache`'s strict `evict`.
 
-    Evicting a key that is not resident raises, exactly as the MLX residency
+    Evicting a key that is not resident raises, exactly as the MLX cache
     does — a silent no-op there would let the cache's accounting and the
-    residency's accounting drift apart unnoticed.
+    cache's accounting drift apart unnoticed.
     """
 
     def __init__(self) -> None:
@@ -98,16 +98,16 @@ def build(
 async def load(
     *,
     expert_bank: IExpertBank,
-    residency: IExpertCache,
-    cache: ExpertCacheManager,
+    cache: IExpertCache,
+    cache_manager: ExpertCacheManager,
     metrics: GenerationMetrics | None,
     batches: Sequence[Sequence[ExpertKey]],
 ) -> DiskBackedExpertLoader:
     """Drive `load` off the loop thread, as the runner thread really does."""
     provider = DiskBackedExpertLoader(
         expert_bank=expert_bank,
-        residency=residency,
         cache=cache,
+        cache_manager=cache_manager,
         loop=asyncio.get_running_loop(),
         metrics=metrics,
     )
@@ -117,13 +117,13 @@ async def load(
 
 
 def test_provider_satisfies_the_expert_provider_protocol() -> None:
-    expert_bank, residency, cache, metrics = build()
+    expert_bank, cache, cache_manager, metrics = build()
     loop = asyncio.new_event_loop()
     try:
         provider = DiskBackedExpertLoader(
             expert_bank=expert_bank,
-            residency=residency,
             cache=cache,
+            cache_manager=cache_manager,
             loop=loop,
             metrics=metrics,
         )
@@ -133,30 +133,30 @@ def test_provider_satisfies_the_expert_provider_protocol() -> None:
 
 
 async def test_a_miss_issues_exactly_one_demand_read_and_installs_it() -> None:
-    expert_bank, residency, cache, metrics = build()
+    expert_bank, cache, cache_manager, metrics = build()
 
     await load(
         expert_bank=expert_bank,
-        residency=residency,
         cache=cache,
+        cache_manager=cache_manager,
         metrics=metrics,
         batches=[(key(0),)],
     )
 
     assert expert_bank.reads == [(key(0), ReadPriority.DEMAND)]
-    assert residency.is_resident(key(0))
-    assert key(0) in cache
+    assert cache.is_resident(key(0))
+    assert key(0) in cache_manager
     assert metrics.cache_misses == 1
     assert metrics.cache_hits == 0
 
 
 async def test_a_hit_issues_no_read() -> None:
-    expert_bank, residency, cache, metrics = build()
+    expert_bank, cache, cache_manager, metrics = build()
 
     await load(
         expert_bank=expert_bank,
-        residency=residency,
         cache=cache,
+        cache_manager=cache_manager,
         metrics=metrics,
         batches=[(key(0),), (key(0),)],
     )
@@ -164,16 +164,16 @@ async def test_a_hit_issues_no_read() -> None:
     assert len(expert_bank.reads) == 1
     assert metrics.cache_hits == 1
     assert metrics.cache_misses == 1
-    assert residency.installs == [key(0)]
+    assert cache.installs == [key(0)]
 
 
 async def test_a_repeated_key_within_one_batch_is_read_once() -> None:
-    expert_bank, residency, cache, metrics = build()
+    expert_bank, cache, cache_manager, metrics = build()
 
     await load(
         expert_bank=expert_bank,
-        residency=residency,
         cache=cache,
+        cache_manager=cache_manager,
         metrics=metrics,
         batches=[(key(0), key(1), key(0))],
     )
@@ -183,38 +183,38 @@ async def test_a_repeated_key_within_one_batch_is_read_once() -> None:
 
 
 async def test_exceeding_the_budget_evicts_and_the_victim_leaves_residency() -> None:
-    expert_bank, residency, cache, metrics = build(budget_experts=2)
+    expert_bank, cache, cache_manager, metrics = build(budget_experts=2)
 
     await load(
         expert_bank=expert_bank,
-        residency=residency,
         cache=cache,
+        cache_manager=cache_manager,
         metrics=metrics,
         batches=[(key(0), key(1)), (key(2),)],
     )
 
     # Both residents have frequency 1, so LFRU's tiebreak takes the older.
-    assert residency.evictions == [key(0)]
-    assert not residency.is_resident(key(0))
-    assert residency.is_resident(key(1))
-    assert residency.is_resident(key(2))
+    assert cache.evictions == [key(0)]
+    assert not cache.is_resident(key(0))
+    assert cache.is_resident(key(1))
+    assert cache.is_resident(key(2))
 
 
 async def test_residency_bytes_track_the_cache_and_never_exceed_the_budget() -> None:
     budget_experts = 3
-    expert_bank, residency, cache, metrics = build(budget_experts=budget_experts)
+    expert_bank, cache, cache_manager, metrics = build(budget_experts=budget_experts)
 
     await load(
         expert_bank=expert_bank,
-        residency=residency,
         cache=cache,
+        cache_manager=cache_manager,
         metrics=metrics,
         batches=[(key(idx % 7),) for idx in range(30)],
     )
 
-    assert residency.size() == cache.cache_size
-    assert residency.size() <= budget_experts * PAYLOAD_BYTES
-    assert cache.evictions > 0
+    assert cache.size() == cache_manager.cache_size
+    assert cache.size() <= budget_experts * PAYLOAD_BYTES
+    assert cache_manager.evictions > 0
 
 
 async def test_lru_and_lfru_evict_different_victims_on_the_same_pattern() -> None:
@@ -231,27 +231,29 @@ async def test_lru_and_lfru_evict_different_victims_on_the_same_pattern() -> Non
 
     victims: dict[CachePolicy, list[ExpertKey]] = {}
     for policy in (CachePolicy.LFRU, CachePolicy.LRU):
-        expert_bank, residency, cache, metrics = build(budget_experts=3, policy=policy)
+        expert_bank, cache, cache_manager, metrics = build(
+            budget_experts=3, policy=policy
+        )
         await load(
             expert_bank=expert_bank,
-            residency=residency,
             cache=cache,
+            cache_manager=cache_manager,
             metrics=metrics,
             batches=batches,
         )
-        victims[policy] = residency.evictions
+        victims[policy] = cache.evictions
 
     assert victims[CachePolicy.LFRU] == [key(2)]
     assert victims[CachePolicy.LRU] == [key(0)]
 
 
 async def test_stall_time_accumulates_only_for_demand_reads() -> None:
-    expert_bank, residency, cache, metrics = build()
+    expert_bank, cache, cache_manager, metrics = build()
 
     await load(
         expert_bank=expert_bank,
-        residency=residency,
         cache=cache,
+        cache_manager=cache_manager,
         metrics=metrics,
         batches=[(key(0), key(1))],
     )
@@ -260,8 +262,8 @@ async def test_stall_time_accumulates_only_for_demand_reads() -> None:
 
     await load(
         expert_bank=expert_bank,
-        residency=residency,
         cache=cache,
+        cache_manager=cache_manager,
         metrics=metrics,
         batches=[(key(0), key(1))],
     )
@@ -269,51 +271,51 @@ async def test_stall_time_accumulates_only_for_demand_reads() -> None:
 
 
 async def test_a_missing_blob_is_fatal_and_propagates() -> None:
-    expert_bank, residency, cache, metrics = build(
+    expert_bank, cache, cache_manager, metrics = build(
         expert_bank=FakeExpertBank(error=KeyError("nope"))
     )
 
     with pytest.raises(KeyError):
         await load(
             expert_bank=expert_bank,
-            residency=residency,
             cache=cache,
+            cache_manager=cache_manager,
             metrics=metrics,
             batches=[(key(0),)],
         )
 
     # Nothing was silently substituted or skipped.
-    assert residency.payloads == {}
-    assert key(0) not in cache
+    assert cache.payloads == {}
+    assert key(0) not in cache_manager
 
 
 async def test_a_short_read_is_fatal_and_propagates() -> None:
-    expert_bank, residency, cache, metrics = build(
+    expert_bank, cache, cache_manager, metrics = build(
         expert_bank=FakeExpertBank(error=IOError("short"))
     )
 
     with pytest.raises(IOError):
         await load(
             expert_bank=expert_bank,
-            residency=residency,
             cache=cache,
+            cache_manager=cache_manager,
             metrics=metrics,
             batches=[(key(0),)],
         )
 
-    assert residency.payloads == {}
+    assert cache.payloads == {}
 
 
 async def test_a_failure_mid_batch_does_not_continue_with_the_experts_it_had() -> None:
     expert_bank = FakeExpertBank()
-    residency = FakeCache()
-    cache = ExpertCacheManager(budget_bytes=8 * PAYLOAD_BYTES, sample_size=8)
+    cache = FakeCache()
+    cache_manager = ExpertCacheManager(budget_bytes=8 * PAYLOAD_BYTES, sample_size=8)
     metrics = GenerationMetrics()
 
     provider = DiskBackedExpertLoader(
         expert_bank=expert_bank,
-        residency=residency,
         cache=cache,
+        cache_manager=cache_manager,
         loop=asyncio.get_running_loop(),
         metrics=metrics,
     )
@@ -325,30 +327,30 @@ async def test_a_failure_mid_batch_does_not_continue_with_the_experts_it_had() -
 
     # The batch aborted at the first failed read rather than proceeding.
     assert [read_key for read_key, _ in expert_bank.reads] == [key(0), key(1)]
-    assert set(residency.payloads) == {key(0)}
+    assert set(cache.payloads) == {key(0)}
 
 
 async def test_metrics_are_optional() -> None:
-    expert_bank, residency, cache, _ = build()
+    expert_bank, cache, cache_manager, _ = build()
 
     await load(
         expert_bank=expert_bank,
-        residency=residency,
         cache=cache,
+        cache_manager=cache_manager,
         metrics=None,
         batches=[(key(0),)],
     )
 
-    assert residency.is_resident(key(0))
+    assert cache.is_resident(key(0))
 
 
 async def test_an_empty_batch_reads_nothing() -> None:
-    expert_bank, residency, cache, metrics = build()
+    expert_bank, cache, cache_manager, metrics = build()
 
     await load(
         expert_bank=expert_bank,
-        residency=residency,
         cache=cache,
+        cache_manager=cache_manager,
         metrics=metrics,
         batches=[()],
     )
