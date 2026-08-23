@@ -25,6 +25,6 @@ class IExpertCache(Protocol):
         """Checks if `key` is in the cache."""
         ...
 
-    def resident_bytes(self) -> int:  # TODO rename to `size`, make into a prop
+    def size(self) -> int:
         """Total size of the cache in bytes."""
         ...
