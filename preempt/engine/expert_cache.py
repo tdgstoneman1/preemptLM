@@ -131,9 +131,8 @@ class ExpertCacheManager:
     def policy(self) -> CachePolicy:
         return self._policy
 
-    # TODO rename
     @property
-    def resident_bytes(self) -> int:
+    def cache_size(self) -> int:
         return self._resident_bytes
 
     @property
