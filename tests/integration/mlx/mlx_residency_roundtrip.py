@@ -1,7 +1,7 @@
 """Host smoke test: do store bytes become the checkpoint's own tensors again?
 
 Reads real experts out of a packed store, installs them through
-`MlxExpertResidency`, and compares every resulting tensor against the same
+`MlxExpertCache`, and compares every resulting tensor against the same
 tensor freshly re-sliced from the source checkpoint — dtype, shape, and bytes.
 
 The dtype half is the point. `scales`/`biases` reach the store as `uint16`
@@ -20,9 +20,9 @@ and MLX refcounting does the rest.
 
 Usage (from the repo root, on the macOS host)::
 
-    python tests/integration/mlx_residency_roundtrip.py \\
+    uv run tests/integration/mlx/mlx_residency_roundtrip.py \\
         --model unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit \\
-        --store expert-bank/store
+        --expert-bank expert-bank/qwen3.6-35b-4bit
 """
 
 from __future__ import annotations
@@ -46,35 +46,36 @@ from preempt.backends.mlx_metal.convert import (
     resolve_model_dir,
     mlx_to_numpy,
 )
-from preempt.backends.mlx_metal.residency import MlxExpertResidency
+from preempt.backends.mlx_metal.cache import MlxExpertCache
 from preempt.core.encoding import parse_payload_encoding_tag
-from preempt.core.identity import ExpertKey
 from preempt.core.protocols.expert_bank import ReadPriority
 from preempt.storage.manifest import ExpertBankManifest
 from preempt.storage.expert_io import ExpertBank
 
+# TODO DE-SLOP
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Verify that `MlxExpertResidency` rebuilds the checkpoint's "
+        description="Verify that `MlxExpertCache` rebuilds the checkpoint's "
         "own expert tensors from a packed store."
     )
     parser.add_argument(
         "--model",
         required=True,
-        help="MLX model id or local checkpoint directory the store was packed from.",
+        help="MLX model id or local checkpoint directory the expert bank was packed from.",
     )
     parser.add_argument(
-        "--store",
+        "--expert-bank",
         required=True,
         type=Path,
-        help="Packed store directory holding `experts.bin` and `manifest.json`.",
+        help="Expert bank directory holding `experts.bin` and `manifest.json`.",
     )
     return parser.parse_args()
 
 
 def sample_pairs(manifest: ExpertBankManifest) -> tuple[tuple[int, int], ...]:
-    """Pick three deterministic (layer, expert) pairs spanning the store."""
+    """Pick three deterministic (layer, expert) pairs spanning the expert bank."""
     block_idxs = manifest.model_moe_spec.moe_block_idxs
     num_routed_experts = manifest.model_moe_spec.num_routed_experts
 
@@ -140,16 +141,16 @@ def compare_tensor(
 
 async def verify_expert(
     *,
-    store: ExpertBank,
-    residency: MlxExpertResidency,
+    expert_bank: ExpertBank,
+    residency: MlxExpertCache,
     cache: ShardTensorCache,
     layer_tensors: Mapping[str, str],
     block_idx: int,
     expert_idx: int,
 ) -> int:
     """Read, install, and byte-verify one expert. Returns its blob size."""
-    key = store.key_for(block_idx, expert_idx)
-    payload = await store.read(key, ReadPriority.DEMAND)
+    key = expert_bank.key_for(block_idx, expert_idx)
+    payload = await expert_bank.read(key, ReadPriority.DEMAND)
     residency.install(key, payload)
 
     tensors = residency.tensors(key)
@@ -188,8 +189,8 @@ async def verify_expert(
 
 async def verify_pending_graph_survives_eviction(
     *,
-    store: ExpertBank,
-    residency: MlxExpertResidency,
+    expert_bank: ExpertBank,
+    residency: MlxExpertCache,
     block_idx: int,
     expert_idx: int,
 ) -> None:
@@ -200,8 +201,8 @@ async def verify_pending_graph_survives_eviction(
     If this ever fails, the residency has grown a barrier or a mutation it
     should not have.
     """
-    key = store.key_for(block_idx, expert_idx)
-    payload = await store.read(key, ReadPriority.DEMAND)
+    key = expert_bank.key_for(block_idx, expert_idx)
+    payload = await expert_bank.read(key, ReadPriority.DEMAND)
     residency.install(key, payload)
 
     scales = residency.tensors(key)["gate_proj.scales"]
@@ -228,7 +229,7 @@ async def verify_pending_graph_survives_eviction(
     )
 
 
-def verify_guards(residency: MlxExpertResidency, store: ExpertBank) -> None:
+def verify_guards(residency: MlxExpertCache, store: ExpertBank) -> None:
     """Check the failures that must be loud rather than silent."""
     absent = store.key_for(0, 0, variant="not-a-variant")
 
@@ -254,7 +255,7 @@ def verify_guards(residency: MlxExpertResidency, store: ExpertBank) -> None:
 
 
 async def verify_encoding_guard(
-    *, store: ExpertBank, residency: MlxExpertResidency, block_idx: int
+    *, store: ExpertBank, residency: MlxExpertCache, block_idx: int
 ) -> None:
     """A payload from a differently encoded store must be refused, not decoded."""
     key = store.key_for(block_idx, 0)
@@ -281,19 +282,19 @@ async def verify_encoding_guard(
 async def run(args: argparse.Namespace) -> None:
     model_dir = resolve_model_dir(args.model)
     print(f"Model directory: {model_dir}", flush=True)
-    print(f"Store directory: {args.store}", flush=True)
+    print(f"Store directory: {args.expert_bank}", flush=True)
 
     arch = Qwen3NextMoEArchitecture()
     shard_index = build_tensor_shard_index(model_dir, arch)
     by_layer = group_expert_tensors_by_layer(shard_index, arch)
     cache = ShardTensorCache(shard_index=shard_index)
 
-    with ExpertBank(args.store) as store:
-        manifest = store.manifest
+    with ExpertBank(args.expert_bank) as bank:
+        manifest = bank.manifest
         encoding = parse_payload_encoding_tag(manifest.payload_encoding)
         print(f"Encoding: {manifest.payload_encoding} -> {encoding!r}", flush=True)
 
-        residency = MlxExpertResidency(encoding=encoding)  # type: ignore
+        residency = MlxExpertCache(encoding=encoding)  # type: ignore
         installed_bytes = 0
 
         for block_idx, expert_idx in sample_pairs(manifest):
@@ -304,7 +305,7 @@ async def run(args: argparse.Namespace) -> None:
                 )
 
             installed_bytes += await verify_expert(
-                store=store,
+                expert_bank=bank,
                 residency=residency,
                 cache=cache,
                 layer_tensors=by_layer[block_idx],
@@ -317,7 +318,7 @@ async def run(args: argparse.Namespace) -> None:
                     f"`resident_bytes` is {residency.resident_bytes()}; "
                     f"{installed_bytes} bytes have been installed."
                 )
-            if not residency.is_resident(store.key_for(block_idx, expert_idx)):
+            if not residency.is_resident(bank.key_for(block_idx, expert_idx)):
                 raise RuntimeError(
                     f"Expert (layer {block_idx}, expert {expert_idx}) is not "
                     "resident after `install`."
@@ -330,7 +331,7 @@ async def run(args: argparse.Namespace) -> None:
         )
 
         for block_idx, expert_idx in sample_pairs(manifest):
-            residency.evict(store.key_for(block_idx, expert_idx))
+            residency.evict(bank.key_for(block_idx, expert_idx))
 
         if residency.resident_bytes() != 0:
             raise RuntimeError(
@@ -339,12 +340,12 @@ async def run(args: argparse.Namespace) -> None:
             )
         print("Eviction verified: residency is empty and holds 0 bytes.", flush=True)
 
-        verify_guards(residency, store)
+        verify_guards(residency, bank)
         await verify_encoding_guard(
-            store=store, residency=residency, block_idx=sample_pairs(manifest)[0][0]
+            store=bank, residency=residency, block_idx=sample_pairs(manifest)[0][0]
         )
         await verify_pending_graph_survives_eviction(
-            store=store,
+            expert_bank=bank,
             residency=residency,
             block_idx=sample_pairs(manifest)[0][0],
             expert_idx=0,

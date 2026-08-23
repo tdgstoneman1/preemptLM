@@ -46,7 +46,7 @@ from pathlib import Path
 
 import mlx.core as mx
 
-import preempt.backends.mlx_metal.residency as residency_module
+import preempt.backends.mlx_metal.cache as residency_module
 from preempt.config.pipeline import (
     GenerationSettings,
     LlmConfig,
