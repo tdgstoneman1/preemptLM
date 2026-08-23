@@ -33,7 +33,7 @@ class FakeResidency:
     def is_resident(self, key: ExpertKey) -> bool:
         return True
 
-    def resident_bytes(self) -> int:
+    def size(self) -> int:
         return 0
 
 
