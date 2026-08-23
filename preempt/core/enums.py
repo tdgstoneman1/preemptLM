@@ -30,7 +30,7 @@ class CachePolicy(StrEnum):
     when a requested expert is not found in memory and there is insufficient
     memory available to load it from disk.
 
-    `LFRU` (`ExpertCache` default) ranks by frequency, then recency. This helps
+    `LFRU` (`ExpertCacheManager` default) ranks by frequency, then recency. This helps
     frequently accessed experts resist eviction during temporary bursts of less
     frequent accesses, whereas plain `LRU` would evict them.
 
