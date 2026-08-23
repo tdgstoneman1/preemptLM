@@ -215,10 +215,10 @@ class MlxExpertCache:
         self._resident_bytes -= entry.num_bytes
 
     def is_resident(self, key: ExpertKey) -> bool:  # TODO rename to is_cached
-        """Checks cache for an entry under `key`."""
+        """Checks if `key` is in the cache."""
         return key in self._resident
 
-    def resident_bytes(self) -> int:  # TODO rename to size, make into a prop
+    def size(self) -> int:
         """Returns the total size of the cache in bytes."""
         return self._resident_bytes
 
