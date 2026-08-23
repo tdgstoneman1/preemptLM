@@ -6,12 +6,12 @@ import asyncio
 
 import time
 
-from preempt.core.protocols.residency import IExpertResidency
+from preempt.core.protocols.cache import IExpertCache
 from preempt.core.protocols.expert_bank import IExpertBank, ReadPriority
 
 from preempt.core.identity import ExpertKey
 
-from .expert_cache import ExpertCache
+from .expert_cache import ExpertCacheManager
 from .metrics import GenerationMetrics
 
 
@@ -25,11 +25,11 @@ class DummyExpertLoader:
 
 
 class DiskBackedExpertLoader:
-    """Implements `IExpertLoader` protocol and loads router-selected experts from disk
+    """`IExpertLoader` interface that loads serialized expert layers from disk
     on demand.
 
-    :Note: A failed disk read is fatal and propagates. Currently, no fallback strategy
-    exists since falling back to in-memory experts or skipping rows would make inference
+    :Note: Failed disk reads are fatal. No fallback strategy currently in place
+    since falling back to in-memory experts or skipping rows would make inference
     inexact.
 
     Parameters
@@ -37,10 +37,10 @@ class DiskBackedExpertLoader:
     expert_bank : IExpertBank
         Source of expert payloads. Read when an MoE router selects an expert that has not
         been loaded into memory and must be read from disk.
-    residency : IExpertResidency
+    residency : IExpertCache
         Decodes expert payloads into live device tensors and manages their lifecycle in
         memory.
-    cache : ExpertCache
+    cache : ExpertCacheManager
         Tracks and manages cached experts within allowed memory budget
     loop : asyncio.AbstractEventLoop
         Event loop on which expert bank reads are scheduled
@@ -52,8 +52,8 @@ class DiskBackedExpertLoader:
         self,
         *,
         expert_bank: IExpertBank,
-        residency: IExpertResidency,
-        cache: ExpertCache,
+        residency: IExpertCache,
+        cache: ExpertCacheManager,
         loop: asyncio.AbstractEventLoop,
         metrics: GenerationMetrics | None = None,
     ) -> None:
