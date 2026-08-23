@@ -1,7 +1,5 @@
 """***GENERATED WITH CLAUDE CODE***
 
-Composition root: the one place concrete backends, sinks, and the engine meet.
-
 Usage (macOS host)::
 
     python main.py --config configs/pipeline-qwen3_6-35b-mlx.toml \
@@ -11,8 +9,12 @@ Usage (macOS host)::
 from __future__ import annotations
 
 import argparse
-import asyncio
+
 from pathlib import Path
+
+import asyncio
+
+import mlx.core as mx
 
 from preempt.config.pipeline import PipelineConfig
 from preempt.config.target_layers import (
@@ -22,6 +24,32 @@ from preempt.config.target_layers import (
 )
 from preempt.engine.metrics import GenerationMetrics, StepMetrics
 from preempt.engine.pipeline import GenerationPipeline
+
+from preempt.backends.mlx_metal.instrument import (
+    mlx_instrument_model,
+    mlx_strip_instrumented_expert_weights,
+)
+from preempt.backends.mlx_metal.instrumented.qwen3_next_moe import (
+    make_qwen3next_moe_wrapper_factory,
+)
+from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
+from preempt.backends.mlx_metal.loader import load_mlx_model
+from preempt.backends.mlx_metal.recorder import MlxExpertRoutingRecorder
+from preempt.backends.mlx_metal.cache import MlxExpertCache
+from preempt.backends.mlx_metal.runner import MlxModelRunner
+
+from preempt.core.encoding import parse_payload_encoding_tag
+from preempt.core.sinks import ParquetEventSink
+
+from preempt.datamodel.tracing.context import TraceRunContext
+from preempt.datamodel.tracing.expert_routing import ExpertRoutingEvent
+
+from preempt.engine.expert_cache import ExpertCacheManager
+from preempt.engine.layer_resolution import ensure_no_target_layer_overlap
+from preempt.engine.expert_loaders import DiskBackedExpertLoader
+
+from preempt.storage.expert_io import ExpertBank
+
 from preempt.utils.io_utils import read_and_validate_toml
 
 # TODO clean up claude slop + refactor
@@ -151,33 +179,11 @@ def build_pipeline(
         If an expert bank does not match the loaded model.
     """
 
-    if config.llm.backend != "mlx_metal":
+    if config.llm.backend != "mlx_metal":  # TODO validate against global constant
         raise ValueError(f"Unknown backend: {config.llm.backend!r}")
 
     # Backend imports stay inside the branch: only the composition root may
     # import concrete backends, and only for the backend actually selected.
-    import mlx.core as mx
-
-    from preempt.backends.mlx_metal.instrument import (
-        mlx_instrument_model,
-        mlx_strip_instrumented_expert_weights,
-    )
-    from preempt.backends.mlx_metal.instrumented.qwen3_next_moe import (
-        make_qwen3next_moe_wrapper_factory,
-    )
-    from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
-    from preempt.backends.mlx_metal.loader import load_mlx_model
-    from preempt.backends.mlx_metal.recorder import MlxExpertRoutingRecorder
-    from preempt.backends.mlx_metal.cache import MlxExpertCache
-    from preempt.backends.mlx_metal.runner import MlxModelRunner
-    from preempt.core.encoding import parse_payload_encoding_tag
-    from preempt.core.sinks import ParquetEventSink
-    from preempt.datamodel.tracing.context import TraceRunContext
-    from preempt.datamodel.tracing.expert_routing import ExpertRoutingEvent
-    from preempt.engine.expert_cache import ExpertCacheManager
-    from preempt.engine.layer_resolution import ensure_no_target_layer_overlap
-    from preempt.engine.expert_loaders import DiskBackedExpertLoader
-    from preempt.storage.expert_io import ExpertBank
 
     base_dir = config_dir if config_dir is not None else Path.cwd()
 
@@ -198,8 +204,9 @@ def build_pipeline(
     # the model, so building them ahead of the load is harmless; the provider
     # must exist before the wrapper factory that references it. ---
     expert_bank: ExpertBank | None = None
-    residency: MlxExpertCache | None = None
+    cache: MlxExpertCache | None = None
     provider: DiskBackedExpertLoader | None = None
+
     if config.stream_settings is not None:
         if loop is None:
             raise ValueError(
@@ -214,16 +221,16 @@ def build_pipeline(
             expert_bank_path,
             bypass_page_cache=config.stream_settings.bypass_page_cache,
         )
-        residency = MlxExpertCache(
+        cache = MlxExpertCache(
             encoding=parse_payload_encoding_tag(expert_bank.manifest.payload_encoding)  # type: ignore
         )
-        cache = ExpertCacheManager(
+        cache_manager = ExpertCacheManager(
             budget_bytes=config.stream_settings.memory_bytes_budget
         )
         provider = DiskBackedExpertLoader(
             expert_bank=expert_bank,
-            residency=residency,
             cache=cache,
+            cache_manager=cache_manager,
             loop=loop,
             metrics=metrics,
         )
@@ -240,6 +247,7 @@ def build_pipeline(
     target_config: TargetLayerConfig | None = None
     if config.trace_settings is not None:
         target_config = config.trace_settings.to_target_layer_config()
+
     elif expert_bank is not None:
         target_config = _streaming_target_config(
             config.llm.architecture,
@@ -254,6 +262,7 @@ def build_pipeline(
 
     recorder: MlxExpertRoutingRecorder | None = None
     sink: ParquetEventSink | None = None
+
     if config.trace_settings is not None and output_path is not None:
         run_context = TraceRunContext.with_generated_run_id(
             run_id_prefix=config.trace_settings.run_id_prefix,
@@ -264,22 +273,24 @@ def build_pipeline(
         recorder = MlxExpertRoutingRecorder(run_context=run_context)
 
     if layers:
+        # TODO finish refactoring this section
+        wrapper_factory = make_qwen3next_moe_wrapper_factory(
+            recorder,
+            capture_gate_logits=(
+                config.trace_settings.capture_gate_logits
+                if config.trace_settings is not None
+                else False
+            ),
+            provider=provider,
+            model_fingerprint=(
+                expert_bank.model_fingerprint if expert_bank is not None else None
+            ),
+            cache=cache,
+        )
         mlx_instrument_model(
             loaded.model,
-            layers,
-            make_qwen3next_moe_wrapper_factory(
-                recorder,
-                capture_gate_logits=(
-                    config.trace_settings.capture_gate_logits
-                    if config.trace_settings is not None
-                    else False
-                ),
-                provider=provider,
-                model_fingerprint=(
-                    expert_bank.model_fingerprint if expert_bank is not None else None
-                ),
-                residency=residency,
-            ),
+            candidates=layers,
+            wrapper_factory=wrapper_factory,
         )
         print(f"Instrumented {len(layers)} router layer(s).")
 
