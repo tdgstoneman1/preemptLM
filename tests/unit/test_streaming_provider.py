@@ -212,7 +212,7 @@ async def test_residency_bytes_track_the_cache_and_never_exceed_the_budget() -> 
         batches=[(key(idx % 7),) for idx in range(30)],
     )
 
-    assert residency.size() == cache.size
+    assert residency.size() == cache.cache_size
     assert residency.size() <= budget_experts * PAYLOAD_BYTES
     assert cache.evictions > 0
 
