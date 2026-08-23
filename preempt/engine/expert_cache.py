@@ -35,26 +35,26 @@ class _Entry:
     slot: int = field()
 
 
-class ExpertCache:
-    """A bounded expert cache that tracks experts in memory and manages eviction
-    decisions without holding any weight tensors. The cache uses random sampling
-    to avoid full scans during eviction decisions with LFRU (Least Frequently
-    Recently Used) as the default eviction policy.
+class ExpertCacheManager:
+    """Manager that tracks experts in memory and manages eviction decisions.
 
-    **Note:** Cache does not track which experts are actively used in a forward
-    pass. When memory budget is smaller than the *largest* set of unique experts
-    required by *any single layer* across *all tokens*, experts may be evicted
-    immediately after being loaded.
+    Uses random sampling to avoid full scans during eviction decisions, with LFRU
+    (Least Frequently Recently Used) set as the default policy.
 
-    With the MLX backend, this will not result in error as MLX's refcounting keeps
-    expert tensors in memory during computation, even if evicted from cache. However,
-    this can still hurt performance by causing excessive re-reads from disk.
+    **Note:** This does not track which experts are actively used in a forward pass.
+    When memory budget is less than the *largest* set of unique experts required by
+    *any one layer* across *all tokens*, experts may be prematurely evicted immediately
+    upon loading.
 
-    With other backends, insufficient memory budget may lead to `KeyError`s downstream.
-    To safely avoid this errors and/or performance penalties, initialize cache with a
-    memory budget greater than the size of `experts_per_token * tokens_in_sequence`,
-    where `experts_per_token` typically refers to top-k, and `tokens_in_sequence` the
-    max sequence length.
+    With the MLX backend, this will not cause an error as MLX's refcounting will still
+    keep expert weights in memory during computation. However, it can still hurt performance
+    by causing excessive re-reads from disk.
+
+    With other backends, insufficient memory budget may cause downstream `KeyError`s.
+    To safely avoid this and possble performance penalties, initialize cache manager
+    with a memory budget greater than the size of `experts_per_token * tokens_in_sequence`
+    (where `experts_per_token` typically refers to top-k, and `tokens_in_sequence`
+    the max sequence length).
     """
 
     _budget_bytes: int  # TODO rename to '_memory_budget'
@@ -84,14 +84,13 @@ class ExpertCache:
         Parameters
         ----------
         budget_bytes : int
-            Maximum total payload size of experts held in memory. The cache and the in-
-            memory layer must agree on each expert's byte size. Pass `len(payload.data)`
-            to `admit(...)` so the budget reflects actual memory use.
+            Maximum memory footprint allowed across all cached expert layers
         policy : CachePolicy
             Eviction ranking policy (LFRU or LRU), by default CachePolicy.LFRU
         sample_size : int
-            Number of candidates drawn per eviction. Below this size the entire cache is
-            considered; above it a random sample is used, by default 5
+            Number of experts sampled for an eviction decision. When the number of cached
+            experts exceeds this, random sampling is used. Otherwise, all cached experts
+            are considered. By default 5
         seed : int
             Random seed for sampling candidate layers to evict. Deterministic sampling
             enables exact eviction assertions in tests, by default 67
@@ -139,12 +138,12 @@ class ExpertCache:
 
     @property
     def hits(self) -> int:
-        """Number of demand accesses where routed expert was already in memory"""
+        """Number of demand accesses where an expert was already cached"""
         return self._hits
 
     @property
     def misses(self) -> int:
-        """Number of demand accesses where routed expert had to be read from disk"""
+        """Number of demand accesses where an expert had to be read from disk"""
         return self._misses
 
     @property
@@ -154,11 +153,11 @@ class ExpertCache:
 
     @property
     def bytes_read(self) -> int:
-        """Total number of payload bytes read from expert bank"""
+        """Total number of bytes read from expert bank"""
         return self._bytes_read
 
     def __contains__(self, key: ExpertKey) -> bool:
-        """Checks if cache has an entry under `key` without recording an access."""
+        """Checks cache for expert held under `key` without recording an access."""
         return key in self._entries
 
     def __len__(self) -> int:
@@ -176,7 +175,7 @@ class ExpertCache:
         Returns
         -------
         bool
-            `True` if key was already in memory (frequency and recency updated),
+            `True` if the key was found in cache (frequency and recency updated),
             `False` otherwise (caller should read the expert and call `admit(...)`).
         """
         entry = self._entries.get(key)
@@ -194,27 +193,26 @@ class ExpertCache:
         return True
 
     def admit(self, key: ExpertKey, num_bytes: int) -> tuple[ExpertKey, ...]:
-        """Makes room for expert under `key` and records it in the cache.
+        """Makes room for new expert under `key` and records it.
 
         Parameters
         ----------
         key : ExpertKey
-            Key for an MoE router-selected expert
+            Key identifying an expert
         num_bytes : int
-            Expert's payload size in bytes. Must match the byte count that the in-memory
-            layer uses as drift will cause silent memory overrun.
+            The expert's payload size in bytes
 
         Returns
         -------
         tuple[ExpertKey, ...]
-            Expert keys displaced to make room for the new expert, in the order they were
-            evicted. Caller must remove exactly these from the in-memory layer and in the
-            same order.
+            Expert keys displaced to make room for the new expert, in the order
+            they were evicted. Caller must remove exactly these from the cache
+            and in the same order.
 
         Raises
         ------
         ValueError
-            If a single expert's size exceeds cache's memory budget
+            If a single expert's size exceeds cache's total memory budget
         """
         if num_bytes > self._budget_bytes:
             raise ValueError(
@@ -244,11 +242,7 @@ class ExpertCache:
         return tuple(evicted)
 
     def _select_victim(self) -> ExpertKey:  # TODO rename
-        """Returns the lowest-ranked entry from a random sample.
-
-        If cache is smaller than `self.sample_size`, then all entries are considered.
-        Otherwise, `self.sample_size` entries are drawn with replacement.
-        """
+        """Returns the lowest-ranked entry from a random sample."""
         candidates: Sequence[ExpertKey]
 
         if len(self._keys) <= self._sample_size:
