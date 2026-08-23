@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 
 from preempt.core.protocols.loader import IExpertLoader
-from preempt.core.protocols.residency import IExpertResidency
+from preempt.core.protocols.cache import IExpertCache
 from preempt.core.protocols.runner import IModelRunner, ITokenCodec
 from preempt.core.protocols.expert_bank import ExpertPayload, IExpertBank, ReadPriority
 
@@ -47,7 +47,7 @@ class FakeExpertBank:
 def test_fakes_satisfy_protocols_structurally() -> None:
     assert isinstance(FakeRunner(), IModelRunner)
     assert isinstance(FakeCodec(), ITokenCodec)
-    assert isinstance(FakeResidency(), IExpertResidency)
+    assert isinstance(FakeResidency(), IExpertCache)
     assert isinstance(FakeExpertBank(), IExpertBank)
     assert isinstance(DummyExpertLoader(), IExpertLoader)
 

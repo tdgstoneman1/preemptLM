@@ -10,10 +10,10 @@ from preempt.core.identity import ExpertKey, TensorSpec
 from preempt.core.enums import CachePolicy
 
 from preempt.core.protocols.loader import IExpertLoader
-from preempt.core.protocols.residency import IExpertResidency
+from preempt.core.protocols.cache import IExpertCache
 from preempt.core.protocols.expert_bank import ExpertPayload, IExpertBank, ReadPriority
 
-from preempt.engine.expert_cache import ExpertCache
+from preempt.engine.expert_cache import ExpertCacheManager
 from preempt.engine.metrics import GenerationMetrics
 from preempt.engine.expert_loaders import DiskBackedExpertLoader
 
@@ -52,7 +52,7 @@ class FakeExpertBank:
 
 
 class FakeResidency:
-    """`IExpertResidency` mirroring `MlxExpertResidency`'s strict `evict`.
+    """`IExpertCache` mirroring `MlxExpertCache`'s strict `evict`.
 
     Evicting a key that is not resident raises, exactly as the MLX residency
     does — a silent no-op there would let the cache's accounting and the
@@ -84,11 +84,11 @@ def build(
     budget_experts: int = 4,
     expert_bank: FakeExpertBank | None = None,
     policy: CachePolicy = CachePolicy.LFRU,
-) -> tuple[FakeExpertBank, FakeResidency, ExpertCache, GenerationMetrics]:
+) -> tuple[FakeExpertBank, FakeResidency, ExpertCacheManager, GenerationMetrics]:
     return (
         expert_bank if expert_bank is not None else FakeExpertBank(),
         FakeResidency(),
-        ExpertCache(
+        ExpertCacheManager(
             budget_bytes=budget_experts * PAYLOAD_BYTES, policy=policy, sample_size=8
         ),
         GenerationMetrics(),
@@ -98,8 +98,8 @@ def build(
 async def load(
     *,
     expert_bank: IExpertBank,
-    residency: IExpertResidency,
-    cache: ExpertCache,
+    residency: IExpertCache,
+    cache: ExpertCacheManager,
     metrics: GenerationMetrics | None,
     batches: Sequence[Sequence[ExpertKey]],
 ) -> DiskBackedExpertLoader:
@@ -307,7 +307,7 @@ async def test_a_short_read_is_fatal_and_propagates() -> None:
 async def test_a_failure_mid_batch_does_not_continue_with_the_experts_it_had() -> None:
     expert_bank = FakeExpertBank()
     residency = FakeResidency()
-    cache = ExpertCache(budget_bytes=8 * PAYLOAD_BYTES, sample_size=8)
+    cache = ExpertCacheManager(budget_bytes=8 * PAYLOAD_BYTES, sample_size=8)
     metrics = GenerationMetrics()
 
     provider = DiskBackedExpertLoader(

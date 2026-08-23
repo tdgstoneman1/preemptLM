@@ -5,7 +5,7 @@ import pytest
 from preempt.core.identity import ExpertKey
 from preempt.core.enums import CachePolicy
 
-from preempt.engine.expert_cache import ExpertCache
+from preempt.engine.expert_cache import ExpertCacheManager
 
 MODEL_HASH = "fp-test"
 UNIT = 100
@@ -18,7 +18,7 @@ def key(expert_idx: int, block_idx: int = 0) -> ExpertKey:
 
 
 def test_touch_misses_before_admit_and_hits_after() -> None:
-    cache = ExpertCache(budget_bytes=10 * UNIT)
+    cache = ExpertCacheManager(budget_bytes=10 * UNIT)
 
     assert cache.touch(key(0)) is False
     assert key(0) not in cache
@@ -29,7 +29,7 @@ def test_touch_misses_before_admit_and_hits_after() -> None:
 
 
 def test_counters_track_hits_misses_and_bytes_read() -> None:
-    cache = ExpertCache(budget_bytes=10 * UNIT)
+    cache = ExpertCacheManager(budget_bytes=10 * UNIT)
 
     cache.touch(key(0))
     cache.admit(key(0), UNIT)
@@ -46,7 +46,7 @@ def test_counters_track_hits_misses_and_bytes_read() -> None:
 
 
 def test_admit_within_budget_evicts_nothing() -> None:
-    cache = ExpertCache(budget_bytes=3 * UNIT)
+    cache = ExpertCacheManager(budget_bytes=3 * UNIT)
 
     assert cache.admit(key(0), UNIT) == ()
     assert cache.admit(key(1), UNIT) == ()
@@ -56,7 +56,7 @@ def test_admit_within_budget_evicts_nothing() -> None:
 
 
 def test_admit_evicts_until_the_new_entry_fits() -> None:
-    cache = ExpertCache(budget_bytes=3 * UNIT)
+    cache = ExpertCacheManager(budget_bytes=3 * UNIT)
     for expert_idx in range(3):
         cache.admit(key(expert_idx), UNIT)
 
@@ -72,7 +72,7 @@ def test_admit_evicts_until_the_new_entry_fits() -> None:
 
 
 def test_evicted_keys_are_returned_exactly_once_each() -> None:
-    cache = ExpertCache(budget_bytes=4 * UNIT)
+    cache = ExpertCacheManager(budget_bytes=4 * UNIT)
     for expert_idx in range(4):
         cache.admit(key(expert_idx), UNIT)
 
@@ -83,7 +83,7 @@ def test_evicted_keys_are_returned_exactly_once_each() -> None:
 
 
 def test_expert_larger_than_budget_raises_naming_both_sizes() -> None:
-    cache = ExpertCache(budget_bytes=UNIT)
+    cache = ExpertCacheManager(budget_bytes=UNIT)
 
     with pytest.raises(ValueError) as excinfo:
         cache.admit(key(0), 2 * UNIT)
@@ -94,7 +94,7 @@ def test_expert_larger_than_budget_raises_naming_both_sizes() -> None:
 
 
 def test_readmitting_a_resident_key_neither_evicts_nor_double_counts() -> None:
-    cache = ExpertCache(budget_bytes=2 * UNIT)
+    cache = ExpertCacheManager(budget_bytes=2 * UNIT)
     cache.admit(key(0), UNIT)
 
     assert cache.admit(key(0), UNIT) == ()
@@ -105,7 +105,7 @@ def test_readmitting_a_resident_key_neither_evicts_nor_double_counts() -> None:
 
 def test_resident_bytes_never_exceeds_budget_under_a_mixed_workload() -> None:
     budget = 7 * UNIT
-    cache = ExpertCache(budget_bytes=budget, sample_size=3, seed=17)
+    cache = ExpertCacheManager(budget_bytes=budget, sample_size=3, seed=17)
 
     for step in range(400):
         candidate = key((step * 7) % 23)
@@ -116,14 +116,14 @@ def test_resident_bytes_never_exceeds_budget_under_a_mixed_workload() -> None:
     assert cache.evictions > 0
 
 
-def _scripted_cache(policy: CachePolicy) -> ExpertCache:
+def _scripted_cache(policy: CachePolicy) -> ExpertCacheManager:
     """Build a 3-entry cache whose LFRU and LRU victims differ.
 
     After the script: `A` is the least recently used but the most frequently
     used; `C` is the least frequently used among the recent pair. So LRU must
     take `A` and LFRU must take `C`.
     """
-    cache = ExpertCache(budget_bytes=3 * UNIT, policy=policy, sample_size=8)
+    cache = ExpertCacheManager(budget_bytes=3 * UNIT, policy=policy, sample_size=8)
     cache.admit(key(0), UNIT)  # A
     for _ in range(3):
         cache.touch(key(0))
@@ -147,7 +147,7 @@ def test_lru_evicts_the_least_recently_used_entry() -> None:
 
 
 def test_lfru_breaks_frequency_ties_by_recency() -> None:
-    cache = ExpertCache(budget_bytes=2 * UNIT, sample_size=8)
+    cache = ExpertCacheManager(budget_bytes=2 * UNIT, sample_size=8)
     cache.admit(key(0), UNIT)
     cache.admit(key(1), UNIT)
     cache.touch(key(0))
@@ -159,7 +159,7 @@ def test_lfru_breaks_frequency_ties_by_recency() -> None:
 
 def _eviction_sequence(*, seed: int) -> tuple[int, ...]:
     """Run a fixed workload and return the expert index evicted at each step."""
-    cache = ExpertCache(budget_bytes=8 * UNIT, sample_size=3, seed=seed)
+    cache = ExpertCacheManager(budget_bytes=8 * UNIT, sample_size=3, seed=seed)
     evicted: list[int] = []
     for expert_idx in range(24):
         candidate = key(expert_idx % 12)
@@ -180,7 +180,7 @@ def test_a_different_seed_samples_different_victims() -> None:
 
 
 def test_sampling_is_bounded_by_sample_size_not_cache_size() -> None:
-    cache = ExpertCache(budget_bytes=64 * UNIT, sample_size=2, seed=3)
+    cache = ExpertCacheManager(budget_bytes=64 * UNIT, sample_size=2, seed=3)
     for expert_idx in range(64):
         cache.admit(key(expert_idx), UNIT)
     # Make one entry unambiguously the best victim by frequency, then check
@@ -196,7 +196,7 @@ def test_sampling_is_bounded_by_sample_size_not_cache_size() -> None:
 
 
 def test_contains_reflects_admission_and_eviction() -> None:
-    cache = ExpertCache(budget_bytes=UNIT, sample_size=8)
+    cache = ExpertCacheManager(budget_bytes=UNIT, sample_size=8)
     cache.admit(key(0), UNIT)
     assert key(0) in cache
 
@@ -208,7 +208,7 @@ def test_contains_reflects_admission_and_eviction() -> None:
 
 
 def test_keys_from_different_layers_are_distinct_entries() -> None:
-    cache = ExpertCache(budget_bytes=4 * UNIT)
+    cache = ExpertCacheManager(budget_bytes=4 * UNIT)
     cache.admit(key(0, block_idx=0), UNIT)
 
     assert cache.touch(key(0, block_idx=1)) is False
@@ -219,9 +219,9 @@ def test_keys_from_different_layers_are_distinct_entries() -> None:
 
 def test_zero_or_negative_budget_is_rejected() -> None:
     with pytest.raises(ValueError):
-        ExpertCache(budget_bytes=0)
+        ExpertCacheManager(budget_bytes=0)
 
 
 def test_sample_size_below_one_is_rejected() -> None:
     with pytest.raises(ValueError):
-        ExpertCache(budget_bytes=UNIT, sample_size=0)
+        ExpertCacheManager(budget_bytes=UNIT, sample_size=0)
