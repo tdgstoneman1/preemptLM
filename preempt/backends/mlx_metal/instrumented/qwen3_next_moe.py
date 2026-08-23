@@ -22,7 +22,7 @@ from ..expert_kernel import (
     project_rows,
 )
 from ..recorder import MlxExpertRoutingRecorder
-from ..residency import MlxExpertResidency
+from ..cache import MlxExpertCache
 from ..types import MlxWrapperFactory
 from ..constants import SWIGLU_PROJECTION_NAMES
 
@@ -48,7 +48,7 @@ class InstrumentedQwen3NextMoE(nn.Module):
     block_idx: int
     provider: IExpertLoader | None
     model_fingerprint: str | None
-    residency: MlxExpertResidency | None
+    residency: MlxExpertCache | None
     quantization: SwitchQuantParams
     activation: nn.Module
 
@@ -61,7 +61,7 @@ class InstrumentedQwen3NextMoE(nn.Module):
         block_idx: int,
         provider: IExpertLoader | None = None,  # TODO rename
         model_fingerprint: str | None = None,
-        residency: MlxExpertResidency | None = None,  # TODO rename
+        residency: MlxExpertCache | None = None,  # TODO rename
     ) -> None:
         super().__init__()
 
@@ -188,7 +188,7 @@ def make_qwen3next_moe_wrapper_factory(
     capture_gate_logits: bool = False,
     provider: IExpertLoader | None = None,
     model_fingerprint: str | None = None,
-    residency: MlxExpertResidency | None = None,
+    residency: MlxExpertCache | None = None,
 ) -> MlxWrapperFactory:
 
     def factory(
