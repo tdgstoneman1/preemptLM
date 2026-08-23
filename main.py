@@ -168,13 +168,13 @@ def build_pipeline(
     from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
     from preempt.backends.mlx_metal.loader import load_mlx_model
     from preempt.backends.mlx_metal.recorder import MlxExpertRoutingRecorder
-    from preempt.backends.mlx_metal.residency import MlxExpertResidency
+    from preempt.backends.mlx_metal.cache import MlxExpertCache
     from preempt.backends.mlx_metal.runner import MlxModelRunner
     from preempt.core.encoding import parse_payload_encoding_tag
     from preempt.core.sinks import ParquetEventSink
     from preempt.datamodel.tracing.context import TraceRunContext
     from preempt.datamodel.tracing.expert_routing import ExpertRoutingEvent
-    from preempt.engine.expert_cache import ExpertCache
+    from preempt.engine.expert_cache import ExpertCacheManager
     from preempt.engine.layer_resolution import ensure_no_target_layer_overlap
     from preempt.engine.expert_loaders import DiskBackedExpertLoader
     from preempt.storage.expert_io import ExpertBank
@@ -198,7 +198,7 @@ def build_pipeline(
     # the model, so building them ahead of the load is harmless; the provider
     # must exist before the wrapper factory that references it. ---
     expert_bank: ExpertBank | None = None
-    residency: MlxExpertResidency | None = None
+    residency: MlxExpertCache | None = None
     provider: DiskBackedExpertLoader | None = None
     if config.stream_settings is not None:
         if loop is None:
@@ -214,10 +214,12 @@ def build_pipeline(
             expert_bank_path,
             bypass_page_cache=config.stream_settings.bypass_page_cache,
         )
-        residency = MlxExpertResidency(
+        residency = MlxExpertCache(
             encoding=parse_payload_encoding_tag(expert_bank.manifest.payload_encoding)  # type: ignore
         )
-        cache = ExpertCache(budget_bytes=config.stream_settings.memory_bytes_budget)
+        cache = ExpertCacheManager(
+            budget_bytes=config.stream_settings.memory_bytes_budget
+        )
         provider = DiskBackedExpertLoader(
             expert_bank=expert_bank,
             residency=residency,
