@@ -48,7 +48,7 @@ class InstrumentedQwen3NextMoE(nn.Module):
     block_idx: int
     provider: IExpertLoader | None
     model_fingerprint: str | None
-    residency: MlxExpertCache | None
+    cache: MlxExpertCache | None
     quantization: SwitchQuantParams
     activation: nn.Module
 
@@ -61,13 +61,17 @@ class InstrumentedQwen3NextMoE(nn.Module):
         block_idx: int,
         provider: IExpertLoader | None = None,  # TODO rename
         model_fingerprint: str | None = None,
-        residency: MlxExpertCache | None = None,  # TODO rename
+        cache: MlxExpertCache | None = None,  # TODO rename
     ) -> None:
         super().__init__()
 
-        if provider is not None and (model_fingerprint is None or residency is None):
-            raise ValueError()
-        if provider is None and residency is not None:
+        if provider is not None and (model_fingerprint is None or cache is None):
+            raise ValueError(
+                f"{type(provider).__name__=}, "
+                f"{type(model_fingerprint).__name__=}, "
+                f"{type(cache).__name__=}"
+            )
+        if provider is None and cache is not None:
             raise ValueError()
 
         self.inner = inner
@@ -77,7 +81,7 @@ class InstrumentedQwen3NextMoE(nn.Module):
         self.block_idx = block_idx
         self.provider = provider
         self.model_fingerprint = model_fingerprint
-        self.residency = residency
+        self.cache = cache
 
         self.quantization = describe_switch_quantization(
             inner.switch_mlp, SWIGLU_PROJECTION_NAMES
@@ -88,7 +92,7 @@ class InstrumentedQwen3NextMoE(nn.Module):
     def _read_expert_from_disk(self, expert_idx: int) -> ExpertProjections:
 
         assert self.provider is not None
-        assert self.residency is not None
+        assert self.cache is not None
         assert self.model_fingerprint is not None
 
         key = ExpertKey(
@@ -97,7 +101,7 @@ class InstrumentedQwen3NextMoE(nn.Module):
             expert_idx=expert_idx,
         )
         self.provider.load((key,))
-        tensors = self.residency.tensors(key)
+        tensors = self.cache.tensors(key)
 
         projections = {
             name: self._projection_from_tensors(tensors, name)
@@ -188,7 +192,7 @@ def make_qwen3next_moe_wrapper_factory(
     capture_gate_logits: bool = False,
     provider: IExpertLoader | None = None,
     model_fingerprint: str | None = None,
-    residency: MlxExpertCache | None = None,
+    cache: MlxExpertCache | None = None,
 ) -> MlxWrapperFactory:
 
     def factory(
@@ -209,7 +213,7 @@ def make_qwen3next_moe_wrapper_factory(
             block_idx=candidate.block_idx,
             provider=provider,
             model_fingerprint=model_fingerprint,
-            residency=residency,
+            cache=cache,
         )
 
     return factory
