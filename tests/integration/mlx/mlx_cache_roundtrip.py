@@ -131,6 +131,7 @@ def compare_tensor(
     # byte comparison on both sides regardless of the tensor's real dtype.
     resident_bytes = mlx_to_numpy(resident)
     source_bytes = mlx_to_numpy(source)
+
     if not np.array_equal(resident_bytes, source_bytes):
         differing = int(np.count_nonzero(resident_bytes != source_bytes))
         raise RuntimeError(
@@ -313,9 +314,9 @@ async def run(args: argparse.Namespace) -> None:
                 expert_idx=expert_idx,
             )
 
-            if residency.resident_bytes() != installed_bytes:
+            if residency.size() != installed_bytes:
                 raise RuntimeError(
-                    f"`resident_bytes` is {residency.resident_bytes()}; "
+                    f"`size` is {residency.size()}; "
                     f"{installed_bytes} bytes have been installed."
                 )
             if not residency.is_resident(bank.key_for(block_idx, expert_idx)):
@@ -325,7 +326,7 @@ async def run(args: argparse.Namespace) -> None:
                 )
 
         print(
-            f"Accounting verified: {residency.resident_bytes()} resident bytes "
+            f"Accounting verified: {residency.size()} resident bytes "
             f"across 3 experts ({manifest.expert_num_bytes()} bytes each).",
             flush=True,
         )
@@ -333,10 +334,9 @@ async def run(args: argparse.Namespace) -> None:
         for block_idx, expert_idx in sample_pairs(manifest):
             residency.evict(bank.key_for(block_idx, expert_idx))
 
-        if residency.resident_bytes() != 0:
+        if residency.size() != 0:
             raise RuntimeError(
-                f"`resident_bytes` is {residency.resident_bytes()} after "
-                "evicting every expert."
+                f"`size` is {residency.size()} after " "evicting every expert."
             )
         print("Eviction verified: residency is empty and holds 0 bytes.", flush=True)
 
