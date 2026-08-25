@@ -92,8 +92,6 @@ async def generate_greedy(
             f"but got `{type(recorder)=}` and `{type(sink)=}`."
         )
 
-    runner.prepare()
-
     metrics = GenerationMetrics()
     prompt = list(prompt_ids)
     token_idx = 0
