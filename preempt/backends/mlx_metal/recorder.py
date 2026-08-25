@@ -38,7 +38,7 @@ class _PendingExpertRoutingEvent:
     layer_identifiers: LayerIdentifiers = field()
 
 
-class MlxExpertRoutingRecorder(BaseEventRecorder):
+class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
     """Records routing decisions from instrumented MLX MoE layers.
 
     Captures events lazily. Calls to `capture()` buffer unevaluated
