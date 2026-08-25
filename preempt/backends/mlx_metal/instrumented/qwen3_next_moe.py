@@ -190,7 +190,7 @@ def make_qwen3next_moe_wrapper_factory(
     recorder: MlxExpertRoutingRecorder | None,
     *,
     capture_gate_logits: bool = False,
-    provider: IExpertLoader | None = None,
+    provider: IExpertLoader | None = None,  # TODO rename to 'loader'
     model_fingerprint: str | None = None,
     cache: MlxExpertCache | None = None,
 ) -> MlxWrapperFactory:
