@@ -34,6 +34,7 @@ class TargetLayerSearchParams(BaseModel):
         return self
 
 
+# TODO move to datamodel/
 class TargetLayerSpec(BaseModel):
     """Name and search parameters for a single target layer"""
 
@@ -43,12 +44,15 @@ class TargetLayerSpec(BaseModel):
     search_params: TargetLayerSearchParams
 
 
+# TODO move to datamodel/
+# TODO use attrs
+# TODO rename for clarity
 class TargetLayerConfig(BaseModel):
     """A set of unique named target layers"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: int = Field(default=1, ge=1)
+    version: int = Field(default=1, ge=1)  # TODO move default value to constants module
     target_layers: tuple[TargetLayerSpec, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
