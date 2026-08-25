@@ -9,7 +9,7 @@ TAG_GRAMMAR: Final[str] = (
     "'<family>-unquantized-<scalar>'"
 )
 
-KNOWN_FAMILIES: Final[frozenset[str]] = frozenset({"mlx"})
+KNOWN_FAMILIES: Final[frozenset[str]] = frozenset({"mlx"})  # TODO rename
 KNOWN_SCALARS: Final[frozenset[str]] = frozenset(
     {"bf16", "f16", "f32"}
 )  # TODO add other dtypes, e.g. int8; rename ('scalars' too ambiguous)
