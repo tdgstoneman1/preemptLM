@@ -43,9 +43,9 @@ class DiskBackedExpertLoader:
         self,
         *,
         expert_bank: IExpertBank,
-        cache: IExpertCache,  # TODO rename
+        cache: IExpertCache,
         cache_manager: ExpertCacheManager,
-        loop: asyncio.AbstractEventLoop,
+        loop: asyncio.AbstractEventLoop,  # TODO rename to 'event_loop'
         metrics: GenerationMetrics | None = None,
     ) -> None:
         """
