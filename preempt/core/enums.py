@@ -1,6 +1,10 @@
 from enum import StrEnum, IntEnum
 
 
+class Backends(StrEnum):
+    MLX = "mlx_metal"
+
+
 class ParquetCompressionCodecs(StrEnum):
     """Parquet column compression codecs for event sinks"""
 
