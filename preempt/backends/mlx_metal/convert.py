@@ -12,14 +12,12 @@ preserve quantization parameters (mode, bits, group size) and scalar dtype.
 Usage (macOS host)::
 
     python -m preempt.backends.mlx_metal.convert \\
-        --model <hf-id-or-local-dir> --output out/expert-bank
+        --model <hf-id-or-local-dir> --output expert-bank/<model-id>
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-
-import argparse
+from collections.abc import Mapping
 
 import hashlib
 
@@ -42,32 +40,7 @@ from .quantization import make_encoding_tag
 from .architecture import MoEArchitecture
 from .architectures.qwen3_next import Qwen3NextMoEArchitecture
 
-# TODO refactor, `main()` shouln't be in source code -> write `cli` module or script
 # TODO finish editing slop docstrings.
-
-
-def resolve_model_dir(model_path_or_id: str) -> Path:
-    """Resolves `model_path_or_id`, and downloads it from Hugging Face if it is
-    not a local model checkpoint directory.
-
-    Parameters
-    ----------
-    model_path_or_id : str
-        Path to local model directory or Hugging Face repo ID
-
-    Returns
-    -------
-    Path
-        The resolved absolute path to the directory containing the model's
-        `config.json` and safetensors shards
-    """
-    path = Path(model_path_or_id)
-    if path.exists():
-        return path
-
-    from huggingface_hub import snapshot_download
-
-    return Path(snapshot_download(model_path_or_id))
 
 
 # TODO rename model_dir to ckpt_dir
@@ -88,7 +61,6 @@ def hash_model_ckpt(model_dir: Path) -> str:
         The checkpoint's unique fingerprint.
     """
     digest = hashlib.sha256((model_dir / "config.json").read_bytes())
-
     for shard in sorted(model_dir.glob("*.safetensors")):
         digest.update(f"{shard.name}:{shard.stat().st_size}".encode())
 
@@ -131,7 +103,7 @@ def build_tensor_shard_index(
         }
 
     single = model_dir / "model.safetensors"
-    return {name: single for name in mx.load(str(single)) if tensor_re.match(name)}
+    return {name: single for name in mx.load(str(single)) if tensor_re.match(name)}  # type: ignore
 
 
 def group_expert_tensors_by_layer(
@@ -227,7 +199,7 @@ class ShardTensorCache:
         """
         path = self.shard_index[name]
         if path != self._loaded_path:
-            self._loaded = mx.load(str(path))
+            self._loaded = mx.load(str(path))  # type: ignore
             self._loaded_path = path
 
         return self._loaded[name]
@@ -368,78 +340,3 @@ def convert_mlx_model_to_expert_bank(
             del stacked
 
         return writer.finalize()
-
-
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-
-    parser = argparse.ArgumentParser(
-        description="Writes a MoE model's experts to an expert bank on disk."
-    )
-    parser.add_argument(
-        "--model",
-        required=True,
-        help="Hugging Face model id (for an MLX model) or path to a local"
-        "model checkpoint directory",
-    )
-    parser.add_argument(
-        "--output",
-        required=True,
-        type=Path,
-        help="Expert bank's output directory",
-    )
-    parser.add_argument(
-        "--max-moe-blocks",
-        type=int,
-        default=None,
-        help="Limits conversion to the first 'max_moe_blocks' MoE blocks",
-    )
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Whether to overwrite existing files in the output directory",
-    )
-    parser.add_argument(
-        "--architecture",
-        default="qwen",
-        help="Registered MoE architecture for the model, by default 'qwen'",
-    )
-    return parser.parse_args(argv)
-
-
-# TODO use logging instead of print statements
-def main() -> None:
-    args = parse_args()
-
-    from preempt.backends.mlx_metal.registry import DefaultMoEArchRegistry
-
-    registry = DefaultMoEArchRegistry()
-    architecture = registry.get(args.architecture)
-
-    model_dir = resolve_model_dir(args.model)
-    print(
-        f"Converting {model_dir} -> {args.output} (architecture: {args.architecture})"
-    )
-
-    manifest = convert_mlx_model_to_expert_bank(
-        model_dir,
-        args.output,
-        architecture=architecture,
-        model_id=args.model,
-        max_moe_blocks=args.max_moe_blocks,
-        overwrite=args.overwrite,
-    )
-
-    expert_num_bytes = manifest.expert_num_bytes()
-    print(
-        f"Packed {len(manifest.blobs)} expert blob(s) across "
-        f"{len(manifest.model_moe_spec.moe_block_idxs)} layer(s); "
-        f"{expert_num_bytes} bytes each, "
-        f"{expert_num_bytes * len(manifest.blobs)} payload bytes total."
-    )
-    print(f"Model id: {manifest.model_id}")
-    print(f"Encoding: {manifest.payload_encoding}")
-    print(f"Hash: {manifest.model_fingerprint}")
-
-
-if __name__ == "__main__":
-    main()
