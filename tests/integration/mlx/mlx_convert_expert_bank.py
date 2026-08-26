@@ -18,7 +18,6 @@ from preempt.backends.mlx_metal.convert import (
     convert_mlx_model_to_expert_bank,
     expert_ndarrays,
     group_expert_tensors_by_layer,
-    resolve_model_dir,
 )
 from preempt.backends.mlx_metal.quantization import (
     MlxQuantParams,
@@ -26,9 +25,12 @@ from preempt.backends.mlx_metal.quantization import (
 )
 from preempt.core.identity import ExpertKey
 from preempt.core.protocols.expert_bank import ReadPriority
+
 from preempt.storage.blob import assemble_expert_blob
 from preempt.storage.manifest import ExpertBankManifest
 from preempt.storage.expert_io import ExpertBank
+
+from preempt.utils.hf_utils import resolve_model_dir
 
 
 def parse_args() -> argparse.Namespace:

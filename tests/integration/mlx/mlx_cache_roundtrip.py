@@ -43,14 +43,17 @@ from preempt.backends.mlx_metal.convert import (
     ShardTensorCache,
     build_tensor_shard_index,
     group_expert_tensors_by_layer,
-    resolve_model_dir,
     mlx_to_numpy,
 )
 from preempt.backends.mlx_metal.cache import MlxExpertCache
+
 from preempt.core.encoding import parse_payload_encoding_tag
 from preempt.core.protocols.expert_bank import ReadPriority
+
 from preempt.storage.manifest import ExpertBankManifest
 from preempt.storage.expert_io import ExpertBank
+
+from preempt.utils.hf_utils import resolve_model_dir
 
 # TODO DE-SLOP
 
