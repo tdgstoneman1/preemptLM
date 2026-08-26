@@ -40,6 +40,7 @@ from .quantization import make_encoding_tag
 from .architecture import MoEArchitecture
 from .architectures.qwen3_next import Qwen3NextMoEArchitecture
 
+# TODO module docstring
 # TODO finish editing slop docstrings.
 
 
@@ -237,10 +238,9 @@ def expert_ndarrays(
 
 
 def convert_mlx_model_to_expert_bank(
-    model_dir: Path,  # TODO rename to ckpt_dir
+    model_dir: Path,  # TODO rename
     expert_bank_dir: Path,
-    *,
-    architecture: MoEArchitecture | None = None,
+    architecture: MoEArchitecture,
     model_id: str | None = None,
     max_moe_blocks: int | None = None,
     overwrite: bool = False,
@@ -253,7 +253,7 @@ def convert_mlx_model_to_expert_bank(
         The MLX model's checkpoint directory containing `config.json` and safetensors shards
     expert_bank_dir : Path
         The destination directory where `experts.bin` and `manifest.json` will be written
-    architecture : MoEArchitecture | None
+    architecture : MoEArchitecture
         Adapter defining the checkpoint's MoE structural patterns.
     model_id : str | None
         A unique identifier used for compatibility checks when loading the saved expert bank.
