@@ -32,6 +32,8 @@ import numpy as np
 
 import mlx.core as mx
 
+import gc
+
 from preempt.storage.blob import assemble_expert_blob, derive_tensor_specs
 from preempt.storage.manifest import ExpertBankManifest
 from preempt.storage.expert_io import ExpertBankWriter
@@ -303,6 +305,7 @@ def convert_mlx_model_to_expert_bank(
         architecture.dtype_tag(first_stacked, quantized=quant is not None),
     )
     del first_stacked
+    gc.collect()
 
     model_moe_spec = architecture.extract_model_moe_spec(
         config, block_idxs, num_routed_experts
@@ -338,5 +341,6 @@ def convert_mlx_model_to_expert_bank(
                     ),
                 )
             del stacked
+            gc.collect()
 
         return writer.finalize()
