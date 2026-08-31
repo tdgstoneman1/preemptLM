@@ -1,19 +1,18 @@
-from typing import Any, Generator, NoReturn
+from typing import Any
 
 import argparse
 
 from rich import print
 
 from pathlib import Path
+
 import json
 
 import asyncio
 
-import sys
-
 import functools
 
-from icecream import ic
+import sys
 
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
