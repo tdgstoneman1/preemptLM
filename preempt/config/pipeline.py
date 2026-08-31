@@ -67,6 +67,7 @@ class StreamSettings(BaseModel):
     memory_budget_gb: int = Field()
 
     @computed_field
+    @property
     def memory_bytes_budget(self) -> int:  # TODO rename
         return self.memory_budget_gb * 1024**3
 
