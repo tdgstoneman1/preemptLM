@@ -144,6 +144,7 @@ class GenerationPipeline:
                 token_ids, metrics = await generate_greedy(
                     runner=self._runner,
                     prompt_ids=prompt_ids,
+                    eos_token_ids=self._tokenizer.eos_token_ids,
                     max_tokens=budget,
                     prefill_chunk_size=self._prefill_chunk_size,
                     recorder=self._recorder,
@@ -154,6 +155,7 @@ class GenerationPipeline:
             token_ids, metrics = await generate_greedy(
                 runner=self._runner,
                 prompt_ids=prompt_ids,
+                eos_token_ids=self._tokenizer.eos_token_ids,
                 max_tokens=budget,
                 prefill_chunk_size=self._prefill_chunk_size,
                 on_step=on_step if on_step is not None else self._on_step,
