@@ -82,6 +82,7 @@ class MoEArchAdapter(ABC):
         """
         ...
 
+    @property
     @abstractmethod
     def expert_tensor_regex(self) -> re.Pattern[str]:
         """Regex for matching expert tensor names
@@ -96,6 +97,7 @@ class MoEArchAdapter(ABC):
         """
         ...
 
+    @property
     @abstractmethod
     def expert_module_regex(self) -> re.Pattern[str]:
         """Regex for matching expert module paths.
@@ -111,6 +113,7 @@ class MoEArchAdapter(ABC):
         """
         ...
 
+    @property
     @abstractmethod
     def tensor_order(self) -> tuple[str, ...]:
         """Defines the canonical order of tensors within an expert blob.
