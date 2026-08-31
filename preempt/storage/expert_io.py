@@ -10,6 +10,7 @@ import asyncio
 import fcntl
 import os
 import sys
+import mmap
 
 from preempt.core.protocols.expert_bank import ExpertPayload, ReadPriority
 from preempt.core.identity import ExpertKey, TensorSpec
@@ -28,7 +29,7 @@ from .manifest import (
 # on the fd, so blobs come off the SSD rather than the kernel's file cache.
 
 
-class ExpertBank:
+class ExpertBank:  # TODO rename to PreadExpertBank
     """Implements `IExpertBank` interface."""
 
     _manifest: ExpertBankManifest
@@ -92,7 +93,7 @@ class ExpertBank:
             if expected[name] != observed[name]
         }
         if mismatches:
-            raise ExpertBankCompatibilityError()
+            raise ExpertBankCompatibilityError(repr(mismatches))
 
     async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload:
         """Read blob for one expert."""
@@ -127,6 +128,64 @@ class ExpertBank:
         traceback: TracebackType | None,
     ) -> None:
         self.close()
+
+
+class MmapExpertBank(ExpertBank):
+    """Implements the `IExpertBank` interface using a memory-mapped file."""
+
+    _manifest: ExpertBankManifest
+    _index: dict[ExpertKey, ExpertBlobRecord]
+    _tensor_specs: tuple[TensorSpec, ...]
+    _fd: int | None
+    _mmap: mmap.mmap | None
+
+    def __init__(self, store_dir: Path, **kwargs) -> None:
+        self._manifest = ExpertBankManifest.load(store_dir)
+        self._index = self._manifest.blob_index()
+        self._tensor_specs = self._manifest.tensor_specs
+
+        self._mmap = None
+        self._fd = None
+
+        success = False
+        fd = os.open(store_dir / EXPERTS_FILENAME, os.O_RDONLY)
+        try:
+            file_size = os.fstat(fd).st_size
+            if file_size > 0:
+                self._mmap = mmap.mmap(fd, file_size, access=mmap.ACCESS_READ)
+
+            self._fd = fd
+            success = True
+
+        finally:
+            if not success:
+                os.close(fd)
+
+    async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload:
+        if self._mmap is None:
+            raise RuntimeError()  # TODO add message
+
+        blob = self._index[key]  # intentional KeyError
+        slice_ = self._mmap[blob.offset : blob.offset + blob.length]
+
+        if len(slice_) != blob.length:
+            raise IOError()  # TODO add message
+
+        return ExpertPayload(
+            key=key,
+            data=slice_,
+            encoding=self._manifest.payload_encoding,
+            tensor_specs=self._tensor_specs,
+        )
+
+    def close(self) -> None:
+        if self._mmap is not None:
+            self._mmap.close()
+            self._mmap = None
+
+        if self._fd is not None:
+            os.close(self._fd)
+            self._fd = None
 
 
 class ExpertBankWriter:
