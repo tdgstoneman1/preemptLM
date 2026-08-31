@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import asyncio
+from concurrent.futures import Future
 
 import time
 
@@ -17,7 +18,7 @@ from .metrics import GenerationMetrics
 
 class DummyExpertLoader:
     """Dummy `IExpertLoader` interface as a placeholder when models are fully loaded
-    in memory and don't expert reads from disk (`load(...)` is a no-op).
+    in memory and don't read read from disk (`load(...)` is a no-op).
     """
 
     def load(self, keys: Sequence[ExpertKey]) -> None:
@@ -71,40 +72,38 @@ class DiskBackedExpertLoader:
         self._metrics = metrics
 
     def load(self, keys: Sequence[ExpertKey]) -> None:
-        """Blocks until every expert in `keys` is loaded into memory.
+        """Blocks thread until all requested experts are loaded. Disk reads are concurrent."""
+        cache_misses = []
+        for key in set(keys):
+            if self._cache_manager.touch(key) and self._metrics is not None:
+                self._metrics.cache_hits += (
+                    keys.count(key) if isinstance(keys, list) else 1
+                )
+            else:
+                cache_misses.append(key)
 
-        Parameters
-        ----------
-        keys : Sequence[ExpertKey]
-            MoE router-selected experts to load. Currently, experts are loaded one at a
-            time as needed for computation. Repeated keys are harmless (cache hit after
-            the first call).
+        if not cache_misses:
+            return
 
-        Raises
-        ------
-        KeyError
-            If the expert bank holds no blob for a requested key
-        IOError
-            If the expert bank returns fewer bytes than it recorded
-        """
-        for key in keys:
-            if self._cache_manager.touch(key):
-                if self._metrics is not None:
-                    self._metrics.cache_hits += 1
-                continue
+        if self._metrics is not None:
+            self._metrics.cache_misses += len(cache_misses)
 
-            if self._metrics is not None:
-                self._metrics.cache_misses += 1
-
-            started = time.perf_counter()
-            payload = asyncio.run_coroutine_threadsafe(
+        start_time = time.perf_counter()
+        futures: list[Future] = [
+            asyncio.run_coroutine_threadsafe(
                 self._expert_bank.read(key, ReadPriority.DEMAND), self._loop
-            ).result()
+            )
+            for key in cache_misses
+        ]
+        loaded_payloads = [f.result() for f in futures]
+        elapsed = time.perf_counter() - start_time
 
-            for victim in self._cache_manager.admit(key, len(payload.data)):
+        for payload in loaded_payloads:
+            for victim in self._cache_manager.admit(payload.key, len(payload.data)):
                 self._cache.evict(victim)
 
-            self._cache.install(key, payload)
+            self._cache.install(payload.key, payload)
 
-            if self._metrics is not None:
-                self._metrics.demand_stall_s += time.perf_counter() - started
+        if self._metrics is not None:
+            self._metrics.demand_stall_s += elapsed
+            self._metrics.prefetched_bytes += len(payload.data)
