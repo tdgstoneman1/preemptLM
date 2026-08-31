@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Never
 
-from .types import MlxMoEFactory
+from .types import MlxArchAdapterFactory
 from .architecture import MoEArchAdapter
 from .architectures.defaults import V1_MOE_FACTORIES
 
@@ -16,12 +16,12 @@ class MoEArchRegistry:
     :Note: For tamper-proof defaults, use the `DefaultMoEArchRegistry` subclass.
     """
 
-    _factories: dict[str, MlxMoEFactory]
+    _factories: dict[str, MlxArchAdapterFactory]
 
     def __init__(self) -> None:
         self._factories = dict()
 
-    def register(self, name: str, factory: MlxMoEFactory) -> None:
+    def register(self, name: str, factory: MlxArchAdapterFactory) -> None:
         """Registers or overwrites a callable architecture factory under `name`
 
         Parameters
@@ -81,7 +81,7 @@ class DefaultMoEArchRegistry(MoEArchRegistry):
 
         self._factories = V1_MOE_FACTORIES
 
-    def register(self, name: str, factory: MlxMoEFactory) -> Never:
+    def register(self, name: str, factory: MlxArchAdapterFactory) -> Never:
         """Automatically raises `AttributeError` when called to prevent mutating
         built-in defaults.
         """

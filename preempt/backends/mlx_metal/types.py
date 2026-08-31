@@ -11,4 +11,4 @@ MlxModuleT = TypeVar("MlxModuleT", bound=nn.Module)
 
 MlxWrapperFactory = Callable[[MlxModuleT, LayerCandidate], nn.Module]
 
-MlxMoEFactory = Callable[[], MoEArchAdapter]
+MlxArchAdapterFactory = Callable[[], MoEArchAdapter]
