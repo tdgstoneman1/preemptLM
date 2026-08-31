@@ -1,20 +1,3 @@
-"""Repacks an MLX MoE checkpoint into a streaming-optimized expert bank.
-
-Standard MLX checkpoints fuse expert weights into stacked `[num_routed_experts, ...]` 
-tensors. This offline utility slices those fused tensors apart and writes them into 
-an expert bank. This custom disk layout stores each expert as an independent, 
-contiguous blob ready for targeted `pread` streaming.
-
-The conversion process is byte-preserving, and no dequantization, casting, or 
-reordering occurs. The resulting expert bank utilizes a `payload_encoding` tag to 
-preserve quantization parameters (mode, bits, group size) and scalar dtype.
-
-Usage (macOS host)::
-
-    python -m preempt.backends.mlx_metal.convert \\
-        --model <hf-id-or-local-dir> --output expert-bank/<model-id>
-"""
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -39,7 +22,6 @@ from preempt.storage.expert_io import ExpertBankWriter
 from .quantization import make_encoding_tag
 from .architecture import MoEArchAdapter
 
-# TODO module docstring
 # TODO finish editing slop docstrings.
 
 
