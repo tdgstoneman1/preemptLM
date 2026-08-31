@@ -14,6 +14,9 @@ from preempt.datamodel.tracing.context import TraceStepContext
 from preempt.engine.metrics import GenerationMetrics, StepMetrics
 from preempt.engine.recorder import BaseEventRecorder
 
+# TODO track total elapsed time during generation
+# TODO track bytes read
+
 
 async def generate_greedy(
     *,
@@ -34,10 +37,9 @@ async def generate_greedy(
     such that the results are identical to a single large prefill. The output of the
     last prefill chunk becomes the first generated token.
 
-    Decode steps then run one token at a time until a total of `max_tokens` have been
-    generated.
+    Decode steps then run one token at a time up to `max_tokens`.
 
-    Each forward pass runs in a thread pool via `asyncio.to_thread`. This keeps the
+    Each forward pass runs in a thread pool via `asyncio.to_thread` to keep the
     event loop free for concurrent I/O (such as reading expert weights from disk).
 
     Parameters
@@ -75,7 +77,7 @@ async def generate_greedy(
     ValueError
         If `prefill_chunk_size` < 1
     ValueError
-        If `recorder` and `sink` are mismatched (one provided without the other)
+        If `recorder` or `sink` is provided without the other
     """
     if len(prompt_ids) == 0:
         raise ValueError("`prompt_ids` must be non-empty.")
@@ -109,7 +111,6 @@ async def generate_greedy(
                     token_id=tokens[0] if len(tokens) == 1 else None,
                 )
             )
-
         next_token = await asyncio.to_thread(runner.step, tokens)
 
         if recorder is not None and sink is not None:
@@ -150,3 +151,82 @@ async def generate_greedy(
         tokens = [next_token]
 
     return generated, metrics
+
+
+# ! CURRENTLY NOT WORKING
+# async def generate_greedy(
+#     *,
+#     runner: IModelRunner,
+#     prompt_ids: Sequence[int],
+#     max_tokens: int,
+#     prefill_chunk_size: int = 512,
+#     recorder: BaseEventRecorder | None = None,
+#     sink: BaseEventSink | None = None,
+#     sequence_id: int = 0,
+#     on_step: Callable[[StepMetrics], None] | None = None,
+# ) -> tuple[list[int], GenerationMetrics]:
+#     if len(prompt_ids) == 0:
+#         raise ValueError("`prompt_ids` must be non-empty.")
+
+#     if max_tokens < 1:
+#         raise ValueError("`max_tokens` must be at least 1.")
+
+#     if prefill_chunk_size < 1:
+#         raise ValueError("`prefill_chunk_size` must be at least 1.")
+
+#     if (recorder is None) != (sink is None):
+#         raise ValueError(
+#             "`recorder` and `sink` must both be provided or both be `None`, "
+#             f"but got `{type(recorder)=}` and `{type(sink)=}`."
+#         )
+
+#     metrics = GenerationMetrics()
+#     prompt = list(prompt_ids)
+#     token_idx = 0
+#     step_idx = 0
+
+#     generator = runner.generate(prompt)
+#     generated: list[int] = []
+
+#     def generation_step_fn() -> int:
+#         nonlocal generator
+#         return next(generator)
+
+#     for i in range(max_tokens - 1):
+#         print(i)  # <- Only prints when i == 0 and i == 1
+#         start_time = time.perf_counter()
+
+#         # Initialize recorder
+#         if recorder is not None:
+#             recorder.start_step(
+#                 TraceStepContext(
+#                     sequence_id=sequence_id,
+#                     token_idx=token_idx,
+#                     token_id=generated[0] if len(generated) == 1 else None,
+#                 )
+#             )
+#         print(i)  # <- Only prints when i == 0 and i == 1
+#         next_token = await asyncio.to_thread(generation_step_fn)
+#         print(next_token)  # <- Only prints on i == 0
+
+#         if recorder is not None and sink is not None:
+#             metrics.records_written += await recorder.flush(sink)
+
+#         step_metrics = StepMetrics(
+#             step_idx=step_idx,
+#             n_tokens=1,
+#             duration_s=time.perf_counter() - start_time,
+#             generated_token_id=next_token,
+#         )
+#         metrics.steps.append(step_metrics)
+
+#         if on_step is not None:
+#             on_step(step_metrics)
+
+#         # token_idx += len(tokens)
+#         step_idx += 1
+
+#         generated.append(next_token)
+
+#     ic(i)
+#     return generated, metrics
