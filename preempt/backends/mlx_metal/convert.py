@@ -245,9 +245,7 @@ def model_to_expert_bank(
     shard_index = build_tensor_shard_index(ckpt_path, architecture)
     by_layer = group_expert_tensors_by_layer(shard_index, architecture)
     if not by_layer:
-        raise ValueError(
-            f"No routed expert tensors found in `{ckpt_path.as_posix()!r}`."
-        )
+        raise ValueError(f"No routed expert tensors found in {ckpt_path.as_posix()!r}")
 
     block_idxs = sorted(by_layer)
     if max_moe_blocks is not None:
