@@ -1,10 +1,10 @@
-"""Instrumented wrapper for `mlx_lm.models.Qwen3NextSparseMoeBlock` (used in `mlx_lm`
-implementations of Qwen3-next and Qwen3.6)
+"""Instrumentation module wrapper for `mlx_lm.models.Qwen3NextSparseMoeBlock` (used in
+`mlx_lm` implementations of Qwen3-next and Qwen3.x)
 """
 
 from __future__ import annotations
 
-from typing import NoReturn
+from typing import Optional, NoReturn
 from collections.abc import Mapping, Callable
 
 import mlx.core as mx
@@ -32,6 +32,9 @@ from preempt.core.identity import ExpertKey
 from preempt.core.protocols.loader import IExpertLoader
 
 from preempt.engine.layer_resolution import LayerCandidate
+
+# TODO ops on fused expert weights in __call__ instead of sequentially
+# TODO make module wrapper hold experts in memory, external cache manager chooses evictions
 
 
 class InstrumentedQwen3_xMoE(nn.Module):
@@ -68,13 +71,13 @@ class InstrumentedQwen3_xMoE(nn.Module):
     def __init__(
         self,
         inner: Qwen3NextSparseMoeBlock,
-        recorder: MoERecorder | None,
+        recorder: Optional[MoERecorder],
         capture_gate_logits: bool,
         layer_path: str,
         block_idx: int,
-        expert_loader: IExpertLoader | None = None,  # TODO rename
-        expert_cache: MlxExpertCache | None = None,  # TODO rename
-        model_fingerprint: str | None = None,
+        expert_loader: Optional[IExpertLoader] = None,
+        expert_cache: Optional[MlxExpertCache] = None,
+        model_fingerprint: Optional[str] = None,
     ) -> None:
         super().__init__()
 
@@ -95,8 +98,8 @@ class InstrumentedQwen3_xMoE(nn.Module):
         self.layer_path = layer_path
         self.block_idx = block_idx
         self.expert_loader = expert_loader
+        self.expert_cache = expert_cache
         self.model_fingerprint = model_fingerprint
-        self.cache = expert_cache
 
         self.quantization = describe_switch_quantization(
             inner.switch_mlp, SWIGLU_PROJECTION_NAMES
@@ -140,7 +143,7 @@ class InstrumentedQwen3_xMoE(nn.Module):
 
     def _read_expert_from_disk(self, expert_idx: int) -> ExpertProjections:
         assert self.expert_loader is not None
-        assert self.cache is not None
+        assert self.expert_cache is not None
         assert self.model_fingerprint is not None
 
         key = ExpertKey(
@@ -149,7 +152,7 @@ class InstrumentedQwen3_xMoE(nn.Module):
             expert_idx=expert_idx,
         )
         self.expert_loader.load((key,))
-        tensors = self.cache.tensors(key)
+        tensors = self.expert_cache.tensors(key)
         # mx.async_eval(tensors)
         # idx = self.inner.num_experts * self.block_idx + expert_idx
 
@@ -215,13 +218,17 @@ class InstrumentedQwen3_xMoE(nn.Module):
 
         return self._sum_experts_fn(x, y, scores)  # Compiled func
 
-    def stack_expert_weights(self, x: mx.array, idxs: mx.array) -> NoReturn:
+    def fuse_expert_weights(self, x: mx.array, idxs: mx.array) -> NoReturn:
         raise NotImplementedError()
+        # This is where weights for experts corresponding to `idxs` will
+        # be fused into single array instead of sequentially applying experts
+        # one at a time.
+
         # x shape: (B, S, d_model)
         # switch_mlp shape: (d_model, d_hidden, num_experts)
 
         assert self.expert_loader is not None
-        assert self.cache is not None
+        assert self.expert_cache is not None
         assert self.model_fingerprint is not None
 
         key = ExpertKey(
