@@ -55,32 +55,33 @@ class GenerationPipeline:
         sink: Optional[BaseEventSink] = None,
         on_step: Optional[Callable[[StepMetrics], None]] = None,
     ) -> None:
-        """ "
+        """
         Parameters
         ----------
         runner : IModelRunner
-            Model runner implementing `prepare()` and `step()`
+            Model runner implementing the `IModelRunner` interface
         tokenizer : ITokenCodec
-            Tokenizer implementing `ITokenCodec` protocol to encode text prompts
-            and decode generated token ids.
+            Tokenizer implementing the `ITokenCodec` interface
         max_tokens : int
             Max total tokens to generate including the first prefill output (can be
             overridden per call). Must be >= 1
-        prefill_chunk_size : int
+        prefill_chunk_size : int, optional
             Max tokens per prefill chunk. Controls activation memory and enables
             chunk-local expert reuse (no effect on correctness), by default 512
-        recorder : BaseEventRecorder | None, default None
-            Optional recorder for tracing. If provided, `sink` must also be given.
-        sink : BaseEventSink | None, default None
+        recorder : Optional[BaseEventRecorder], optional
+            Optional recorder for tracing. If provided, `sink` must also be given,
+            by default None
+        sink : Optional[BaseEventSink], optional
             Optional sink for writing traced events. If provided, `recorder` must
-            also be given.
-        on_step : Callable[[StepMetrics], None] | None, default None
-            Optional callback invoked after each forward pass with per-step metrics
+            also be given, by default None
+        on_step : Optional[Callable[[StepMetrics], None]], optional
+            Optional callback invoked after each forward pass with per-step metrics,
+            by default None
 
         Raises
         ------
         ValueError
-            If `recorder` and `sink` are mismatched (one provided without the other)
+            If either `recorder` or `sink` is provided without the other.
         """
         if (recorder is None) != (sink is None):
             raise ValueError(
