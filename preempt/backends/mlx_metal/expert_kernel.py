@@ -36,7 +36,7 @@ class ProjectionQuantParams:
     """Quantization parameters for a single projection stored as scalars.
 
     Parameters are captured during instantiation of instrumented module
-    wrappers, such as like `InstrumentedQwen3NextMoE`. This avoids having
+    wrappers, such as like `InstrumentedQwen3_xMoE`. This avoids having
     to dynamically inspect the inner layer's weights which may be stripped
     or offloaded from memory during the forward pass.
     """

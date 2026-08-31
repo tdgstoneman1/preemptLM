@@ -34,8 +34,7 @@ from preempt.core.protocols.loader import IExpertLoader
 from preempt.engine.layer_resolution import LayerCandidate
 
 
-# TODO rename as TracedQwen3NextMoE
-class InstrumentedQwen3NextMoE(nn.Module):
+class InstrumentedQwen3_xMoE(nn.Module):
     """Module wrapper for instrumenting Qwen3.x and Qwen3-Next MoE blocks.
 
     Forward pass currently computes one expert at a time when reading from disk.
@@ -249,7 +248,7 @@ def make_qwen3next_moe_wrapper_factory(
                 "block index."
             )
 
-        return InstrumentedQwen3NextMoE(
+        return InstrumentedQwen3_xMoE(
             inner=module,
             recorder=recorder,
             capture_gate_logits=capture_gate_logits,
