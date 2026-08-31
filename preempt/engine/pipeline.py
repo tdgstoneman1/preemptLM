@@ -46,7 +46,6 @@ class GenerationPipeline:
 
     def __init__(
         self,
-        *,
         runner: IModelRunner,
         tokenizer: ITokenCodec,
         max_tokens: int,
