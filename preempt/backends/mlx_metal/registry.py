@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import Never
 
 from .types import MlxMoEFactory
-from .architecture import MoEArchitecture
+from .architecture import MoEArchAdapter
 from .architectures.defaults import V1_MOE_FACTORIES
 
 # TODO make `register`, `get`, and `available` classmethods
 
 
 class MoEArchRegistry:
-    """Mutable registry mapping MoE architecture names to `MoEArchitecture`
+    """Mutable registry mapping MoE architecture names to `MoEArchAdapter`
     factories.
 
     :Note: For tamper-proof defaults, use the `DefaultMoEArchRegistry` subclass.
@@ -28,14 +28,14 @@ class MoEArchRegistry:
         ----------
         name : str
             MoE architecture name, e.g. `"qwen3-next"`
-        factory : Callable[[], MoEArchitecture]
-            No-arg callable that builds and returns a new `MoEArchitecture`
+        factory : Callable[[], MoEArchAdapter]
+            No-arg callable that builds and returns a new `MoEArchAdapter`
             instance
         """
         self._factories[name] = factory
 
-    def get(self, name: str) -> MoEArchitecture:
-        """Returns new instance of the `MoEArchitecture` keyed under `name`
+    def get(self, name: str) -> MoEArchAdapter:
+        """Returns new instance of the `MoEArchAdapter` keyed under `name`
 
         Parameters
         ----------
@@ -44,7 +44,7 @@ class MoEArchRegistry:
 
         Returns
         -------
-        MoEArchitecture
+        MoEArchAdapter
             New instance created with the registered factory
 
         Raises

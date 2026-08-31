@@ -37,7 +37,7 @@ from preempt.storage.manifest import ExpertBankManifest
 from preempt.storage.expert_io import ExpertBankWriter
 
 from .quantization import make_encoding_tag
-from .architecture import MoEArchitecture
+from .architecture import MoEArchAdapter
 
 # TODO module docstring
 # TODO finish editing slop docstrings.
@@ -68,7 +68,7 @@ def hash_model_ckpt(model_dir: Path) -> str:
 
 
 def build_tensor_shard_index(
-    model_dir: Path, architecture: MoEArchitecture
+    model_dir: Path, architecture: MoEArchAdapter
 ) -> dict[str, Path]:
     """Indexes the file locations of all routed expert tensors in a checkpoint.
 
@@ -81,7 +81,7 @@ def build_tensor_shard_index(
     ----------
     model_dir : Path
         Directory containing the model checkpoint and shard files
-    architecture : MoEArchitecture
+    architecture : MoEArchAdapter
         The architecture definition providing the regex to identify expert
         weight tensors
 
@@ -108,7 +108,7 @@ def build_tensor_shard_index(
 
 def group_expert_tensors_by_layer(
     shard_index: Mapping[str, Path],
-    architecture: MoEArchitecture,
+    architecture: MoEArchAdapter,
 ) -> dict[int, dict[str, str]]:
     """Returns a dictionary of weight tensors grouped and keyed by layer index.
     Each group's nested dictionary maps a tensor's path relative to its parent
@@ -118,7 +118,7 @@ def group_expert_tensors_by_layer(
     ----------
     shard_index : Mapping[str, Path]
         Mapping of a tensor's full, dotted path to its file location
-    architecture : MoEArchitecture
+    architecture : MoEArchAdapter
         Adapter providing regex patterns to parse tensor paths
 
     Returns
@@ -225,7 +225,7 @@ def expert_ndarrays(
 def model_to_expert_bank(
     model_dir: Path,  # TODO rename
     expert_bank_dir: Path,
-    architecture: MoEArchitecture,
+    architecture: MoEArchAdapter,
     model_id: str | None = None,
     max_moe_blocks: int | None = None,
     overwrite: bool = False,
@@ -238,7 +238,7 @@ def model_to_expert_bank(
         The MLX model's checkpoint directory containing `config.json` and safetensors shards
     expert_bank_dir : Path
         Local directory where `experts.bin` and `manifest.json` will be written
-    architecture : MoEArchitecture
+    architecture : MoEArchAdapter
         Adapter defining the checkpoint's MoE structural patterns
     model_id : str | None
         A unique identifier used for compatibility checks when loading the saved expert bank.

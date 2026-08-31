@@ -13,7 +13,7 @@ import re
 
 import mlx.core as mx
 
-from preempt.backends.mlx_metal.architecture import MoEArchitecture
+from preempt.backends.mlx_metal.architecture import MoEArchAdapter
 from preempt.backends.mlx_metal.constants import (
     SWIGLU_PROJECTION_NAMES,
     QUANTIZED_TENSOR_PARTS,
@@ -27,7 +27,7 @@ from preempt.storage.manifest import ModelMoESpec
 
 # TODO rename to convey this is an adapter
 # TODO rename 'config' arg in methods to 'ckpt'
-class Qwen3NextMoEArchitecture(MoEArchitecture):
+class Qwen3NextMoEArchitecture(MoEArchAdapter):
     """Architecture adapter for Qwen3 and Qwen3-Next MoE checkpoints.
 
     Supports SwiGLU experts containing three linear projections (`'gate_proj'`,

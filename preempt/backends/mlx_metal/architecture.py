@@ -14,7 +14,7 @@ from preempt.storage.manifest import ModelMoESpec
 from .quantization import MlxQuantParams
 
 
-class MoEArchitecture(ABC):
+class MoEArchAdapter(ABC):
     """*Abstract; do not instantiate*
 
     Defines architecture-specific parameters for MLX MoE checkpoint conversion
