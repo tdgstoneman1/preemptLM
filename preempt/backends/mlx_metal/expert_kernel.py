@@ -18,20 +18,19 @@ import math
 import numpy as np
 
 import mlx.core as mx
-from mlx_lm.models.switch_layers import QuantizedSwitchLinear, SwitchGLU
+from mlx_lm.models.switch_layers import SwitchLinear, QuantizedSwitchLinear, SwitchGLU
 
 from preempt.engine.expert_batching import group_rows_by_expert
+
 from preempt.core.exceptions import EngineIncompatibilityError
 
-# TODO add support for unquantized models--URGENT
-# TODO add support for expert layer bias terms in forward pass--URGENT
+from .constants import MLX_QUANT_PARAMS
+
 
 # TODO move dataclasses to separate module
+# TODO add support for expert layer bias terms in forward pass
 # TODO prepend attrs dataclass names with `Mlx` prefix
-
 # TODO fix hallucinated 'row' terminology, confusing
-
-
 @attrs.define(kw_only=True, frozen=True)
 class ProjectionQuantParams:
     """Quantization parameters for a single projection stored as scalars.
@@ -47,6 +46,7 @@ class ProjectionQuantParams:
     mode: str = field()
 
 
+# TODO move to quantization/
 @attrs.define(kw_only=True, frozen=True)
 class SwitchQuantParams:
     """Quantization parameters for all projections within a single expert layer.
@@ -64,6 +64,7 @@ class SwitchQuantParams:
 
 
 @attrs.define(kw_only=True, frozen=True, eq=False)
+# TODO move to quantization/
 class QuantizedProjection:
     """Quantized weight tensor for one of an expert's linear projections and
     its quantization parameters
@@ -92,7 +93,12 @@ class QuantizedProjection:
     mode: str = field()
 
 
-@attrs.define(kw_only=True, frozen=True, eq=False)  # TODO prepend name with 'Quantized'
+@attrs.define(kw_only=True, frozen=True, eq=False)
+class UnquantizedProjection:
+    weight: mx.array = field()
+
+
+@attrs.define(kw_only=True, frozen=True, eq=False)
 class ExpertProjections:
     """All quantized linear projection weights for one expert.
 
@@ -102,16 +108,16 @@ class ExpertProjections:
     Attributes
     ----------
     projections : Mapping[str, QuantizedProjection]
-        Mapping of projection names to quantized weights
+        Mapping of projection names to weights arrays
     """
 
-    projections: Mapping[str, QuantizedProjection] = field()
+    projections: Mapping[str, QuantizedProjection | UnquantizedProjection] = field()
 
 
 def describe_switch_quantization(  # TODO rename
     switch_mlp: SwitchGLU,
     projection_names: Sequence[str],
-) -> SwitchQuantParams:
+) -> SwitchQuantParams | None:
     """Reads quantization parameters for the linear projection layer weights
     in `switch_mlp`.
 
@@ -141,32 +147,34 @@ def describe_switch_quantization(  # TODO rename
     for name in projection_names:
         module = getattr(switch_mlp, name)
 
-        # TODO add support for non-quantized layers!
-        if not isinstance(module, QuantizedSwitchLinear):
+        if not isinstance(module, (SwitchLinear, QuantizedSwitchLinear)):
             raise TypeError(
                 f"`{name}` is of unsupported type `{type(module).__name__}`. Only "
-                "`QuantizedSwitchLinear` is currently supported."
+                "`SwitchLinear` or `QuantizedSwitchLinear` currently supported."
             )
-        # TODO add support for bias!
+        # TODO add support for bias
         if "bias" in module:
             raise EngineIncompatibilityError(
                 f"`{name}` layer (in `{type(module).__name__}`) has an additive `bias`. "
                 "This is currently unsupported in the per-expert forward pass. "
             )
 
-        params[name] = ProjectionQuantParams(
-            group_size=int(module.group_size),
-            bits=int(module.bits),
-            mode=str(module.mode),
-        )
+        if all(hasattr(module, attr) for attr in MLX_QUANT_PARAMS):
+            params[name] = ProjectionQuantParams(
+                group_size=int(module.group_size),  # type: ignore
+                bits=int(module.bits),  # type: ignore
+                mode=str(module.mode),  # type: ignore
+            )
+    if params:
+        return SwitchQuantParams(params=params)
 
-    return SwitchQuantParams(params=params)
 
-
-# TODO rename
+# TODO rename, 'rows' terminology is confusing
 # TODO add support for unquantized weights!
 # TODO docstring, 'input_dims' confusing
-def project_rows(x_rows: mx.array, projection: QuantizedProjection) -> mx.array:
+def project_rows(
+    x_rows: mx.array, projection: QuantizedProjection | UnquantizedProjection
+) -> mx.array:
     """Applies an expert's projection to its routed token assignments.
 
     Parameters
@@ -183,6 +191,9 @@ def project_rows(x_rows: mx.array, projection: QuantizedProjection) -> mx.array:
         Projected output tensor, shape `(n_assignments, d_model)`, where
         `d_model` is the feature dimension of the projection
     """
+    if isinstance(projection, UnquantizedProjection):
+        return mx.matmul(x_rows, projection.weight.T)
+
     return mx.quantized_matmul(
         x_rows,
         projection.weight,
@@ -257,20 +268,19 @@ def _reassemble(
         Reassembled output tensor, shape `(*leading_shape, top_k, d_model)`,
         where `d_model` is the feature dimension of expert layer outputs
     """
-    grouped = mx.concatenate(outputs, axis=0)
+    grouped = mx.concatenate(list(outputs), axis=0)
     inverse = np.argsort(np.concatenate(permutation)).astype(np.int32)
 
     return grouped[mx.array(inverse)].reshape(*leading_shape, top_k, -1)
 
 
-# TODO docstring, 'input_dims' ambiguous
 def sequential_run_selected_experts(
     x: mx.array,
     row_experts: Sequence[int],  # TODO rename, these aren't rows!
     *,
     top_k: int,
     expert_forward_fn: Callable[
-        [mx.array, Mapping[str, QuantizedProjection]], mx.array
+        [mx.array, Mapping[str, QuantizedProjection | UnquantizedProjection]], mx.array
     ],
     expert_load_weights_fn: Callable[[int], ExpertProjections],
 ) -> mx.array:
@@ -323,6 +333,7 @@ def sequential_run_selected_experts(
     for expert_idx, x_rows, row_array in _iter_expert_rows(x_flat, row_experts, top_k):
         expert_proj = expert_load_weights_fn(expert_idx)
         y_rows = expert_forward_fn(x_rows, expert_proj.projections)
+        # mx.async_eval(y_rows)
 
         outputs.append(y_rows)
         perm.append(row_array)
