@@ -28,7 +28,7 @@ from preempt.engine.layer_resolution import (
 )
 from preempt.engine.expert_loaders import DiskBackedExpertLoader
 
-from preempt.storage.expert_io import ExpertBank
+from preempt.storage.expert_io import ExpertBank, MmapExpertBank
 
 from preempt.utils.pipeline_utils import (
     validate_output_path,
@@ -48,6 +48,8 @@ from ..loader import MlxLoadedModel, load_mlx_model
 from ..recorder import MlxExpertRoutingRecorder
 from ..cache import MlxExpertCache
 from ..runner import MlxModelRunner
+
+from icecream import ic
 
 # TODO use IExpertBank instead of ExpertBank
 
@@ -178,6 +180,24 @@ def mlx_build_generation_pipeline(
     console: Console | None = None,
 ) -> GenerationPipeline:
 
+    def maybe_print_to_console(msg: str) -> None:
+        nonlocal console
+        if console is not None:
+            console.print(msg)
+        else:
+            print(msg, flush=True)
+
+    # * Device settings
+    device = mx.default_device()
+    maybe_print_to_console(f"Default device: {mx.device_info(device)!r}")
+
+    memory_budget = (
+        f"{config.stream_settings.memory_budget_gb} GB"
+        if config.stream_settings
+        else "N/A"
+    )
+    maybe_print_to_console(f"Expert cache memory budget: {memory_budget}")
+
     # * Validate config
     if config.llm.backend != Backends.MLX:
         raise ValueError(
@@ -185,16 +205,17 @@ def mlx_build_generation_pipeline(
             f"set to {Backends.MLX!r}."
         )
 
+    # * Validate trace output path
     base_dir, output_path = validate_output_path(config, config_dir)
 
-    # * Load the model
-    msg = f"Loading model: {config.llm.model_id}"
-    if console is not None:
-        console.print(msg)
-    else:
-        print(msg, flush=True)
+    # * Resolve path to model the model
+    try:
+        path = Path(config.llm.model_id).absolute().resolve(strict=True).as_posix()
+    except FileNotFoundError:
+        path = config.llm.model_id
 
-    loaded = load_mlx_model(config.llm.model_id, lazy=stream_experts)
+    maybe_print_to_console(f"Loading model: {path!r}")
+    loaded = load_mlx_model(path, lazy=stream_experts)
 
     # * Configure optional streaming
     if stream_experts:
@@ -206,7 +227,6 @@ def mlx_build_generation_pipeline(
 
     # * Instrument the model
     target_layer_config = target_layers_for_model(config, expert_bank)
-
     moe_blocks = _moe_blocks_for_model(loaded, target_layer_config)
 
     if save_traces:
@@ -224,11 +244,7 @@ def mlx_build_generation_pipeline(
         expert_cache=cache,
         recorder=recorder,
     )
-    msg = f"Instrumented {num_instrumented} MoE block(s)"
-    if console is not None:
-        console.print(msg)
-    else:
-        print(msg, flush=True)
+    maybe_print_to_console(f"Instrumented {num_instrumented} MoE block(s)")
 
     _evaluate_model(
         loaded,
@@ -236,9 +252,14 @@ def mlx_build_generation_pipeline(
         config=config,
         expert_bank=expert_bank,
     )
+    runner = MlxModelRunner(
+        loaded.model,
+        # max_tokens=config.generation_settings.max_tokens,
+        # prefill_chunk_size=config.generation_settings.prefill_chunk_size,
+    )  # TODO pass max_kv_size from config
 
     return GenerationPipeline(
-        runner=MlxModelRunner(loaded.model),
+        runner=runner,
         tokenizer=loaded.tokenizer,
         max_tokens=config.generation_settings.max_tokens,
         prefill_chunk_size=config.generation_settings.prefill_chunk_size,
