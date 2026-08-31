@@ -20,10 +20,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import hashlib
-
 import json
-
 from pathlib import Path
+
+import gc
 
 import attrs
 from attrs import field
@@ -32,15 +32,12 @@ import numpy as np
 
 import mlx.core as mx
 
-import gc
-
 from preempt.storage.blob import assemble_expert_blob, derive_tensor_specs
 from preempt.storage.manifest import ExpertBankManifest
 from preempt.storage.expert_io import ExpertBankWriter
 
 from .quantization import make_encoding_tag
 from .architecture import MoEArchitecture
-from .architectures.qwen3_next import Qwen3NextMoEArchitecture
 
 # TODO module docstring
 # TODO finish editing slop docstrings.
@@ -93,7 +90,7 @@ def build_tensor_shard_index(
     dict[str, Path]
         Mapping of tensor dotted paths to tensor shard file paths
     """
-    tensor_re = architecture.expert_tensor_regex()
+    regex = architecture.expert_tensor_regex()
     index_path = model_dir / "model.safetensors.index.json"
     # TODO move path parts like 'model.safetensors' to .constants
 
@@ -102,11 +99,11 @@ def build_tensor_shard_index(
         return {
             name: model_dir / shard
             for name, shard in weight_map.items()
-            if tensor_re.match(name)
+            if regex.match(name)
         }
 
     single = model_dir / "model.safetensors"
-    return {name: single for name in mx.load(str(single)) if tensor_re.match(name)}  # type: ignore
+    return {name: single for name in mx.load(single) if regex.match(name)}  # type: ignore
 
 
 def group_expert_tensors_by_layer(
@@ -114,8 +111,8 @@ def group_expert_tensors_by_layer(
     architecture: MoEArchitecture,
 ) -> dict[int, dict[str, str]]:
     """Returns a dictionary of weight tensors grouped and keyed by layer index.
-    Each group's nested dictionary maps a tensor paths relative to parent layers
-    (e.g., `w1.weight`) to full paths in the model.
+    Each group's nested dictionary maps a tensor's path relative to its parent
+    (e.g., `w1.weight`) to its full path within the model.
 
     Parameters
     ----------
@@ -187,45 +184,31 @@ class ShardTensorCache:
     _loaded: dict[str, mx.array] = field(factory=dict, init=False)
 
     def get(self, name: str) -> mx.array:
-        """Returns one stacked `[num_routed_experts, ...]` tensor keyed under
-        `name`.
-
-        Parameters
-        ----------
-        name : str
-            Full checkpoint tensor name
-
-        Returns
-        -------
-        mx.array
-            The stacked tensor (unevaluated)
-        """
         path = self.shard_index[name]
         if path != self._loaded_path:
-            self._loaded = mx.load(str(path))  # type: ignore
+            self._loaded = mx.load(path)  # type: ignore
             self._loaded_path = path
 
         return self._loaded[name]
 
-    def load_layer(self, layer_tensors: Mapping[str, str]) -> dict[str, mx.array]:
+    def load_layer(self, layer_weights: Mapping[str, str]) -> dict[str, mx.array]:
         """Loads `layer_tensors` from tensorshards.
 
         Parameters
         ----------
         layer_tensors : Mapping[str, str]
-            A mapping of dotted module-relative tensor paths (e.g., `w1.weight`)
-            to full, dotted tensor paths in the checkpoint
+            A mapping of dotted tensor paths relative to parent modules (e.g.,
+            `w1.weight`) to their full paths in the checkpoint
 
         Returns
         -------
         dict[str, mx.array]
-            Mapping of dotted layer  semantic names to the loaded,
-            stacked MLX tensors
+            Mapping of dotted paths in dot notation to stacked weight tensors
         """
-        # Sort based on shard order to mitigate unnecessary disk reads
-        # when a layer's tensors are split across multiple shards.
+        # Sort by shard order to reduce disk reads for layers split between shards
+        # TODO verify sorting actually helps, otherwise may introduce latency
         ordered = sorted(
-            layer_tensors.items(), key=lambda item: self.shard_index[item[1]]
+            layer_weights.items(), key=lambda item: self.shard_index[item[1]]
         )
         return {path: self.get(name) for path, name in ordered}
 
@@ -239,7 +222,7 @@ def expert_ndarrays(
     return {path: mlx_to_numpy(tensor[expert_idx]) for path, tensor in stacked.items()}
 
 
-def convert_mlx_model_to_expert_bank(
+def model_to_expert_bank(
     model_dir: Path,  # TODO rename
     expert_bank_dir: Path,
     architecture: MoEArchitecture,
@@ -254,19 +237,19 @@ def convert_mlx_model_to_expert_bank(
     model_dir : Path
         The MLX model's checkpoint directory containing `config.json` and safetensors shards
     expert_bank_dir : Path
-        The destination directory where `experts.bin` and `manifest.json` will be written
+        Local directory where `experts.bin` and `manifest.json` will be written
     architecture : MoEArchitecture
-        Adapter defining the checkpoint's MoE structural patterns.
+        Adapter defining the checkpoint's MoE structural patterns
     model_id : str | None
         A unique identifier used for compatibility checks when loading the saved expert bank.
-        Defaults to checkpoint directory name, but should be explicitly provided for cached
-        Hugging Face snapshots.
+        Defaults to the name of the model checkpoint, but should be explicitly provided for
+        specific cached Hugging Face snapshots. By default `None`
     max_moe_blocks : int | None
-        Limits conversion to the first `max_moe_blocks` MoE blocks. If `None` (default),
-        all layers are converted.
+        Limits conversion to the first `max_moe_blocks` MoE blocks. If `None`, all layers are
+        converted. By default `None`
     overwrite : bool
         If `True`, an existing expert bank in the output directory will be overwritten.
-        Defaults to False.
+        By default False
 
     Returns
     -------
@@ -276,12 +259,11 @@ def convert_mlx_model_to_expert_bank(
     Raises
     ------
     ValueError
-        If no routed expert tensors are found in the checkpoint, or if a layer's tensors
-        deviate from the expected structural layout for the model's architecture.
+        If no routed expert tensors could be resolved from checkpoint.
+    ValueError
+        If a layer's tensors deviate from the structural layout expected for the given
+        architecture.
     """
-    if architecture is None:
-        architecture = Qwen3NextMoEArchitecture()
-
     shard_index = build_tensor_shard_index(model_dir, architecture)
     by_layer = group_expert_tensors_by_layer(shard_index, architecture)
     if not by_layer:
@@ -310,7 +292,6 @@ def convert_mlx_model_to_expert_bank(
     model_moe_spec = architecture.extract_model_moe_spec(
         config, block_idxs, num_routed_experts
     )
-
     with ExpertBankWriter(
         expert_bank_dir,
         model_id=model_id if model_id is not None else model_dir.name,
@@ -320,9 +301,7 @@ def convert_mlx_model_to_expert_bank(
         model_moe_spec=model_moe_spec,
         overwrite=overwrite,
     ) as writer:
-
         for block_idx in block_idxs:
-
             layer_order = architecture.validate_layer_tensors(by_layer[block_idx])
             if layer_order != order:
                 raise ValueError(
@@ -331,7 +310,6 @@ def convert_mlx_model_to_expert_bank(
                 )
 
             stacked = cache.load_layer(by_layer[block_idx])
-
             for expert_idx in range(num_routed_experts):
                 writer.add_expert(
                     block_idx=block_idx,
