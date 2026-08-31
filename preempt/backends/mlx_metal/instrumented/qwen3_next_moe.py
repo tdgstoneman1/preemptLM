@@ -36,12 +36,16 @@ from preempt.engine.layer_resolution import LayerCandidate
 
 # TODO rename as TracedQwen3NextMoE
 class InstrumentedQwen3NextMoE(nn.Module):
-    """Module wrapper for instrumenting Qwen3-Next MoE block.
-
-    `__call__` forked from `mlx_lm.models.qwen3_next.Qwen3NextSparseMoeBlock` (see
-    https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/models/qwen3_next.py#L308)
+    """Module wrapper for instrumenting Qwen3.x and Qwen3-Next MoE blocks.
 
     Forward pass currently computes one expert at a time when reading from disk.
+
+    `__call__` forked from `mlx_lm.models.qwen3_next.Qwen3NextSparseMoeBlock` (see
+    https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/models/qwen3_next.py#L308).
+
+    :Note: The `mlx_lm` implementations of Qwen3.5 (for Qwen3.x) and Qwen3-Next both
+    use the same `Qwen3NextSparseMoeBlock` for MoE blocks, and this wrapper can
+    thus be applied to either of the two architectures.
     """
 
     inner: Qwen3NextSparseMoeBlock
