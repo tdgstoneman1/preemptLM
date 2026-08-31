@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 from collections.abc import Callable
 
 import attrs
@@ -33,13 +34,14 @@ class GenerationPipeline:
     completion.
     """
 
-    _runner: IModelRunner
-    _tokenizer: ITokenCodec
-    _max_tokens: int
-    _prefill_chunk_size: int
-    _recorder: BaseEventRecorder | None
-    _sink: BaseEventSink | None
-    _on_step: Callable[[StepMetrics], None] | None
+    runner: IModelRunner
+    tokenizer: ITokenCodec
+    max_tokens: int
+    prefill_chunk_size: int
+    recorder: BaseEventRecorder | None
+    sink: BaseEventSink | None
+    on_step: Callable[[StepMetrics], None] | None
+
     _sink_consumed: bool
 
     def __init__(
@@ -49,9 +51,9 @@ class GenerationPipeline:
         tokenizer: ITokenCodec,
         max_tokens: int,
         prefill_chunk_size: int = 512,
-        recorder: BaseEventRecorder | None = None,
-        sink: BaseEventSink | None = None,
-        on_step: Callable[[StepMetrics], None] | None = None,
+        recorder: Optional[BaseEventRecorder] = None,
+        sink: Optional[BaseEventSink] = None,
+        on_step: Optional[Callable[[StepMetrics], None]] = None,
     ) -> None:
         """ "
         Parameters
@@ -86,25 +88,22 @@ class GenerationPipeline:
                 f"but got `{type(recorder)=}` and `{type(sink)=}`."
             )
 
-        self._runner = runner
-        self._tokenizer = tokenizer
-        self._max_tokens = max_tokens
-        self._prefill_chunk_size = prefill_chunk_size
-        self._recorder = recorder
-        self._sink = sink
-        self._on_step = on_step
-        self._sink_consumed = False
+        self.runner = runner
+        self.tokenizer = tokenizer
+        self.max_tokens = max_tokens
+        self.prefill_chunk_size = prefill_chunk_size
+        self.recorder = recorder
+        self.sink = sink
+        self.on_step = on_step
 
-    @property
-    def tokenizer(self) -> ITokenCodec:
-        return self._tokenizer
+        self._sink_consumed = False
 
     async def generate(
         self,
         prompt: str,
         *,
-        max_tokens: int | None = None,
-        on_step: Callable[[StepMetrics], None] | None = None,
+        max_tokens: Optional[int] = None,
+        on_step: Optional[Callable[[StepMetrics], None]] = None,
     ) -> GenerationResult:
         """Runs greedy generation on text prompt and returns token ids, decoded text,
         and generation metrics.
@@ -127,42 +126,42 @@ class GenerationPipeline:
             If called again on a pipeline that was created with a recorder and sink
             (traced pipelines are single-use).
         """
-        if self._sink is not None and self._sink_consumed:
+        if self.sink is not None and self._sink_consumed:
             raise RuntimeError(
                 "A traced pipeline is single-use, and this pipeline's sink has already"
                 "written and closed its output file. Build a new pipeline to trace "
                 "another generation run."
             )
 
-        prompt_ids = self._tokenizer.encode(prompt)
-        budget = max_tokens if max_tokens is not None else self._max_tokens
+        prompt_ids = self.tokenizer.encode(prompt)
+        budget = max_tokens if isinstance(max_tokens, int) else self.max_tokens
 
-        if self._sink is not None:
+        if self.sink is not None:
             self._sink_consumed = True
 
-            async with self._sink as sink:
+            async with self.sink as sink:
                 token_ids, metrics = await generate_greedy(
-                    runner=self._runner,
+                    runner=self.runner,
                     prompt_ids=prompt_ids,
-                    eos_token_ids=self._tokenizer.eos_token_ids,
+                    eos_token_ids=self.tokenizer.eos_token_ids,
                     max_tokens=budget,
-                    prefill_chunk_size=self._prefill_chunk_size,
-                    recorder=self._recorder,
+                    prefill_chunk_size=self.prefill_chunk_size,
+                    recorder=self.recorder,
                     sink=sink,
-                    on_step=on_step if on_step is not None else self._on_step,
+                    on_step=on_step if on_step is not None else self.on_step,
                 )
         else:
             token_ids, metrics = await generate_greedy(
-                runner=self._runner,
+                runner=self.runner,
                 prompt_ids=prompt_ids,
-                eos_token_ids=self._tokenizer.eos_token_ids,
+                eos_token_ids=self.tokenizer.eos_token_ids,
                 max_tokens=budget,
-                prefill_chunk_size=self._prefill_chunk_size,
-                on_step=on_step if on_step is not None else self._on_step,
+                prefill_chunk_size=self.prefill_chunk_size,
+                on_step=on_step if on_step is not None else self.on_step,
             )
 
         return GenerationResult(
             token_ids=token_ids,
-            text=self._tokenizer.decode(token_ids),
+            text=self.tokenizer.decode(token_ids),
             metrics=metrics,
         )
