@@ -14,6 +14,12 @@ class ITokenCodec(Protocol):  # TODO rename
 
     eos_token_ids: set[int] | None
 
+    @property
+    def think_start_id(self) -> int | None: ...
+
+    @property
+    def think_end_id(self) -> int | None: ...
+
     def encode(self, text: str) -> list[int]: ...
 
     def decode(self, tokens: Sequence[int]) -> str: ...
@@ -24,12 +30,6 @@ class IModelRunner(Protocol):
     """Runs synchronous forward pass and returns the greedy-decoded
     next token.
     """
-
-    def prepare(self) -> None:  # TODO remove
-        """Resets per-sequence state (prompt cache). Call before the
-        first (prefill) generation step.
-        """
-        ...
 
     def step(self, tokens: Sequence[int]) -> int:
         """Runs forward pass over `tokens` and returns the greedy-
