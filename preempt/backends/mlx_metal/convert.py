@@ -22,11 +22,8 @@ from preempt.storage.expert_io import ExpertBankWriter
 from .quantization import make_encoding_tag
 from .architecture import MoEArchAdapter
 
-# TODO finish editing slop docstrings.
 
-
-# TODO rename model_dir to ckpt_dir
-def hash_model_ckpt(model_dir: Path) -> str:
+def hash_model_ckpt(ckpt_path: Path) -> str:
     """Hashes an MLX model checkpoint.
 
     Returns a SHA-256 digest of the checkpoint's `config.json` and the names
@@ -34,7 +31,7 @@ def hash_model_ckpt(model_dir: Path) -> str:
 
     Parameters
     ----------
-    model_dir : Path
+    ckpt_path : Path
         An MLX model's checkpoint directory
 
     Returns
@@ -42,15 +39,15 @@ def hash_model_ckpt(model_dir: Path) -> str:
     str
         The checkpoint's unique fingerprint.
     """
-    digest = hashlib.sha256((model_dir / "config.json").read_bytes())
-    for shard in sorted(model_dir.glob("*.safetensors")):
+    digest = hashlib.sha256((ckpt_path / "config.json").read_bytes())
+    for shard in sorted(ckpt_path.glob("*.safetensors")):
         digest.update(f"{shard.name}:{shard.stat().st_size}".encode())
 
     return digest.hexdigest()
 
 
 def build_tensor_shard_index(
-    model_dir: Path, architecture: MoEArchAdapter
+    ckpt_path: Path, architecture: MoEArchAdapter
 ) -> dict[str, Path]:
     """Indexes the file locations of all routed expert tensors in a checkpoint.
 
@@ -61,8 +58,8 @@ def build_tensor_shard_index(
 
     Parameters
     ----------
-    model_dir : Path
-        Directory containing the model checkpoint and shard files
+    ckpt_path : Path
+        Local path to a Hugging Face model's checkpoint directory
     architecture : MoEArchAdapter
         The architecture definition providing the regex to identify expert
         weight tensors
@@ -72,18 +69,18 @@ def build_tensor_shard_index(
     dict[str, Path]
         Mapping of tensor dotted paths to tensor shard file paths
     """
-    index_path = model_dir / "model.safetensors.index.json"
+    index_path = ckpt_path / "model.safetensors.index.json"
     # TODO move path parts like 'model.safetensors' to .constants
 
     if index_path.exists():
         weight_map = json.loads(index_path.read_text())["weight_map"]
         return {
-            name: model_dir / shard
+            name: ckpt_path / shard
             for name, shard in weight_map.items()
             if architecture.expert_tensor_regex.match(name)
         }
 
-    single = model_dir / "model.safetensors"
+    single = ckpt_path / "model.safetensors"
     return {name: single for name in mx.load(single) if regex.match(name)}  # type: ignore
 
 
@@ -203,19 +200,20 @@ def expert_ndarrays(
 
 
 def model_to_expert_bank(
-    model_dir: Path,  # TODO rename
+    ckpt_path: Path,
     expert_bank_dir: Path,
+    *,
     architecture: MoEArchAdapter,
     model_id: str | None = None,
     max_moe_blocks: int | None = None,
     overwrite: bool = False,
 ) -> ExpertBankManifest:
-    """Writes the routed expert layers of an MLX model to an expert bank.
+    """Writes the routed expert layers of an MLX model to an expert bank on disk.
 
     Parameters
     ----------
-    model_dir : Path
-        The MLX model's checkpoint directory containing `config.json` and safetensors shards
+    ckpt_dir : Path
+        Local path to a Hugging Face model's checkpoint directory
     expert_bank_dir : Path
         Local directory where `experts.bin` and `manifest.json` will be written
     architecture : MoEArchAdapter
@@ -244,16 +242,18 @@ def model_to_expert_bank(
         If a layer's tensors deviate from the structural layout expected for the given
         architecture.
     """
-    shard_index = build_tensor_shard_index(model_dir, architecture)
+    shard_index = build_tensor_shard_index(ckpt_path, architecture)
     by_layer = group_expert_tensors_by_layer(shard_index, architecture)
     if not by_layer:
-        raise ValueError(f"No routed expert tensors found in `{model_dir}`.")
+        raise ValueError(
+            f"No routed expert tensors found in `{ckpt_path.as_posix()!r}`."
+        )
 
     block_idxs = sorted(by_layer)
     if max_moe_blocks is not None:
         block_idxs = block_idxs[:max_moe_blocks]
 
-    config = json.loads((model_dir / "config.json").read_text())
+    config = json.loads((ckpt_path / "config.json").read_text())
     cache = ShardTensorCache(shard_index=shard_index)
 
     first_stacked = cache.load_layer(by_layer[block_idxs[0]])
@@ -274,8 +274,8 @@ def model_to_expert_bank(
     )
     with ExpertBankWriter(
         expert_bank_dir,
-        model_id=model_id if model_id is not None else model_dir.name,
-        model_fingerprint=hash_model_ckpt(model_dir),
+        model_id=model_id if model_id is not None else ckpt_path.name,
+        model_fingerprint=hash_model_ckpt(ckpt_path),
         payload_encoding=encoding,
         tensor_specs=specs,
         model_moe_spec=model_moe_spec,
