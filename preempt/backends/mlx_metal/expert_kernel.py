@@ -1,11 +1,3 @@
-"""Quantized MoE kernel logic for sequentially applying experts in the forward
-pass.
-
-Implements a streaming-compatible evaluation loop using `mx.quantized_matmul`,
-allowing individual expert weights to be loaded, evaluated, and offloaded one
-at a time to enforce strict memory bounds during inference.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
