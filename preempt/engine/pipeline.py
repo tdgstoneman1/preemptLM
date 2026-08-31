@@ -100,7 +100,11 @@ class GenerationPipeline:
         return self._tokenizer
 
     async def generate(
-        self, prompt: str, *, max_tokens: int | None = None, on_step: Callable[[StepMetrics], None] | None = None
+        self,
+        prompt: str,
+        *,
+        max_tokens: int | None = None,
+        on_step: Callable[[StepMetrics], None] | None = None,
     ) -> GenerationResult:
         """Runs greedy generation on text prompt and returns token ids, decoded text,
         and generation metrics.
