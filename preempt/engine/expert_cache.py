@@ -13,8 +13,7 @@ from preempt.core.enums import CachePolicy
 
 @attrs.define(kw_only=True)
 class _Entry:
-    """Metadata for one cached expert (weights stored separately by in-memory
-    layer)
+    """Metadata for one cached expert
 
     Attributes
     ----------
@@ -39,7 +38,7 @@ class ExpertCacheManager:
     """Manager that tracks experts in memory and manages eviction decisions.
 
     Uses random sampling to avoid full scans during eviction decisions, with LFRU
-    (Least Frequently Recently Used) set as the default policy.
+    (Least Frequently Recently Used) as the default policy.
 
     **Note:** This does not track which experts are actively used in a forward pass.
     When memory budget is less than the *largest* set of unique experts required by
@@ -152,15 +151,13 @@ class ExpertCacheManager:
 
     @property
     def bytes_read(self) -> int:
-        """Total number of bytes read from expert bank"""
+        """Total number of bytes read from expert bank on disk"""
         return self._bytes_read
 
     def __contains__(self, key: ExpertKey) -> bool:
-        """Checks cache for expert held under `key` without recording an access."""
         return key in self._entries
 
     def __len__(self) -> int:
-        """Returns the number of entries in the cache."""
         return len(self._entries)
 
     def touch(self, key: ExpertKey) -> bool:  # TODO rename
@@ -228,6 +225,7 @@ class ExpertCacheManager:
         while self._resident_bytes + num_bytes > self._budget_bytes:
             victim = self._select_victim()
             self._remove(victim)
+
             self._evictions += 1
             evicted.append(victim)
 
@@ -241,14 +239,13 @@ class ExpertCacheManager:
         return tuple(evicted)
 
     def _select_victim(self) -> ExpertKey:  # TODO rename
-        """Returns the lowest-ranked entry from a random sample."""
         candidates: Sequence[ExpertKey]
 
         if len(self._keys) <= self._sample_size:
             candidates = self._keys
         else:
-            # Sampling with replacement cheaper than without, negligible impact when
-            # cache size >> `sample_size` (see `waste/src/ecache.c:378` for similar approach)
+            # Sampling is cheaper w/ replacement than w/o, impact negligible when
+            # cache size >> sample_size (see `waste/src/ecache.c:378` for similar approach)
             candidates = [
                 self._keys[self._rng.randrange(len(self._keys))]
                 for _ in range(self._sample_size)
@@ -257,9 +254,6 @@ class ExpertCacheManager:
         return min(candidates, key=self._rank)
 
     def _rank(self, key: ExpertKey) -> tuple[int, int]:
-        """Returns the eviction rank tuple for the expert mapped to `key` (lower ranks
-        evicted first).
-        """
         entry = self._entries[key]
 
         if self._policy is CachePolicy.LRU:
@@ -268,9 +262,6 @@ class ExpertCacheManager:
         return (entry.freq, entry.last)
 
     def _remove(self, key: ExpertKey) -> None:
-        """Removes the entry mapped to `key` and keeps cache's key list contiguous for O(1)
-        random sampling.
-        """
         entry = self._entries.pop(key)
         moved = self._keys.pop()
 
