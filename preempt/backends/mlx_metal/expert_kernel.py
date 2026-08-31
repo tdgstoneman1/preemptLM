@@ -30,17 +30,16 @@ from mlx_lm.models.switch_layers import (
     _scatter_unsort,
 )
 
-from icecream import ic
-
 from preempt.core.exceptions import EngineIncompatibilityError
 
 from .constants import MLX_QUANT_PARAMS
-
 
 # TODO move dataclasses to separate module
 # TODO add support for expert layer bias terms in forward pass
 # TODO prepend attrs dataclass names with `Mlx` prefix
 # TODO fix hallucinated 'row' terminology, confusing
+
+
 @attrs.define(kw_only=True, frozen=True)
 class ProjectionQuantParams:
     """Quantization parameters for a single projection stored as scalars.
@@ -214,22 +213,23 @@ def expert_proj_mm(
     )
 
 
-def group_rows_by_expert(
+def _group_token_assignments_by_expert(
     row_experts: Sequence[int],
 ) -> tuple[tuple[int, tuple[int, ...]], ...]:
-    rows_by_expert: dict[int, list[int]] = {}
-    for row, expert in enumerate(row_experts):
+    toks_by_expert: dict[int, list[int]] = {}
+
+    for i, expert in enumerate(row_experts):
         if expert < 0:
             raise ValueError()
 
-        rows_by_expert.setdefault(expert, []).append(row)
+        toks_by_expert.setdefault(expert, []).append(i)
 
-    return tuple((expert, tuple(rows)) for expert, rows in rows_by_expert.items())
+    return tuple((expert, tuple(rows)) for expert, rows in toks_by_expert.items())
 
 
-def _iter_expert_rows(  # TODO rename
+def _iter_expert_routed_tokens(
     x_flat: mx.array,
-    row_experts: Sequence[int],
+    row_experts: Sequence[int],  # TODO rename
     top_k: int,
 ) -> Iterator[tuple[int, mx.array, np.ndarray]]:
     """Yields flattened token activations grouped by their assigned expert.
@@ -253,7 +253,7 @@ def _iter_expert_rows(  # TODO rename
         A tuple containing the expert index, the subset of `x_flat` assigned
         to that expert, and an array of the original assignment indices
     """
-    for expert_idx, rows in group_rows_by_expert(row_experts):
+    for expert_idx, rows in _group_token_assignments_by_expert(row_experts):
         row_array = np.asarray(rows, dtype=np.int32)
 
         yield expert_idx, x_flat[mx.array(row_array // top_k)], row_array
@@ -314,15 +314,12 @@ def sequential_run_selected_experts(
     ----------
     x : mx.array
         Array of hidden states, shape `(batch, tokens, d_model)`
-    row_experts : Sequence[int]
+    expert_idxs : Sequence[int]
         The router's selections, flattened in `(batch, tokens, top_k)` order
-    top_k : int
-        Router selections per token
     expert_forward_fn : Callable[[mx.array, Mapping[str, QuantizedProjection]], mx.array]
         Callback applying one expert's projections to its assigned activations
-    expert_load_weights_fn : Callable[[int], ExpertProjections]
-        Callback retrieving one expert's parameters, invoked immediately prior
-        to computation to support streaming paradigms
+    load_expert_fn : Callable[[int], ExpertProjections]
+        Callable that loads one expert's parameters (from disk if not already in memory)
 
     Returns
     -------
@@ -336,7 +333,7 @@ def sequential_run_selected_experts(
         If the number of elements in `row_experts` does not equal the total
         number of tokens multiplied by `top_k`
     """
-    B, S, top_k = expert_idxs.shape
+    _, _, top_k = expert_idxs.shape
 
     flat_idxs = [int(expert) for expert in expert_idxs.flatten().tolist()]  # type: ignore
     n_rows = len(flat_idxs)
@@ -352,7 +349,9 @@ def sequential_run_selected_experts(
     outputs: list[mx.array] = []
     perm: list[np.ndarray] = []
 
-    for expert_idx, x_rows, row_array in _iter_expert_rows(x_flat, flat_idxs, top_k):
+    for expert_idx, x_rows, row_array in _iter_expert_routed_tokens(
+        x_flat, flat_idxs, top_k
+    ):
         expert_proj = load_expert_fn(expert_idx)
         y_rows = expert_forward_fn(x_rows, expert_proj.projections)
         # mx.async_eval(y_rows)
@@ -368,11 +367,11 @@ def apply_swiglu_activation(x_up: mx.array, x_gate: mx.array) -> mx.array:
 
 
 def swiglu_forward_fn(
-    x_rows: mx.array,
+    x: mx.array,
     projections: Mapping[str, QuantizedProjection | UnquantizedProjection],
 ) -> mx.array:
-    x_up = expert_proj_mm(x_rows, projections["up_proj"])
-    x_gate = expert_proj_mm(x_rows, projections["gate_proj"])
+    x_up = expert_proj_mm(x, projections["up_proj"])
+    x_gate = expert_proj_mm(x, projections["gate_proj"])
 
     return expert_proj_mm(
         apply_swiglu_activation(x_up, x_gate), projections["down_proj"]
@@ -395,6 +394,8 @@ def stacked_proj_mm(
         Expert indices, shape `(batch * tokens, K)` (K=top_k for up/gate, K=1 for down)
     projections : Sequence[QuantizedProjection | UnquantizedProjection]
         Expert projection weights and optional quantization parameters
+    is_quantized: bool
+        Whether the projections are quantized
 
     Returns
     -------
@@ -462,6 +463,8 @@ def fused_run_selected_experts(
         Router top-k selections, shape `(B, S, top_k)`
     load_expert_fn : Callable[[int], ExpertProjections]
         Callback retrieving projections for each unique expert
+    is_quantized: bool
+        Whether the model is quantized
 
     Returns
     -------
