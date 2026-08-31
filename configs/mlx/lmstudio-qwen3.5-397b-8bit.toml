@@ -12,7 +12,7 @@ prefill_chunk_size = 512
 
 [stream_settings]
 expert_bank_path = "../../expert-bank/qwen3.5-397b-8bit"
-memory_budget_gb = 10
+memory_budget_gb = 16
 bypass_page_cache = true
 
 [trace_settings]
