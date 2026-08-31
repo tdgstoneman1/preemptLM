@@ -11,7 +11,7 @@ from preempt.config.target_layers import TargetLayerConfig, TargetLayerSearchPar
 
 
 @attrs.define(frozen=True, kw_only=True)
-class LayerCandidate:
+class LayerCandidate:  # TODO move to datamodel/
     """Identifiers used to match candidate layers against `TargetLayerSearchParams`.
 
     Attributes
