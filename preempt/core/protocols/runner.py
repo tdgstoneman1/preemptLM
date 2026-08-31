@@ -3,12 +3,16 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 from collections.abc import Sequence
 
+# TODO rename module
+
 
 @runtime_checkable
 class ITokenCodec(Protocol):  # TODO rename
     """Minimal tokenization interface for encoding text to token ids
     and vice versa.
     """
+
+    eos_token_ids: set[int] | None
 
     def encode(self, text: str) -> list[int]: ...
 
