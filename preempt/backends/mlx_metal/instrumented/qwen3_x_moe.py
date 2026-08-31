@@ -232,7 +232,7 @@ class InstrumentedQwen3_xMoE(nn.Module):
 
 
 # TODO rename to meta_factory?
-def make_qwen3next_moe_wrapper_factory(
+def make_qwen3_x_moe_wrapper_factory(
     recorder: MoERecorder | None,
     *,
     capture_gate_logits: bool = False,
