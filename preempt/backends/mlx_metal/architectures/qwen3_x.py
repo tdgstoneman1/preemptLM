@@ -35,7 +35,11 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
     `'language_model.model.layers.<layer idx>.mlp.switch_mlp.<projection>'`
     """
 
-    layer_class_name: ClassVar[str] = "Qwen3NextSparseMoeBlock"
+    _layer_class_name: ClassVar[str] = "Qwen3NextSparseMoeBlock"
+
+    @property
+    def layer_class_name(self) -> str:
+        return self._layer_class_name
 
     @property
     def projection_names(self) -> tuple[str, ...]:
