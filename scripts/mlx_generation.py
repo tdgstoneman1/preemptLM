@@ -46,7 +46,9 @@ from preempt.utils.pipeline_utils import (
     cache_metrics_log_msg,
 )
 
-# TODO use rich Live and Markdown render generated text in markdown format
+# TODO use rich.Markdown to render generated text in markdown format
+# TODO EOS tokens
+# TODO separate panel for final generation stats
 
 
 async def run(
@@ -92,7 +94,7 @@ async def run(
                     border_style="green",
                     width=console.width,
                 ),
-                Text("Prefill...", justify="center"),
+                Text("Prefill...", justify="left"),
             ),
             vertical="top",
         )
@@ -101,9 +103,10 @@ async def run(
         generated_tokens: list[int] = []
         decoded_text = ""
         step_times: list[float] = []
+        prefill_s: float = 0
 
         def stream_printer(step: StepMetrics) -> None:
-            nonlocal generated_tokens, decoded_text, step_times, metrics, args
+            nonlocal generated_tokens, decoded_text, step_times, metrics, prefill_s, args
 
             generated_tokens.append(step.generated_token_id)
             full_text = pipeline.tokenizer.decode(generated_tokens)
@@ -118,7 +121,14 @@ async def run(
             )
 
             tok_count = Text(f"{len(generated_tokens)} tokens", justify="left")
-            step_times.append(step.duration_s)
+            if len(step_times) == 0:
+                prefill_s = step.duration_s
+
+            if len(step_times) == 1:
+                step_times = [step.duration_s]  # prefill time doesn't count
+            else:
+                step_times.append(step.duration_s)
+
             toks_per_s = 1 / float(np.mean(step_times))
 
             num_routed = metrics.cache_hits + metrics.cache_misses
@@ -132,7 +142,6 @@ async def run(
                 f"cache misses: {metrics.cache_misses} ({miss_rate:.2%})",
                 justify="right",
             )
-
             view = Align.center(
                 Group(
                     prompt_panel, chat_panel, Columns([tok_count, stats], expand=True)
@@ -145,9 +154,8 @@ async def run(
             prompt, max_tokens=args.max_tokens, on_step=stream_printer
         )
 
-    console.print(generation_metrics_log_msg(result.metrics))
-    if args.stream_experts:
-        console.print(cache_metrics_log_msg(metrics))
+    console.print(generation_metrics_log_msg(result.metrics, prefill_s))
+    console.print(cache_metrics_log_msg(metrics))
 
 
 def main() -> None:
@@ -161,10 +169,12 @@ def main() -> None:
 
     args = parser.parse_args()
     config = read_and_validate_toml(args.config, PipelineConfig)
-
     console = Console()
+    try:
+        asyncio.run(run(config, args, args.config.resolve().parent, console))
 
-    asyncio.run(run(config, args, args.config.resolve().parent, console))
+    except KeyboardInterrupt:
+        console.print("Exiting...")
 
 
 if __name__ == "__main__":
