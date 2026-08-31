@@ -8,9 +8,10 @@ wheels/
 
 # ignored temporarily 
 README.md
-traces/**
 
+traces/**
 expert-bank/**
+converted-models/**
 
 .host-bridge-mcp-token
 .mcp.json
