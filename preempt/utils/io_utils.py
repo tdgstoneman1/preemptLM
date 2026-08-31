@@ -11,8 +11,8 @@ BaseModelT = TypeVar("BaseModelT", bound=BaseModel)
 
 
 def read_and_validate_toml(fp: str | Path, base_model: type[BaseModelT]) -> BaseModelT:
-    """Reads TOML file and returns its contents as a validated Pydantic `BaseModel`"""
-    with Path(fp).open("rb") as file:
-        raw_spec = tomllib.load(file)
+    """Reads a TOML file, then validates and returns its contents as a `base_model` Pydantic model."""
+    with Path(fp).open("rb") as f:
+        raw_spec = tomllib.load(f)
 
     return base_model.model_validate(raw_spec)
