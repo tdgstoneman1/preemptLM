@@ -107,6 +107,7 @@ class MlxModelRunner:
         return y
 
     def generate(self, tokens: list[int]) -> NoReturn:  # ! CURRENTLY NOT WORKING
+        raise NotImplementedError()
         input_ids = mx.array(tokens, dtype=mx.int32)
         y = self.prefill(input_ids)
         mx.async_eval(y)  # schedule y computation
