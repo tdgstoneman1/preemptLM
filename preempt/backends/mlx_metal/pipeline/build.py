@@ -41,7 +41,7 @@ from ..instrument import (
     mlx_strip_instrumented_expert_weights,
 )
 from ..instrumented.qwen3_x_moe import (
-    make_qwen3next_moe_wrapper_factory,
+    make_qwen3_x_moe_wrapper_factory,
 )
 from ..layer_discovery import resolve_mlx_target_layers
 from ..loader import MlxLoadedModel, load_mlx_model
@@ -134,7 +134,7 @@ def _instrument_model(
     model_fingerprint = (
         expert_bank.model_fingerprint if expert_bank is not None else None
     )
-    wrapper_factory = make_qwen3next_moe_wrapper_factory(
+    wrapper_factory = make_qwen3_x_moe_wrapper_factory(
         recorder,
         capture_gate_logits=capture_gate_logits,
         expert_loader=expert_loader,
