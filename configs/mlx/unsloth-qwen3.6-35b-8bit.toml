@@ -1,0 +1,26 @@
+version = 1
+
+[llm]
+model_id = "unsloth/Qwen3.6-35B-A3B-MLX-8bit"
+backend = "mlx_metal"
+architecture = "qwen3-next"
+
+[generation_settings]
+max_tokens = 4096
+prefill_chunk_size = 512
+
+[stream_settings]
+expert_bank_path = "../../expert-bank/qwen3.6-35b-8bit"
+memory_budget_gb = 4
+bypass_page_cache = true
+
+[trace_settings]
+output_path = "../../traces/router-events.parquet" # relative to this file, NOT cwd
+overwrite_output = true
+
+[[trace_settings.target_layers]]
+name = "Qwen3.6-35B-router"
+
+[trace_settings.target_layers.search_params]
+layer_class = "Qwen3NextSparseMoeBlock"
+count = 40
