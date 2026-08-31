@@ -49,6 +49,8 @@ async def generate_greedy(
         Model runner implementing `prepare()` and `step()`
     prompt_ids : Sequence[int]
         Input token ids, must be non-empty.
+    eos_token_ids: set[int] | int | None
+        The tokenizer's EOS token ids
     max_tokens : int
         Max total tokens to generate including the first prefill output, must be >= 1.
     prefill_chunk_size : int, default 512
