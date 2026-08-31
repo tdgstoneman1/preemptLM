@@ -6,6 +6,8 @@ from collections.abc import Callable
 import attrs
 from attrs import field
 
+from functools import partial
+
 from preempt.core.protocols.runner import IModelRunner, ITokenCodec
 from preempt.core.sinks import BaseEventSink
 
@@ -14,6 +16,7 @@ from preempt.engine.metrics import GenerationMetrics, StepMetrics
 from preempt.engine.recorder import BaseEventRecorder
 
 
+# TODO move to datamodel/
 @attrs.define(kw_only=True)
 class GenerationResult:
     """Token ids, decoded text, and metrics for a completed generation"""
@@ -136,29 +139,23 @@ class GenerationPipeline:
         prompt_ids = self.tokenizer.encode(prompt)
         budget = max_tokens if isinstance(max_tokens, int) else self.max_tokens
 
+        generate_fn = partial(
+            generate_greedy,
+            runner=self.runner,
+            prompt_ids=prompt_ids,
+            eos_token_ids=self.tokenizer.eos_token_ids,
+            max_tokens=budget,
+            prefill_chunk_size=self.prefill_chunk_size,
+            on_step=on_step if on_step is not None else self.on_step,
+        )
         if self.sink is not None:
-            self._sink_consumed = True
-
             async with self.sink as sink:
-                token_ids, metrics = await generate_greedy(
-                    runner=self.runner,
-                    prompt_ids=prompt_ids,
-                    eos_token_ids=self.tokenizer.eos_token_ids,
-                    max_tokens=budget,
-                    prefill_chunk_size=self.prefill_chunk_size,
-                    recorder=self.recorder,
-                    sink=sink,
-                    on_step=on_step if on_step is not None else self.on_step,
+                token_ids, metrics = await generate_fn(
+                    recorder=self.recorder, sink=sink
                 )
+            self._sink_consumed = True
         else:
-            token_ids, metrics = await generate_greedy(
-                runner=self.runner,
-                prompt_ids=prompt_ids,
-                eos_token_ids=self.tokenizer.eos_token_ids,
-                max_tokens=budget,
-                prefill_chunk_size=self.prefill_chunk_size,
-                on_step=on_step if on_step is not None else self.on_step,
-            )
+            token_ids, metrics = await generate_fn()
 
         return GenerationResult(
             token_ids=token_ids,
