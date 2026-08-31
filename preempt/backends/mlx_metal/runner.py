@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
-from collections.abc import Sequence
+from typing import Any, Optional, NoReturn
+from collections.abc import Callable, Sequence, Generator
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -10,11 +10,15 @@ from mlx.utils import tree_flatten
 from mlx_lm.generate import generation_stream
 from mlx_lm.models.cache import make_prompt_cache
 
+import numpy as np
+
+from preempt.engine.metrics import StepMetrics
+
 
 class MlxModelRunner:
     """Mlx implementation of `IModelRunner` protocol.
 
-    Runs forward passes on a dedicated MLX stream to avoid interference with
+    Runs forward pass on a dedicated MLX stream to avoid interference with
     other MLX ops. Each generation step explicitly evaluates the sampled token
     and KV cache state to prevent computation graph buildup, then clears MLX
     memory cache.
@@ -24,58 +28,105 @@ class MlxModelRunner:
     """
 
     model: nn.Module
-    _cache: list[Any] | None
 
-    def __init__(self, model: nn.Module) -> None:
-        self._model = model
-        self._cache = None
+    max_tokens: int | float
+    prefill_chunk_size: int
+    max_kv_size: int | None
+    kv_cache: list[Any]
 
-    def prepare(self) -> None:
-        """Resets prompt cache. Call before the first `step` in a sequence."""
-        self._cache = make_prompt_cache(self._model)
+    sampler: Callable[[mx.array], mx.array]
+    on_step: Callable[[StepMetrics], None] | None
 
-    # TODO tidy up docstring
+    def __init__(
+        self,
+        model: nn.Module,
+        max_tokens: Optional[int] = None,
+        prefill_chunk_size: int = 2048,
+        max_kv_size: Optional[int] = None,
+        sampler: Optional[Callable[[mx.array], mx.array]] = None,
+        on_step: Optional[Callable[[StepMetrics], None]] = None,
+    ) -> None:
+        self.model = model
+
+        self.max_tokens = max_tokens if max_tokens is not None else np.inf
+        self.prefill_chunk_size = prefill_chunk_size
+        self.max_kv_size = max_kv_size
+        self.kv_cache = make_prompt_cache(self.model, self.max_kv_size)
+
+        self.sampler = sampler or (lambda x: mx.argmax(x, axis=-1))
+        self.on_step = on_step
+
+    def prepare(self) -> None: ...  # TODO remove
+
     def step(self, tokens: Sequence[int]) -> int:
-        """Runs one forward pass over `tokens` and greedily decodes and returns the
-        next token id.
-
-        Parameters
-        ----------
-        tokens : Sequence[int]
-            Input sequence of token ids (entire prompt for prefill, 1 token
-            per decode step thereafter)
-
-        Returns
-        -------
-        int
-            Output token id (argmax of the output logits)
-
-        Raises
-        ------
-        RuntimeError
-            If `prepare()` has not been called yet
-        """
-        if self._cache is None:
-            raise RuntimeError(
-                "`prepare()` must be called before running generation step."
-            )
-
         with mx.stream(generation_stream):
             input_ids = mx.array([list(tokens)], dtype=mx.int32)
-            logits = self._model(input_ids, cache=self._cache)
+            logits = self.model(input_ids, cache=self.kv_cache)
             next_token = mx.argmax(logits[:, -1, :], axis=-1)
-
-            mx.eval(next_token)
 
             # `state` is a list per cache entry and may hold `None` slots, flatten
             #  and only keep real arrays rather than pass tree directly to `mx.eval`
-            state_arrays = [
+            state_arrs = [
                 value
-                for _, value in tree_flatten([entry.state for entry in self._cache])
+                for _, value in tree_flatten([entry.state for entry in self.kv_cache])
                 if isinstance(value, mx.array)
             ]
-            if state_arrays:
-                mx.eval(state_arrays)
+            if state_arrs:
+                mx.eval(state_arrs)
 
-        mx.clear_cache()
-        return int(next_token.item())
+        # mx.clear_cache()  # TODO optimize
+        return int(next_token.item())  # type: ignore
+
+    def _step(self, input_tokens: mx.array) -> NoReturn:  # ! CURRENTLY NOT WORKING
+        raise NotImplementedError()
+        with mx.stream(generation_stream):
+            logits = self.model(input_tokens[None], cache=self.kv_cache)[:, -1, :]
+            logprobs = logits - mx.logsumexp(logits, keepdims=True)
+
+            return self.sampler(logprobs)
+
+    def prefill(self, prompt_tokens: mx.array) -> NoReturn:  # ! CURRENTLY NOT WORKING
+        raise NotImplementedError()
+        with mx.stream(generation_stream):
+            total_prompt_tokens = len(prompt_tokens)
+            prompt_processed_tokens = 0
+
+            while total_prompt_tokens - prompt_processed_tokens > 1:
+                remaining = (total_prompt_tokens - prompt_processed_tokens) - 1
+                n_to_process = min(self.prefill_chunk_size, remaining)
+
+                self.model(prompt_tokens[:n_to_process][None], cache=self.kv_cache)
+
+                mx.eval([c.state for c in self.kv_cache])
+
+                prompt_processed_tokens += n_to_process
+                prompt_tokens = prompt_tokens[n_to_process:]
+
+                mx.clear_cache()
+
+            y = self._step(input_tokens=prompt_tokens)
+
+        return y
+
+    def generate(self, tokens: list[int]) -> NoReturn:  # ! CURRENTLY NOT WORKING
+        input_ids = mx.array(tokens, dtype=mx.int32)
+        y = self.prefill(input_ids)
+        mx.async_eval(y)  # schedule y computation
+
+        n = 0
+        while True:
+            if n != self.max_tokens:
+                next_y = self._step(y)
+                mx.async_eval(next_y)  # schedule next_y computation
+            if n == 0:
+                mx.eval(y)  # block thread until y computed
+            if n == self.max_tokens:
+                break
+
+            yield int(y.item())  # .item() does sync eval # type: ignore
+
+            if n % 256 == 0:
+                mx.clear_cache()
+
+            y = next_y
+            n += 1
