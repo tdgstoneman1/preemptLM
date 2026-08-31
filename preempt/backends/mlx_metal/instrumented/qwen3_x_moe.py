@@ -1,11 +1,7 @@
-"""Instrumentation module wrapper for `mlx_lm.models.Qwen3NextSparseMoeBlock` (used in
-`mlx_lm` implementations of Qwen3-next and Qwen3.x)
-"""
-
 from __future__ import annotations
 
-from typing import Optional, NoReturn
-from collections.abc import Mapping, Callable
+from typing import Optional, Literal
+from collections.abc import Callable, Mapping
 
 import mlx.core as mx
 
@@ -14,14 +10,17 @@ from mlx.nn.layers.distributed import sum_gradients
 
 from mlx_lm.models.qwen3_next import Qwen3NextSparseMoeBlock
 
+from functools import partial
+
 from ..expert_kernel import (
     ExpertProjections,
     QuantizedProjection,
     UnquantizedProjection,
     SwitchQuantParams,
     sequential_run_selected_experts,
+    swiglu_forward_fn,
+    fused_run_selected_experts,
     describe_switch_quantization,
-    project_rows,
 )
 from ..recorder import MoERecorder
 from ..cache import MlxExpertCache
@@ -33,8 +32,34 @@ from preempt.core.protocols.loader import IExpertLoader
 
 from preempt.engine.layer_resolution import LayerCandidate
 
-# TODO ops on fused expert weights in __call__ instead of sequentially
-# TODO make module wrapper hold experts in memory, external cache manager chooses evictions
+# TODO make module wrapper hold experts in memory, external cache manager handles eviction decisions
+
+
+@mx.compile
+def _compute_topk_routing(
+    logits: mx.array,
+    top_k: int,
+    norm_topk_prob: bool,
+) -> tuple[mx.array, mx.array]:
+    gates = mx.softmax(logits, axis=-1, precise=True)
+    inds = mx.argpartition(gates, kth=-top_k, axis=-1)[..., -top_k:]
+    scores = mx.take_along_axis(gates, inds, axis=-1)
+
+    if norm_topk_prob:
+        scores = scores / scores.sum(axis=-1, keepdims=True)
+
+    return inds, scores
+
+
+@mx.compile
+def _combine_and_apply_experts(
+    y: mx.array,
+    scores: mx.array,
+    shared_y: mx.array,
+    shared_gate: mx.array,
+) -> mx.array:
+    sum_routed_experts = (y * scores[..., None]).sum(axis=-2)
+    return sum_routed_experts + (mx.sigmoid(shared_gate) * shared_y)
 
 
 class InstrumentedQwen3_xMoE(nn.Module):
@@ -59,14 +84,9 @@ class InstrumentedQwen3_xMoE(nn.Module):
     expert_cache: MlxExpertCache | None
     model_fingerprint: str | None
 
-    activation: nn.Module
-    # num_moe_blocks: int
-
     quantization: SwitchQuantParams | None
     _is_quantized: bool
-
-    _get_logits_fn: Callable[[mx.array], tuple[mx.array, mx.array, mx.array]]
-    _sum_experts_fn: Callable[[mx.array, mx.array, mx.array], mx.array]
+    _apply_experts_fn: Callable[[mx.array, mx.array], mx.array]
 
     def __init__(
         self,
@@ -78,6 +98,7 @@ class InstrumentedQwen3_xMoE(nn.Module):
         expert_loader: Optional[IExpertLoader] = None,
         expert_cache: Optional[MlxExpertCache] = None,
         model_fingerprint: Optional[str] = None,
+        expert_kernel: Literal["sequential", "fused"] = "sequential",
     ) -> None:
         super().__init__()
 
@@ -93,10 +114,13 @@ class InstrumentedQwen3_xMoE(nn.Module):
             raise ValueError()
 
         self.inner = inner
+
         self.recorder = recorder
         self.capture_gate_logits = capture_gate_logits
+
         self.layer_path = layer_path
         self.block_idx = block_idx
+
         self.expert_loader = expert_loader
         self.expert_cache = expert_cache
         self.model_fingerprint = model_fingerprint
@@ -105,41 +129,19 @@ class InstrumentedQwen3_xMoE(nn.Module):
             inner.switch_mlp, SWIGLU_PROJECTION_NAMES
         )
         self._is_quantized = self.quantization is not None
-        self.activation = inner.switch_mlp.activation
 
-        self._get_logits_fn = mx.compile(self._get_logits)
-        self._sum_experts_fn = mx.compile(self._sum_experts)
-
-    def _get_logits(self, x: mx.array) -> tuple[mx.array, mx.array, mx.array]:
-        """Copied from upstream `__call__`"""
-        if self.inner.sharding_group is not None:
-            # ! Do we need to be working with grads??
-            x = sum_gradients(self.inner.sharding_group)(x)  # type: ignore
-
-        logits = self.inner.gate(x)
-        gates = mx.softmax(logits, axis=-1, precise=True)
-
-        k = self.inner.top_k
-        inds = mx.argpartition(gates, kth=-k, axis=-1)[..., -k:]
-        scores = mx.take_along_axis(gates, inds, axis=-1)
-        if self.inner.norm_topk_prob:
-            scores = scores / scores.sum(axis=-1, keepdims=True)
-
-        return inds, scores, logits
-
-    def _sum_experts(self, x: mx.array, y: mx.array, scores: mx.array) -> mx.array:
-        """Copied from upstream `__call__`"""
-        y = (y * scores[..., None]).sum(axis=-2)
-
-        shared_y = self.inner.shared_expert(x)
-        shared_y = mx.sigmoid(self.inner.shared_expert_gate(x)) * shared_y
-
-        y = y + shared_y
-
-        if self.inner.sharding_group is not None:
-            y = mx.distributed.all_sum(y, group=self.inner.sharding_group)
-
-        return y
+        if expert_kernel == "sequential":
+            self._apply_experts_fn = partial(
+                sequential_run_selected_experts,
+                expert_forward_fn=swiglu_forward_fn,
+                load_expert_fn=self._read_expert_from_disk,
+            )
+        else:
+            self._apply_experts_fn = partial(
+                fused_run_selected_experts,
+                load_expert_fn=self._read_expert_from_disk,
+                is_quantized=self._is_quantized,
+            )
 
     def _read_expert_from_disk(self, expert_idx: int) -> ExpertProjections:
         assert self.expert_loader is not None
@@ -153,9 +155,6 @@ class InstrumentedQwen3_xMoE(nn.Module):
         )
         self.expert_loader.load((key,))
         tensors = self.expert_cache.tensors(key)
-        # mx.async_eval(tensors)
-        # idx = self.inner.num_experts * self.block_idx + expert_idx
-
         projections = {
             name: self._projection_from_tensors(tensors, name)
             for name in SWIGLU_PROJECTION_NAMES
@@ -167,7 +166,7 @@ class InstrumentedQwen3_xMoE(nn.Module):
         tensors: Mapping[str, mx.array],
         name: str,
     ) -> QuantizedProjection | UnquantizedProjection:
-        if self.quantization is None:
+        if not self._is_quantized or self.quantization is None:
             return UnquantizedProjection(
                 weight=tensors[f"{name}.weight"],
             )
@@ -181,20 +180,15 @@ class InstrumentedQwen3_xMoE(nn.Module):
             mode=quant.mode,
         )
 
-    def _swiglu_forward(
-        self,
-        x_rows: mx.array,
-        projections: Mapping[str, QuantizedProjection | UnquantizedProjection],
-    ) -> mx.array:
-        x_up = project_rows(x_rows, projections["up_proj"])
-        x_gate = project_rows(x_rows, projections["gate_proj"])
-
-        return project_rows(self.activation(x_up, x_gate), projections["down_proj"])
-
     def __call__(self, x: mx.array) -> mx.array:
-        inds, scores, logits = self._get_logits_fn(x)  # Compiled func
+        if self.inner.sharding_group is not None:
+            x = sum_gradients(self.inner.sharding_group)(x)  # type: ignore
 
-        # Lazy record state
+        logits = self.inner.gate(x)
+        inds, scores = _compute_topk_routing(
+            logits, self.inner.top_k, self.inner.norm_topk_prob
+        )
+        # * Lazy record state
         if self.recorder is not None:
             self.recorder.capture(
                 layer_path=self.layer_path,
@@ -208,34 +202,17 @@ class InstrumentedQwen3_xMoE(nn.Module):
         if self.expert_loader is None:
             y = self.inner.switch_mlp(x, inds)
         else:
-            y = sequential_run_selected_experts(
-                x,
-                [int(expert) for expert in inds.flatten().tolist()],  # type: ignore
-                top_k=self.inner.top_k,
-                expert_forward_fn=self._swiglu_forward,
-                expert_load_weights_fn=self._read_expert_from_disk,
-            )
+            y = self._apply_experts_fn(x, inds)
 
-        return self._sum_experts_fn(x, y, scores)  # Compiled func
+        # * Evaluate shared expert paths
+        shared_y = self.inner.shared_expert(x)
+        shared_gate = self.inner.shared_expert_gate(x)
 
-    def fuse_expert_weights(self, x: mx.array, idxs: mx.array) -> NoReturn:
-        raise NotImplementedError()
-        # This is where weights for experts corresponding to `idxs` will
-        # be fused into single array instead of sequentially applying experts
-        # one at a time.
+        y = _combine_and_apply_experts(y, scores, shared_y, shared_gate)
 
-        # x shape: (B, S, d_model)
-        # switch_mlp shape: (d_model, d_hidden, num_experts)
-
-        assert self.expert_loader is not None
-        assert self.expert_cache is not None
-        assert self.model_fingerprint is not None
-
-        key = ExpertKey(
-            model_fingerprint=self.model_fingerprint,
-            block_idx=self.block_idx,
-            expert_idx=expert_idx,
-        )
+        if self.inner.sharding_group is not None:
+            y = mx.distributed.all_sum(y, group=self.inner.sharding_group)
+        return y
 
 
 # TODO rename to meta_factory?
