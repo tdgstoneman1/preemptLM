@@ -59,6 +59,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
             r"\.mlp\.switch_mlp\.(?P<projection>gate_proj|up_proj|down_proj)"
         )
 
+    @property
     def expert_tensor_regex(self) -> re.Pattern[str]:
         """Regex matching absolute paths to expert tensors in dot notation.
 
@@ -69,6 +70,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
             rf"^{self.expert_module_pattern}\.(?P<part>weight|scales|biases)$"
         )
 
+    @property
     def expert_module_regex(self) -> re.Pattern[str]:
         """Regex matching base expert module paths in dot notation.
 
@@ -76,6 +78,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
         """
         return re.compile(rf"^{self.expert_module_pattern}$")
 
+    @property
     def tensor_order(self) -> tuple[str, ...]:  # TODO make this a property
         """Storage and evaluation order for expert tensors.
 
@@ -116,8 +119,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
         ValueError
             If `layer_tensors` contains an unexpected tensor name
         """
-        order = self.tensor_order()
-        present = tuple(filter(lambda x: x in layer_tensors, order))
+        present = tuple(filter(lambda x: x in layer_tensors, self.tensor_order))
         missing = list(
             filter(lambda x: f"{x}.weight" not in layer_tensors, self.projection_names)
         )
@@ -127,7 +129,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
                 f"{missing!r}"
             )
 
-        unexpected = set(layer_tensors) - set(order)
+        unexpected = set(layer_tensors) - set(self.tensor_order)
         if unexpected:
             raise ValueError(
                 "`layer_tensors` contains the following unexpected weight tensors: "
@@ -184,7 +186,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
         overrides: dict[tuple[int, str], MlxQuantParams | None] = {}
 
         for key, value in quantization.items():
-            match = self.expert_module_regex().match(key)
+            match = self.expert_module_regex.match(key)
             if match is None:
                 continue
 
