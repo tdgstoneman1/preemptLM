@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 from collections.abc import Generator
 
 from datetime import datetime, UTC
@@ -22,7 +22,7 @@ from preempt.engine.recorder import BaseEventRecorder
 
 
 @attrs.define(frozen=True)
-class _PendingExpertRoutingEvent:
+class _BufferedEvent:
     """Internal buffer record for an unevaluated router selection.
 
     Stores the raw `mx.array` tensors representing a single MoE layer's
@@ -38,7 +38,7 @@ class _PendingExpertRoutingEvent:
     layer_identifiers: LayerIdentifiers = field()
 
 
-class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
+class MoERecorder(BaseEventRecorder):
     """Records routing decisions from instrumented MLX MoE layers.
 
     Captures events lazily. Calls to `capture()` buffer unevaluated
@@ -49,7 +49,7 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
     records when `flush()` is called (one per batch-token pair).
     """
 
-    _buffer: list[_PendingExpertRoutingEvent]
+    _buffer: list[_BufferedEvent]
     _emitted_event_idx: int
 
     def __init__(self, run_context: TraceRunContext) -> None:
@@ -69,7 +69,7 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
         block_idx: int,  # TODO verify block_idx = transformer_block
         expert_ids: mx.array,
         expert_weights: mx.array,
-        gate_logits: mx.array | None,
+        gate_logits: Optional[mx.array],
     ) -> None:
         """Buffers unevaluated routing event for a single MoE layer.
 
@@ -85,7 +85,7 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
             Indices of the router-selected experts
         expert_weights : mx.array
             Normalized routing weights for the selected experts
-        gate_logits : mx.array | None
+        gate_logits : Optional[mx.array]
             Optional unnormalized, pre-softmax gate logits
 
         Raises
@@ -106,7 +106,7 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
             layer_path=layer_path, layer_class=layer_class, block_idx=block_idx
         )
         self._buffer.append(
-            _PendingExpertRoutingEvent(
+            _BufferedEvent(
                 expert_ids=expert_ids,
                 expert_weights=expert_weights,
                 gate_logits=gate_logits,
@@ -145,6 +145,7 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
             raise RuntimeError("No capture step currently active.")
         try:
             return await self._to_sink(sink)
+
         finally:
             self.end_step()
 
@@ -166,16 +167,14 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
         if not self._buffer:
             return 0
 
-        self._eval_arrays_in_buffer(self._buffer)
+        self._eval_buffered_arrays(self._buffer)
 
         n_flushed = 0
         for rec in self._materialize_buffered_events(self._emitted_event_idx):
             await sink.write(rec.as_arrow_record())
-
             n_flushed += 1
 
         self._emitted_event_idx += n_flushed
-
         return n_flushed
 
     def _materialize_buffered_events(
@@ -198,6 +197,7 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
         ExpertRoutingEvent
             A fully materialized and context-aware routing record
         """
+        # TODO refactor, too deeply nested
         for record in self._buffer:
             expert_ids = record.expert_ids.tolist()
             expert_weights = record.expert_weights.tolist()
@@ -205,14 +205,14 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
             gate_logits = (
                 record.gate_logits.tolist() if record.gate_logits is not None else None
             )
-            for batch_idx, (batch_ids, batch_weights) in enumerate(
-                zip(expert_ids, expert_weights, strict=True)
+            for batch_idx, (batch_ids, batch_weights) in enumerate(  # type: ignore
+                zip(expert_ids, expert_weights, strict=True)  # type: ignore
             ):
                 for offset, (ids, weights) in enumerate(
                     zip(batch_ids, batch_weights, strict=True)
                 ):
                     logits = (
-                        gate_logits[batch_idx][offset]
+                        gate_logits[batch_idx][offset]  # type: ignore
                         if gate_logits is not None
                         else None
                     )
@@ -223,13 +223,13 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
                         current_event_idx,
                         ids,
                         weights,
-                        logits,
+                        logits,  # type: ignore
                     )
                     current_event_idx += 1
 
     def _to_final_record(
         self,
-        record: _PendingExpertRoutingEvent,
+        record: _BufferedEvent,
         batch_idx: int,
         offset: int,
         current_event_idx: int,
@@ -237,12 +237,11 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
         weights: list[float],
         logits: list[float] | None,
     ) -> ExpertRoutingEvent:
-        """Constructs an `ExpertRoutingEvent` with full provenance and trace
-        context.
+        """Constructs an `ExpertRoutingEvent` with full provenance and trace context.
 
         Parameters
         ----------
-        record : _PendingExpertRoutingEvent
+        record : _BufferedEvent
             Evaluated parent buffer record containing baseline context data
         batch_idx : int
             Batch index of the specific token
@@ -281,14 +280,14 @@ class MlxExpertRoutingRecorder(BaseEventRecorder):  # TODO rename
             layer_identifiers=record.layer_identifiers,
         )
 
-    def _eval_arrays_in_buffer(self, buffer: list[_PendingExpertRoutingEvent]) -> None:
+    def _eval_buffered_arrays(self, buffer: list[_BufferedEvent]) -> None:
         """Consolidates unevaluated expert IDs, weights, and logits across all
         captured layers in `buffer` into a flat list, and enforces execution in
         one synchronous `mx.eval()` call.
 
         Parameters
         ----------
-        buffer : list[_PendingExpertRoutingEvent]
+        buffer : list[_BufferedEvent]
             The active list of unevaluated capture records
         """
         to_evaluate = [

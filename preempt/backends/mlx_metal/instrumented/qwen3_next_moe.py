@@ -23,7 +23,7 @@ from ..expert_kernel import (
     describe_switch_quantization,
     project_rows,
 )
-from ..recorder import MlxExpertRoutingRecorder
+from ..recorder import MoERecorder
 from ..cache import MlxExpertCache
 from ..types import MlxWrapperFactory
 from ..constants import SWIGLU_PROJECTION_NAMES
@@ -45,7 +45,7 @@ class InstrumentedQwen3NextMoE(nn.Module):
     """
 
     inner: Qwen3NextSparseMoeBlock
-    recorder: MlxExpertRoutingRecorder | None
+    recorder: MoERecorder | None
     capture_gate_logits: bool
     layer_path: str
     block_idx: int
@@ -64,7 +64,7 @@ class InstrumentedQwen3NextMoE(nn.Module):
     def __init__(
         self,
         inner: Qwen3NextSparseMoeBlock,
-        recorder: MlxExpertRoutingRecorder | None,
+        recorder: MoERecorder | None,
         capture_gate_logits: bool,
         layer_path: str,
         block_idx: int,
@@ -227,7 +227,7 @@ class InstrumentedQwen3NextMoE(nn.Module):
 
 # TODO rename to meta_factory?
 def make_qwen3next_moe_wrapper_factory(
-    recorder: MlxExpertRoutingRecorder | None,
+    recorder: MoERecorder | None,
     *,
     capture_gate_logits: bool = False,
     provider: IExpertLoader | None = None,  # TODO rename to 'loader'

@@ -45,7 +45,7 @@ from ..instrumented.qwen3_next_moe import (
 )
 from ..layer_discovery import resolve_mlx_target_layers
 from ..loader import MlxLoadedModel, load_mlx_model
-from ..recorder import MlxExpertRoutingRecorder
+from ..recorder import MoERecorder
 from ..cache import MlxExpertCache
 from ..runner import MlxModelRunner
 
@@ -90,7 +90,7 @@ def _get_streaming_deps(
 
 def _get_recorder(
     config: PipelineConfig, output_path: Path | None
-) -> MlxExpertRoutingRecorder | None:
+) -> MoERecorder | None:
     if config.trace_settings is None or output_path is None:
         return
 
@@ -100,7 +100,7 @@ def _get_recorder(
         model_architecture=config.llm.architecture,
         model_revision=config.llm.revision,
     )
-    return MlxExpertRoutingRecorder(run_context=ctx)
+    return MoERecorder(run_context=ctx)
 
 
 def _moe_blocks_for_model(
@@ -124,7 +124,7 @@ def _instrument_model(
     expert_bank: ExpertBank | None,
     expert_loader: IExpertLoader | None,
     expert_cache: MlxExpertCache | None,
-    recorder: MlxExpertRoutingRecorder | None,
+    recorder: MoERecorder | None,
 ) -> int:
     capture_gate_logits = (
         config.trace_settings.capture_gate_logits
