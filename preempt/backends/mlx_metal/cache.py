@@ -214,8 +214,7 @@ class MlxExpertCache:
         entry = self._resident.pop(key)
         self._resident_bytes -= entry.num_bytes
 
-    def is_resident(self, key: ExpertKey) -> bool:  # TODO rename to is_cached
-        """Checks if `key` is in the cache."""
+    def is_resident(self, key: ExpertKey) -> bool:
         return key in self._resident
 
     def size(self) -> int:
