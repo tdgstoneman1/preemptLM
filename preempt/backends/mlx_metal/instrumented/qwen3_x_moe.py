@@ -52,14 +52,15 @@ class InstrumentedQwen3_xMoE(nn.Module):
     capture_gate_logits: bool
     layer_path: str
     block_idx: int
-    provider: IExpertLoader | None
+    expert_loader: IExpertLoader | None
+    expert_cache: MlxExpertCache | None
     model_fingerprint: str | None
-    cache: MlxExpertCache | None
-    quantization: SwitchQuantParams | None
-    quantized: bool
-    activation: nn.Module
 
-    num_moe_blocks: int
+    activation: nn.Module
+    # num_moe_blocks: int
+
+    quantization: SwitchQuantParams | None
+    _is_quantized: bool
 
     _get_logits_fn: Callable[[mx.array], tuple[mx.array, mx.array, mx.array]]
     _sum_experts_fn: Callable[[mx.array, mx.array, mx.array], mx.array]
@@ -71,19 +72,21 @@ class InstrumentedQwen3_xMoE(nn.Module):
         capture_gate_logits: bool,
         layer_path: str,
         block_idx: int,
-        provider: IExpertLoader | None = None,  # TODO rename
+        expert_loader: IExpertLoader | None = None,  # TODO rename
+        expert_cache: MlxExpertCache | None = None,  # TODO rename
         model_fingerprint: str | None = None,
-        cache: MlxExpertCache | None = None,  # TODO rename
     ) -> None:
         super().__init__()
 
-        if provider is not None and (model_fingerprint is None or cache is None):
+        if expert_loader is not None and (
+            model_fingerprint is None or expert_cache is None
+        ):
             raise ValueError(
-                f"{type(provider).__name__=}, "
+                f"{type(expert_loader).__name__=}, "
                 f"{type(model_fingerprint).__name__=}, "
-                f"{type(cache).__name__=}"
+                f"{type(expert_cache).__name__=}"
             )
-        if provider is None and cache is not None:
+        if expert_loader is None and expert_cache is not None:
             raise ValueError()
 
         self.inner = inner
@@ -91,14 +94,14 @@ class InstrumentedQwen3_xMoE(nn.Module):
         self.capture_gate_logits = capture_gate_logits
         self.layer_path = layer_path
         self.block_idx = block_idx
-        self.provider = provider
+        self.expert_loader = expert_loader
         self.model_fingerprint = model_fingerprint
-        self.cache = cache
+        self.cache = expert_cache
 
         self.quantization = describe_switch_quantization(
             inner.switch_mlp, SWIGLU_PROJECTION_NAMES
         )
-        self.quantized = self.quantization is not None
+        self._is_quantized = self.quantization is not None
         self.activation = inner.switch_mlp.activation
 
         self._get_logits_fn = mx.compile(self._get_logits)
@@ -136,7 +139,7 @@ class InstrumentedQwen3_xMoE(nn.Module):
         return y
 
     def _read_expert_from_disk(self, expert_idx: int) -> ExpertProjections:
-        assert self.provider is not None
+        assert self.expert_loader is not None
         assert self.cache is not None
         assert self.model_fingerprint is not None
 
@@ -145,7 +148,7 @@ class InstrumentedQwen3_xMoE(nn.Module):
             block_idx=self.block_idx,
             expert_idx=expert_idx,
         )
-        self.provider.load((key,))
+        self.expert_loader.load((key,))
         tensors = self.cache.tensors(key)
         # mx.async_eval(tensors)
         # idx = self.inner.num_experts * self.block_idx + expert_idx
@@ -199,7 +202,7 @@ class InstrumentedQwen3_xMoE(nn.Module):
                 gate_logits=logits if self.capture_gate_logits else None,
             )
 
-        if self.provider is None:
+        if self.expert_loader is None:
             y = self.inner.switch_mlp(x, inds)
         else:
             y = sequential_run_selected_experts(
@@ -217,7 +220,7 @@ class InstrumentedQwen3_xMoE(nn.Module):
         # x shape: (B, S, d_model)
         # switch_mlp shape: (d_model, d_hidden, num_experts)
 
-        assert self.provider is not None
+        assert self.expert_loader is not None
         assert self.cache is not None
         assert self.model_fingerprint is not None
 
@@ -233,9 +236,9 @@ def make_qwen3next_moe_wrapper_factory(
     recorder: MoERecorder | None,
     *,
     capture_gate_logits: bool = False,
-    provider: IExpertLoader | None = None,  # TODO rename to 'loader'
+    expert_loader: IExpertLoader | None = None,  # TODO rename to 'loader'
+    expert_cache: MlxExpertCache | None = None,
     model_fingerprint: str | None = None,
-    cache: MlxExpertCache | None = None,
 ) -> MlxWrapperFactory:
 
     def factory(
@@ -254,9 +257,9 @@ def make_qwen3next_moe_wrapper_factory(
             capture_gate_logits=capture_gate_logits,
             layer_path=candidate.layer_path,
             block_idx=candidate.block_idx,
-            provider=provider,
+            expert_loader=expert_loader,
+            expert_cache=expert_cache,
             model_fingerprint=model_fingerprint,
-            cache=cache,
         )
 
     return factory
