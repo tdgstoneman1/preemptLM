@@ -22,7 +22,7 @@ from mlx_lm.models.switch_layers import (
     _scatter_unsort,
 )
 
-from preempt.core.exceptions import EngineIncompatibilityError
+from preempt.core.exceptions import EngineCompatibilityError
 
 from .constants import MLX_QUANT_PARAMS
 
@@ -139,7 +139,7 @@ def describe_switch_quantization(  # TODO rename
     ------
     TypeError
         If a layer in `switch_mlp` is not an instance of `QuantizedSwitchLinear`
-    EngineIncompatibilityError
+    EngineCompatibilityError
         If a layer in `switch_mlp` has a bias (currently unsupported in the
         forward pass)
     """
@@ -155,7 +155,7 @@ def describe_switch_quantization(  # TODO rename
             )
         # TODO add support for bias
         if "bias" in module:
-            raise EngineIncompatibilityError(
+            raise EngineCompatibilityError(
                 f"`{name}` layer (in `{type(module).__name__}`) has an additive `bias`. "
                 "This is currently unsupported in the per-expert forward pass. "
             )
