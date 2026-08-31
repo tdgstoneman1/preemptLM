@@ -6,7 +6,8 @@ quantization patterns specific to Qwen3/Qwen3-Next models.
 
 from __future__ import annotations
 
-from typing import Any
+from symtable import Class
+from typing import ClassVar, Any
 from collections.abc import Mapping, Sequence
 
 import re
@@ -35,6 +36,8 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
     `'language_model.model.layers.<layer idx>.mlp.switch_mlp.<projection>'`
     """
 
+    layer_class_name: ClassVar[str] = "Qwen3NextSparseMoeBlock"
+
     @property
     def projection_names(self) -> tuple[str, ...]:
         """The names SwiGLU's three projections in blob order."""
@@ -56,12 +59,6 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
             r"(?P<prefix>(?:[A-Za-z0-9_]+\.)*)model\.layers\.(?P<layer>\d+)"
             r"\.mlp\.switch_mlp\.(?P<projection>gate_proj|up_proj|down_proj)"
         )
-
-    @property
-    def layer_class_name(self) -> str:  # TODO redundant, remove or make classvar
-        """Class name for MoE block used in Qwen3/Qwen3-Next implementations in
-        `mlx_lm` (`Qwen3NextSparseMoeBlock`)"""
-        return "Qwen3NextSparseMoeBlock"
 
     def expert_tensor_regex(self) -> re.Pattern[str]:
         """Regex matching absolute paths to expert tensors in dot notation.
