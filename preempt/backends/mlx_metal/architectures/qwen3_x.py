@@ -6,7 +6,6 @@ quantization patterns specific to Qwen3/Qwen3-Next models.
 
 from __future__ import annotations
 
-from symtable import Class
 from typing import ClassVar, Any
 from collections.abc import Mapping, Sequence
 
@@ -118,12 +117,6 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
             If `layer_tensors` contains an unexpected tensor name
         """
         order = self.tensor_order()
-        # present = tuple(name for name in order if name in layer_tensors)
-        # missing = [
-        #     f"{proj}.weight"
-        #     for proj in self.projection_names
-        #     if f"{proj}.weight" not in layer_tensors
-        # ]
         present = tuple(filter(lambda x: x in layer_tensors, order))
         missing = list(
             filter(lambda x: f"{x}.weight" not in layer_tensors, self.projection_names)
@@ -169,18 +162,16 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
         Raises
         ------
         ValueError
-            If quantization parameters are not uniform across all resolved expert
+            If quantization parameters are not uniform across resolved expert
             layers
         """
         quantization = self._quantization_section(config)
         if quantization is None:
             return None
 
-        mode = str(
-            quantization.get("mode", "affine")
-        )  # TODO check if affine is a valid default
+        # TODO check if affine is a valid default
+        mode = str(quantization.get("mode", "affine"))
 
-        # if "bits" in quantization and "group_size" in quantization:
         if all(param in quantization for param in ("bits", "group_size")):
             default = MlxQuantParams(
                 mode=mode,
@@ -190,11 +181,10 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
         else:
             default = None
 
-        module_re = self.expert_module_regex()
         overrides: dict[tuple[int, str], MlxQuantParams | None] = {}
 
         for key, value in quantization.items():
-            match = module_re.match(key)
+            match = self.expert_module_regex().match(key)
             if match is None:
                 continue
 
@@ -214,9 +204,8 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
             for block_idx in block_idxs
             for projection in self.projection_names
         }
-
         if resolved == {None}:
-            return None
+            return
 
         if len(resolved) != 1:
             raise ValueError(
@@ -255,23 +244,21 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
         ModelMoESpec
         """
         text_config = config.get("text_config")
-        tc = text_config if isinstance(text_config, dict) else config
+        config_ = text_config if isinstance(text_config, dict) else config
 
         return ModelMoESpec(
             moe_block_idxs=tuple(block_idxs),
             num_routed_experts=num_routed_experts,
-            top_k=int(tc["num_experts_per_tok"]),
+            top_k=int(config_["num_experts_per_tok"]),
         )
 
     @staticmethod
     def _quantization_section(config: Mapping[str, Any]) -> Mapping[str, Any] | None:
         """Locates and returns the quantization parameters in `config`."""
-        text_config = config.get("text_config")
+        if not isinstance(text_config := config.get("text_config"), dict):
+            text_config = {}
 
-        for section in (
-            config,
-            text_config if isinstance(text_config, dict) else {},
-        ):
+        for section in (config, text_config):
             quantization = section.get("quantization")
             if isinstance(quantization, dict):
                 return quantization
