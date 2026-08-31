@@ -12,16 +12,22 @@ from preempt.engine.recorder import BaseEventRecorder
 class ScriptedRunner:
     def __init__(self, outputs: list[int]) -> None:
         self.outputs = list(outputs)
-        self.prepare_calls = 0
-
-    def prepare(self) -> None:
-        self.prepare_calls += 1
 
     def step(self, tokens: Sequence[int]) -> int:
         return self.outputs.pop(0)
 
 
 class StubCodec:
+    eos_token_ids: set[int] | None = {1}
+
+    @property
+    def think_start_id(self) -> int:
+        return 101
+
+    @property
+    def think_end_id(self) -> int:
+        return 102
+
     def encode(self, text: str) -> list[int]:
         return [ord(c) for c in text]
 
@@ -57,23 +63,10 @@ async def test_generate_encodes_decodes_and_counts() -> None:
     runner = ScriptedRunner([65, 66])
     pipeline = GenerationPipeline(runner=runner, tokenizer=StubCodec(), max_tokens=2)
     result = await pipeline.generate("hi")
+
     assert result.token_ids == [65, 66]
     assert result.text == "AB"
     assert result.metrics.tokens_forwarded == 3  # 2 prompt + 1 decode
-    assert runner.prepare_calls == 1
-
-
-async def test_untraced_pipeline_prepares_once_per_generate() -> None:
-    # An untraced pipeline is reusable, and every generate must start from a
-    # fresh cache -- one `prepare()` per call, never a shared one.
-    runner = ScriptedRunner([65, 66, 67])
-    pipeline = GenerationPipeline(runner=runner, tokenizer=StubCodec(), max_tokens=1)
-
-    await pipeline.generate("hi")
-    assert runner.prepare_calls == 1
-
-    await pipeline.generate("yo")
-    assert runner.prepare_calls == 2
 
 
 async def test_traced_generate_closes_sink_and_is_single_use() -> None:
@@ -89,10 +82,8 @@ async def test_traced_generate_closes_sink_and_is_single_use() -> None:
     result = await pipeline.generate("hi")
     assert result.metrics.records_written == 1
     assert sink.closed
-    assert runner.prepare_calls == 1
     with pytest.raises(RuntimeError, match="single"):
         await pipeline.generate("again")
-    assert runner.prepare_calls == 1
 
 
 async def test_max_tokens_override_and_recorder_sink_pairing() -> None:

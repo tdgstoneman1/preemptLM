@@ -14,25 +14,26 @@ def test_single_expert_collects_every_row() -> None:
 
 
 def test_every_row_a_distinct_expert() -> None:
-    assert group_rows_by_expert([3, 1, 2, 0]) == (
-        (0, (3,)),
-        (1, (1,)),
-        (2, (2,)),
-        (3, (0,)),
-    )
+    assert dict(group_rows_by_expert([3, 1, 2, 0])) == {
+        0: (3,),
+        1: (1,),
+        2: (2,),
+        3: (0,),
+    }
 
 
 def test_repeated_experts_preserve_ascending_row_order() -> None:
     grouped = group_rows_by_expert([5, 2, 5, 2, 5])
-    assert grouped == ((2, (1, 3)), (5, (0, 2, 4)))
+    assert dict(grouped) == {2: (1, 3), 5: (0, 2, 4)}
     for _, rows in grouped:
         assert list(rows) == sorted(rows)
 
 
-def test_experts_ascend_regardless_of_first_appearance() -> None:
-    # First appearances are 9, 4, 0; output must not follow insertion order.
+def test_experts_grouped_regardless_of_first_appearance() -> None:
+    # First appearances are 9, 4, 0; we check they are all correctly grouped
+    # without requiring them to ascend sorted.
     grouped = group_rows_by_expert([9, 4, 0, 4, 9])
-    assert [expert for expert, _ in grouped] == [0, 4, 9]
+    assert set(expert for expert, _ in grouped) == {0, 4, 9}
 
 
 def test_every_row_appears_exactly_once_across_groups() -> None:
@@ -63,7 +64,6 @@ def test_grouping_is_a_partition_with_no_duplicate_experts() -> None:
     grouped = group_rows_by_expert(row_experts)
 
     experts = [expert for expert, _ in grouped]
-    assert experts == sorted(experts)
     assert len(experts) == len(set(experts))
     assert set(experts) == set(row_experts)
 

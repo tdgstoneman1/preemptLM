@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 from preempt.core.protocols.loader import IExpertLoader
 from preempt.core.protocols.cache import IExpertCache
-from preempt.core.protocols.runner import IModelRunner, ITokenCodec
+from preempt.core.protocols.runner import IModelRunner, ITokenizer
 from preempt.core.protocols.expert_bank import ExpertPayload, IExpertBank, ReadPriority
 
 from preempt.core.identity import ExpertKey, TensorSpec
@@ -19,7 +19,17 @@ class FakeRunner:
         return 1
 
 
-class FakeCodec:
+class FakeTokenizer:
+    eos_token_ids: set[int] | None = None
+
+    @property
+    def think_start_id(self) -> int:
+        return 67
+
+    @property
+    def think_end_id(self) -> int:
+        return 666
+
     def encode(self, text: str) -> list[int]:
         return [1]
 
@@ -46,7 +56,7 @@ class FakeExpertBank:
 
 def test_fakes_satisfy_protocols_structurally() -> None:
     assert isinstance(FakeRunner(), IModelRunner)
-    assert isinstance(FakeCodec(), ITokenCodec)
+    assert isinstance(FakeTokenizer(), ITokenizer)
     assert isinstance(FakeCache(), IExpertCache)
     assert isinstance(FakeExpertBank(), IExpertBank)
     assert isinstance(DummyExpertLoader(), IExpertLoader)

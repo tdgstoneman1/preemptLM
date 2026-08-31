@@ -17,14 +17,9 @@ class ScriptedRunner:
 
     def __init__(self, outputs: list[int]) -> None:
         self.outputs = list(outputs)
-        self.prepared = False
         self.calls: list[list[int]] = []
 
-    def prepare(self) -> None:
-        self.prepared = True
-
     def step(self, tokens: Sequence[int]) -> int:
-        assert self.prepared, "step() before prepare()"
         self.calls.append(list(tokens))
         return self.outputs.pop(0)
 
@@ -39,16 +34,10 @@ class ContextRunner:
     """
 
     def __init__(self) -> None:
-        self.prepared = False
         self.context: list[int] = []
         self.calls: list[list[int]] = []
 
-    def prepare(self) -> None:
-        self.prepared = True
-        self.context = []
-
     def step(self, tokens: Sequence[int]) -> int:
-        assert self.prepared, "step() before prepare()"
         self.calls.append(list(tokens))
         self.context.extend(tokens)
         return (sum(self.context) + len(self.context)) % 50
@@ -83,7 +72,7 @@ class NullSink(BaseEventSink):
 async def test_prefill_then_single_token_decode_steps() -> None:
     runner = ScriptedRunner([11, 12, 13])
     tokens, metrics = await generate_greedy(
-        runner=runner, prompt_ids=[1, 2, 3], max_tokens=3
+        runner=runner, prompt_ids=[1, 2, 3], eos_token_ids=None, max_tokens=3
     )
     assert tokens == [11, 12, 13]
     assert runner.calls == [[1, 2, 3], [11], [12]]
@@ -96,6 +85,7 @@ async def test_prefill_chunks_reconstruct_prompt_in_order() -> None:
     tokens, _ = await generate_greedy(
         runner=runner,
         prompt_ids=[1, 2, 3, 4, 5],
+        eos_token_ids=None,
         max_tokens=2,
         prefill_chunk_size=2,
     )
@@ -117,10 +107,18 @@ async def test_chunked_and_unchunked_prefill_match() -> None:
     chunked = ContextRunner()
 
     tokens_unchunked, _ = await generate_greedy(
-        runner=unchunked, prompt_ids=prompt, max_tokens=5, prefill_chunk_size=64
+        runner=unchunked,
+        prompt_ids=prompt,
+        eos_token_ids=None,
+        max_tokens=5,
+        prefill_chunk_size=64,
     )
     tokens_chunked, _ = await generate_greedy(
-        runner=chunked, prompt_ids=prompt, max_tokens=5, prefill_chunk_size=2
+        runner=chunked,
+        prompt_ids=prompt,
+        eos_token_ids=None,
+        max_tokens=5,
+        prefill_chunk_size=2,
     )
 
     assert unchunked.calls == [prompt, *[[t] for t in tokens_unchunked[:-1]]]
@@ -133,6 +131,7 @@ async def test_traced_run_stamps_step_contexts_and_counts_records() -> None:
     tokens, metrics = await generate_greedy(
         runner=runner,
         prompt_ids=[5, 6],
+        eos_token_ids=None,
         max_tokens=2,
         recorder=recorder,
         sink=NullSink(),
@@ -149,6 +148,7 @@ async def test_traced_chunked_prefill_advances_token_idx_per_chunk() -> None:
     _, metrics = await generate_greedy(
         runner=runner,
         prompt_ids=[1, 2, 3, 4],
+        eos_token_ids=None,
         max_tokens=2,
         prefill_chunk_size=2,
         recorder=recorder,
@@ -168,6 +168,7 @@ async def test_recorder_without_sink_rejected() -> None:
         await generate_greedy(
             runner=ScriptedRunner([1]),
             prompt_ids=[1],
+            eos_token_ids=None,
             max_tokens=1,
             recorder=SpyRecorder(),
         )
@@ -178,6 +179,7 @@ async def test_on_step_callback_sees_every_step() -> None:
     await generate_greedy(
         runner=ScriptedRunner([1, 2]),
         prompt_ids=[3],
+        eos_token_ids=None,
         max_tokens=2,
         on_step=seen.append,
     )
@@ -193,5 +195,7 @@ async def test_runner_runs_off_event_loop() -> None:
                 asyncio.get_running_loop()  # no loop in the worker thread
             return super().step(tokens)
 
-    await generate_greedy(runner=LoopAsserter([1]), prompt_ids=[1], max_tokens=1)
+    await generate_greedy(
+        runner=LoopAsserter([1]), prompt_ids=[1], eos_token_ids=None, max_tokens=1
+    )
     assert loop is asyncio.get_running_loop()
