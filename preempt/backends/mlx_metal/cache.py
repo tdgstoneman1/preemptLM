@@ -186,6 +186,7 @@ class MlxExpertCache:
             )
 
         tensors = decode_expert_tensors(payload, self._encoding)
+        mx.eval(tuple(tensors.values()))
         num_bytes = len(payload.data)
 
         previous = self._resident.get(key)
