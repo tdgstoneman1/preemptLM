@@ -6,7 +6,7 @@ from attrs import field, validators
 from pydantic import BaseModel, ConfigDict, Field
 
 
-@attrs.define(kw_only=True, frozen=True)
+@attrs.define(kw_only=True, frozen=True, slots=True)
 class ExpertKey:
     """Unique identifier for one routed expert's weights used as the cache and
     storage key throughout the preemptLM engine.
@@ -29,7 +29,7 @@ class ExpertKey:
     variant: str = field(default="all", validator=validators.min_len(1))
 
 
-class TensorSpec(BaseModel):
+class TensorSpec(BaseModel):  # TODO use attrs
     """Specs for one of an expert's weight tensors (e.g. `gate_proj.weight`).
 
     Pure data description (no I/O) used by backends to reconstruct tensors from
@@ -51,7 +51,7 @@ class TensorSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str = Field(min_length=1)  # TODO maybe rename to `path`?
+    name: str = Field(min_length=1)
     dtype: str = Field(min_length=1)
     shape: tuple[int, ...] = Field(min_length=1)
     num_bytes: int = Field(gt=0)
