@@ -148,14 +148,14 @@ class GenerationPipeline:
             prefill_chunk_size=self.prefill_chunk_size,
             on_step=on_step if on_step is not None else self.on_step,
         )
-        if self.sink is not None:
+        if self.sink is None:
+            token_ids, metrics = await generate_fn()
+        else:
             async with self.sink as sink:
                 token_ids, metrics = await generate_fn(
                     recorder=self.recorder, sink=sink
                 )
             self._sink_consumed = True
-        else:
-            token_ids, metrics = await generate_fn()
 
         return GenerationResult(
             token_ids=token_ids,
