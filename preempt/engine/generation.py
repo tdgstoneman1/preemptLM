@@ -46,7 +46,7 @@ async def generate_greedy(
     Parameters
     ----------
     runner : IModelRunner
-        Model runner implementing `prepare()` and `step()`
+        Model runner implementing the `IModelRunner` interface
     prompt_ids : Sequence[int]
         Input token ids, must be non-empty.
     eos_token_ids: set[int] | int | None
