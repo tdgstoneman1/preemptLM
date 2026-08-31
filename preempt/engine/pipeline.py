@@ -115,8 +115,8 @@ class GenerationPipeline:
         ----------
         prompt : str
             Input text to generate from
-        max_tokens : int | None, default None
-            Overrides the pipeline's default token budget for this call.
+        max_tokens : Optional[int]
+            Overrides the pipeline's default token budget for this call, by default None
 
         Returns
         -------
