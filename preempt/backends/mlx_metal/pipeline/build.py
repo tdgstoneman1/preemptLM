@@ -137,9 +137,9 @@ def _instrument_model(
     wrapper_factory = make_qwen3next_moe_wrapper_factory(
         recorder,
         capture_gate_logits=capture_gate_logits,
-        provider=expert_loader,
+        expert_loader=expert_loader,
         model_fingerprint=model_fingerprint,
-        cache=expert_cache,
+        expert_cache=expert_cache,
     )
     mlx_instrument_model(
         loaded_model.model,
