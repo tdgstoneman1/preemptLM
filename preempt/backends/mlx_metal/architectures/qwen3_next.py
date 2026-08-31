@@ -25,14 +25,14 @@ from preempt.backends.mlx_metal.quantization import (
 from preempt.storage.manifest import ModelMoESpec
 
 
-# TODO rename to convey this is an adapter
-# TODO rename 'config' arg in methods to 'ckpt'
-class Qwen3NextMoEArchitecture(MoEArchAdapter):
-    """Architecture adapter for Qwen3 and Qwen3-Next MoE checkpoints.
+class Qwen3_XArchAdapter(MoEArchAdapter):
+    """Architecture adapter for Qwen3.X and Qwen3-Next MoE checkpoints.
 
     Supports SwiGLU experts containing three linear projections (`'gate_proj'`,
-    `'up_proj'`, `'down_proj'`) which may be quantized with MLX. Module paths
-    follow the pattern `'model.layers.<i>.mlp.switch_mlp.<projection>'`
+    `'up_proj'`, `'down_proj'`) which may be quantized with MLX.
+
+    Module paths follow the pattern
+    `'language_model.model.layers.<layer idx>.mlp.switch_mlp.<projection>'`
     """
 
     @property
