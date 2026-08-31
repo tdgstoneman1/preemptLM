@@ -74,19 +74,19 @@ class DiskBackedExpertLoader:
     def load(self, keys: Sequence[ExpertKey]) -> None:
         """Blocks thread until all requested experts are loaded. Disk reads are concurrent."""
         cache_misses = []
+        cache_hits = 0
         for key in set(keys):
-            if self._cache_manager.touch(key) and self._metrics is not None:
-                self._metrics.cache_hits += (
-                    keys.count(key) if isinstance(keys, list) else 1
-                )
+            if self._cache_manager.touch(key):
+                cache_hits += keys.count(key) if isinstance(keys, list) else 1
             else:
                 cache_misses.append(key)
 
+        if self._metrics is not None:
+            self._metrics.cache_hits += cache_hits
+            self._metrics.cache_misses += len(cache_misses)
+
         if not cache_misses:
             return
-
-        if self._metrics is not None:
-            self._metrics.cache_misses += len(cache_misses)
 
         start_time = time.perf_counter()
         futures: list[Future] = [
