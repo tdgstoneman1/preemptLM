@@ -64,12 +64,12 @@ class StreamSettings(BaseModel):
 
     expert_bank_path: Path = Field()
     bypass_page_cache: bool = Field(default=True)
-    memory_budget_gb: int = Field()
+    memory_budget_gb: int | float = Field()
 
     @computed_field
     @property
     def memory_bytes_budget(self) -> int:  # TODO rename
-        return self.memory_budget_gb * 1024**3
+        return int(self.memory_budget_gb * 1024**3)
 
 
 class PipelineConfig(BaseModel):
