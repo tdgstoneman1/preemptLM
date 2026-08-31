@@ -9,18 +9,18 @@ architecture = "qwen3-next"
 max_tokens = 4096
 prefill_chunk_size = 512
 
-# Currently, this has to be commented out to disable disk reads
+
 [stream_settings]
 expert_bank_path = "../../expert-bank/qwen3.6-35b-4bit"
-memory_bytes_budget = 4_000_000_000
+memory_budget_gb = 10
 bypass_page_cache = true
 
 [trace_settings]
-output_path = "../../traces/router-events.parquet" # relative to this file, NOT cwd
+output_path = "../../traces/qwen3.6-35b-4bit-traces.parquet" # relative to this file, NOT cwd
 overwrite_output = true
 
 [[trace_settings.target_layers]]
-name = "Qwen3.6-35B-expert-router"
+name = "Qwen3.6-35B-router"
 
 [trace_settings.target_layers.search_params]
 layer_class = "Qwen3NextSparseMoeBlock"
