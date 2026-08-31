@@ -8,7 +8,7 @@ from attrs import field
 
 from functools import partial
 
-from preempt.core.protocols.runner import IModelRunner, ITokenCodec
+from preempt.core.protocols.runner import IModelRunner, ITokenizer
 from preempt.core.sinks import BaseEventSink
 
 from preempt.engine.generation import generate_greedy
@@ -38,7 +38,7 @@ class GenerationPipeline:
     """
 
     runner: IModelRunner
-    tokenizer: ITokenCodec
+    tokenizer: ITokenizer
     max_tokens: int
     prefill_chunk_size: int
     recorder: BaseEventRecorder | None
@@ -50,7 +50,7 @@ class GenerationPipeline:
     def __init__(
         self,
         runner: IModelRunner,
-        tokenizer: ITokenCodec,
+        tokenizer: ITokenizer,
         max_tokens: int,
         prefill_chunk_size: int = 512,
         recorder: Optional[BaseEventRecorder] = None,
@@ -62,8 +62,8 @@ class GenerationPipeline:
         ----------
         runner : IModelRunner
             Model runner implementing the `IModelRunner` interface
-        tokenizer : ITokenCodec
-            Tokenizer implementing the `ITokenCodec` interface
+        tokenizer : ITokenizer
+            Tokenizer implementing the `ITokenizer` interface
         max_tokens : int
             Max total tokens to generate including the first prefill output (can be
             overridden per call). Must be >= 1

@@ -7,7 +7,7 @@ from collections.abc import Sequence
 
 
 @runtime_checkable
-class ITokenCodec(Protocol):  # TODO rename
+class ITokenizer(Protocol):  # TODO rename
     """Minimal tokenization interface for encoding text to token ids
     and vice versa.
     """

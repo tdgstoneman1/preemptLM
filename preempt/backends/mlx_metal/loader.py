@@ -9,7 +9,7 @@ import mlx.nn as nn
 
 from mlx_lm import load
 
-from preempt.core.protocols.runner import ITokenCodec
+from preempt.core.protocols.runner import ITokenizer
 
 
 @attrs.define(kw_only=True, frozen=True, eq=False)
@@ -20,13 +20,13 @@ class MlxLoadedModel:
     ----------
     model : nn.Module
         The `mlx_lm` model
-    tokenizer : ITokenCodec
+    tokenizer : ITokenizer
         Tokenizer for encoding text and decoding generated token
-        ids. Must implement `ITokenCodec` protocol.
+        ids. Must implement `ITokenizer` protocol.
     """
 
     model: nn.Module = field()
-    tokenizer: ITokenCodec = field()
+    tokenizer: ITokenizer = field()
 
 
 def load_mlx_model(model_id: str, *, lazy: bool = False) -> MlxLoadedModel:
@@ -50,4 +50,4 @@ def load_mlx_model(model_id: str, *, lazy: bool = False) -> MlxLoadedModel:
         The loaded `mlx_lm` model and its tokenizer
     """
     model, tokenizer = load(model_id, lazy=lazy)  # type: ignore
-    return MlxLoadedModel(model=model, tokenizer=cast(ITokenCodec, tokenizer))
+    return MlxLoadedModel(model=model, tokenizer=cast(ITokenizer, tokenizer))
