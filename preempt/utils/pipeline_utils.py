@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import textwrap
 
 from preempt.config.pipeline import PipelineConfig
@@ -89,12 +90,14 @@ def target_layers_for_model(
 
 
 # TODO move to dedicated logging module
-def generation_metrics_log_msg(metrics: GenerationMetrics):
+# TODO add prefill_s field to GenerationMetrics
+def generation_metrics_log_msg(metrics: GenerationMetrics, prefill_s: float | int):
     return textwrap.dedent(f"""
-    Generation metrics
-    ------------------
-    Total duration: {metrics.total_duration_s:.1f}s
-    Records written: {metrics.records_written}"
+    Generation stats
+    ----------------
+    Total time: {metrics.total_duration_s:.2f} seconds
+    Prefill time: {prefill_s:.2f} seconds
+    Trace records written: {metrics.records_written:,}
     """)
 
 
@@ -104,18 +107,18 @@ def cache_metrics_log_msg(metrics: GenerationMetrics) -> str:
     hit_rate = metrics.cache_hits / demands if demands else 0.0
     miss_rate = metrics.cache_misses / demands if demands else 0.0
 
-    prefetch_mb = (metrics.prefetched_bytes / 1024) / 1024
-    wasted_mb = (metrics.wasted_prefetch_bytes / 1024) / 1024
+    prefetch_mb = metrics.prefetched_bytes / 1024**2
+    wasted_mb = metrics.wasted_prefetch_bytes / 1024**2
 
     return textwrap.dedent(f"""
-    Expert bank metrics
-    -------------------
-    Total experts routed: {demands}
-    Total stall time: {metrics.demand_stall_s:.1f}s
+    Expert bank stats
+    -----------------
+    Total experts routed: {demands:,}
+    Total stall time: {metrics.demand_stall_s:.2f} seconds
 
-    Cache hits: {metrics.cache_hits} ({hit_rate:.1%})"
-    Cache misses: {metrics.cache_misses} ({miss_rate:.1%})"
+    Cache hits: {metrics.cache_hits} ({hit_rate:.1%})
+    Cache misses: {metrics.cache_misses} ({miss_rate:.1%})
     
-    {prefetch_mb:.2} MB prefetched from disk
-    {wasted_mb:.2} MB in wasted disk prefetches
+    Total read from disk: {prefetch_mb:,.2f} MB 
+    Total wasted disk prefetches: {wasted_mb:,.2f} MB 
     """)
