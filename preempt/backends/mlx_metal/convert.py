@@ -90,7 +90,6 @@ def build_tensor_shard_index(
     dict[str, Path]
         Mapping of tensor dotted paths to tensor shard file paths
     """
-    regex = architecture.expert_tensor_regex()
     index_path = model_dir / "model.safetensors.index.json"
     # TODO move path parts like 'model.safetensors' to .constants
 
@@ -99,7 +98,7 @@ def build_tensor_shard_index(
         return {
             name: model_dir / shard
             for name, shard in weight_map.items()
-            if regex.match(name)
+            if architecture.expert_tensor_regex.match(name)
         }
 
     single = model_dir / "model.safetensors"
@@ -131,12 +130,11 @@ def group_expert_tensors_by_layer(
     ValueError
         If tensor weights from multiple model prefixes are found.
     """
-    tensor_re = architecture.expert_tensor_regex()
     by_layer: dict[int, dict[str, str]] = {}
     prefixes: set[str] = set()
 
     for name in shard_index:
-        match = tensor_re.match(name)
+        match = architecture.expert_tensor_regex.match(name)
         if match is None:
             continue
 
