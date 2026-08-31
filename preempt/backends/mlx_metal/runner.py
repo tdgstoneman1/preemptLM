@@ -56,8 +56,6 @@ class MlxModelRunner:
         self.sampler = sampler or (lambda x: mx.argmax(x, axis=-1))
         self.on_step = on_step
 
-    def prepare(self) -> None: ...  # TODO remove
-
     def step(self, tokens: Sequence[int]) -> int:
         with mx.stream(generation_stream):
             input_ids = mx.array([list(tokens)], dtype=mx.int32)
