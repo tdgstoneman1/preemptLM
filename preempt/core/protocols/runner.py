@@ -21,7 +21,7 @@ class IModelRunner(Protocol):
     next token.
     """
 
-    def prepare(self) -> None:
+    def prepare(self) -> None:  # TODO remove
         """Resets per-sequence state (prompt cache). Call before the
         first (prefill) generation step.
         """
