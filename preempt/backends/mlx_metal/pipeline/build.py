@@ -40,7 +40,7 @@ from ..instrument import (
     mlx_instrument_model,
     mlx_strip_instrumented_expert_weights,
 )
-from ..instrumented.qwen3_next_moe import (
+from ..instrumented.qwen3_x_moe import (
     make_qwen3next_moe_wrapper_factory,
 )
 from ..layer_discovery import resolve_mlx_target_layers
