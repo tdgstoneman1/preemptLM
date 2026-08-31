@@ -22,6 +22,7 @@ async def generate_greedy(
     *,
     runner: IModelRunner,
     prompt_ids: Sequence[int],
+    eos_token_ids: set[int] | int | None,
     max_tokens: int,
     prefill_chunk_size: int = 512,
     recorder: BaseEventRecorder | None = None,
@@ -93,7 +94,11 @@ async def generate_greedy(
             "`recorder` and `sink` must both be provided or both be `None`, "
             f"but got `{type(recorder)=}` and `{type(sink)=}`."
         )
-
+    _eos_token_ids = (
+        set([eos_token_ids])
+        if isinstance(eos_token_ids, int) or eos_token_ids is None
+        else eos_token_ids
+    )
     metrics = GenerationMetrics()
     prompt = list(prompt_ids)
     token_idx = 0
@@ -147,6 +152,9 @@ async def generate_greedy(
     # TODO write dedicated greedy decode func
     for _ in range(max_tokens - 1):
         next_token = await forward(tokens)
+        if next_token in _eos_token_ids:
+            break
+
         generated.append(next_token)
         tokens = [next_token]
 
