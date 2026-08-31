@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import Self
+from typing import Self, Any
 
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, computed_field
 
 from preempt.config.target_layers import TargetLayerConfig, TargetLayerSpec
 
@@ -63,8 +63,12 @@ class StreamSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     expert_bank_path: Path = Field()
-    memory_bytes_budget: int = Field(gt=0)
     bypass_page_cache: bool = Field(default=True)
+    memory_budget_gb: int = Field()
+
+    @computed_field
+    def memory_bytes_budget(self) -> int:  # TODO rename
+        return self.memory_budget_gb * 1024**3
 
 
 class PipelineConfig(BaseModel):
