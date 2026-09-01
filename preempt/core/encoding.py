@@ -17,14 +17,14 @@ from .constants import (
 # TODO add support for more scalar dtypes e.g. int8
 @attrs.define(kw_only=True, frozen=True)
 class PayloadEncoding:
-    """An expert bank's payload encoding information corresponding to its
-    `payload_encoding` tag. Example: `'mlx-affine-q8-g64-bf16'`
+    """The model encoding information corresponding to an expert bank's
+    `payload_encoding` tag, for example `'mlx-affine-q8-g64-bf16'`
 
     Attributes
     ----------
     family : str
         The backend that produced the encoding (e.g. 'mlx') and defines the
-        binary layout/quantization conventions for expert weights.
+        binary layout/quantization conventions for handling weights.
     mode : str | None
         Quantization mode (e.g. `affine`), or `None` if unquantized. Since this
         class is backend-agnostic, validation of non-empty strings against a
@@ -77,7 +77,6 @@ def parse_payload_encoding_tag(tag: str) -> PayloadEncoding:
         If `tag` names an unknown scalar dtype
     """
     match = UNQUANTIZED_RE.match(tag) or QUANTIZED_RE.match(tag)
-
     if match is None:
         raise ValueError(
             f"Malformed payload encoding tag '{tag!r}'; expected '{TAG_GRAMMAR}'."
