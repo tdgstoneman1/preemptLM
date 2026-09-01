@@ -11,8 +11,6 @@ from preempt.core.constants import (
     UNQUANTIZED_RE,
 )
 
-# TODO move to datamodel/
-
 
 # TODO add support for more scalar dtypes e.g. int8
 @attrs.define(kw_only=True, frozen=True)
