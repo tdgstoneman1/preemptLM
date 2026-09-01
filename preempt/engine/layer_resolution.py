@@ -11,7 +11,7 @@ from preempt.config.target_layers import TargetLayerConfig, TargetLayerSearchPar
 
 
 @attrs.define(frozen=True, kw_only=True)
-class LayerCandidate:  # TODO move to datamodel/
+class LayerCandidate:
     """Identifiers used to match candidate layers against `TargetLayerSearchParams`.
 
     Attributes
@@ -84,7 +84,6 @@ def match_target_layers(
         filter(lambda layer: layer_is_match(layer, search_params), candidates)
     )
     if not matches:
-        # TODO maybe remove this error and make it a warning, instead
         raise ValueError(
             "No layers found matching the provided search parameters: "
             f"`{search_params!r}`"
@@ -98,13 +97,12 @@ def match_target_layers(
     return matches
 
 
-# TODO rewrite docstring slop
 def resolve_target_layers(
     candidates: Iterable[LayerCandidate],
     config: TargetLayerConfig,
 ) -> dict[str, tuple[LayerCandidate, ...]]:
-    """Resolves every target in `config` to its matching layers (keyed by name)."""
     candidates = tuple(candidates)
+
     return {
         spec.name: match_target_layers(candidates, spec.search_params)
         for spec in config.target_layers
