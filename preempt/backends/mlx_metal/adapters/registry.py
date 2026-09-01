@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Final, Never
 
 from ..types import MlxArchAdapterFactory
+
 from .moe_arch_adapter import MoEArchAdapter
 from .qwen3_x import Qwen3_xArchAdapter
 
@@ -74,6 +75,7 @@ V1_MOE_ARCH_ADAPTER_FACTORIES: Final[dict[str, MlxArchAdapterFactory]] = {
 }
 
 
+# TODO rename to v1MoEArchAdapterRegistry
 class DefaultMoEArchAdapterRegistry(MoEArchAdapterRegistry):
     """Frozen registry with preemptLM's built-in MoE factories registered.
 
