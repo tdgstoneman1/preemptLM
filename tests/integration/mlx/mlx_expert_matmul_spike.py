@@ -86,7 +86,7 @@ from mlx_lm.models.switch_layers import (
     _scatter_unsort,
 )
 
-from preempt.utils.mlx_utils import load_mlx_model
+from preempt.backends.mlx_metal.utils import load_mlx_model
 
 # `named_modules()` yields dotted paths like `model.layers.7.mlp.switch_mlp`;
 # the transformer block index is the only part of the path that is stable

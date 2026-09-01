@@ -47,8 +47,7 @@ from ..recorder import MoERecorder
 from ..expert_cache import MlxExpertCache
 from ..runner import MlxModelRunner
 from ..types import MlxLoadedModel
-
-from preempt.utils.mlx_utils import load_mlx_model
+from ..utils import load_mlx_model
 
 
 def _get_streaming_deps(

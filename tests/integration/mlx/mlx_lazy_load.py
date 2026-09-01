@@ -47,6 +47,7 @@ from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import (
     make_qwen3_x_moe_wrapper_factory,
 )
 from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
+from preempt.backends.mlx_metal.utils import load_mlx_model
 
 from preempt.config.pipeline import PipelineConfig
 
@@ -55,7 +56,6 @@ from preempt.engine.layer_resolution import (
     ensure_no_target_layer_overlap,
 )
 from preempt.utils.io_utils import read_and_validate_toml
-from preempt.utils.mlx_utils import load_mlx_model
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = (

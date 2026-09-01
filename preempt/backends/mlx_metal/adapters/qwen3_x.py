@@ -21,8 +21,7 @@ from ..constants import (
     QUANTIZED_TENSOR_PARTS,
 )
 from ..quantization import MlxQuantParams
-
-from preempt.utils.mlx_utils import dtype_tag_from_arrays
+from ..utils import dtype_tag_from_arrays
 
 
 class Qwen3_xArchAdapter(MoEArchAdapter):

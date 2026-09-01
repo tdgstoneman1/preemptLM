@@ -58,6 +58,7 @@ from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import (
 from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
 from preempt.backends.mlx_metal.recorder import MoERecorder
 from preempt.backends.mlx_metal.runner import MlxModelRunner
+from preempt.backends.mlx_metal.utils import load_mlx_model
 
 from preempt.config.pipeline import PipelineConfig
 
@@ -76,7 +77,6 @@ from preempt.engine.metrics import StepMetrics
 from preempt.engine.pipeline import GenerationResult, GenerationPipeline
 
 from preempt.utils.io_utils import read_and_validate_toml
-from preempt.utils.mlx_utils import load_mlx_model
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_CONFIG = _REPO_ROOT / "tests" / "integration" / "qwen3_6-35b-mlx-pipeline.toml"

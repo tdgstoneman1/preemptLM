@@ -4,13 +4,13 @@ import argparse
 
 from rich import print
 
-from pathlib import Path
-
 import json
 
 import asyncio
 
 import functools
+
+from pathlib import Path
 
 import sys
 
@@ -24,7 +24,7 @@ from preempt.utils.hf_utils import (
     copy_non_weight_files,
     make_shard_map,
 )
-from preempt.utils.mlx_utils import sanitize_fn_for, convert_and_save_shard
+from preempt.backends.mlx_metal.utils import sanitize_fn_for, convert_and_save_shard
 
 
 def get_args() -> argparse.Namespace:
