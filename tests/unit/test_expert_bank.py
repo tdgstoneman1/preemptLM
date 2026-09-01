@@ -8,7 +8,7 @@ from preempt.core.exceptions import ExpertBankCompatibilityError
 from preempt.expert_bank.manifest import (
     ModelMoESpec,
 )
-from preempt.expert_bank.expert_io import PreadExpertBank
+from preempt.expert_bank.banks import PreadExpertBank
 from preempt.expert_bank.writer import ExpertBankWriter
 
 SPECS = (TensorSpec(name="w", dtype="uint8", shape=(3,), num_bytes=3),)

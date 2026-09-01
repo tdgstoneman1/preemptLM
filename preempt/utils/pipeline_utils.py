@@ -13,7 +13,7 @@ from preempt.core.sinks import ParquetEventSink
 
 from preempt.datamodel.tracing.expert_routing import ExpertRoutingEvent
 
-from preempt.expert_bank.expert_io import PreadExpertBank
+from preempt.expert_bank.banks import PreadExpertBank
 
 from preempt.engine.metrics import GenerationMetrics
 

@@ -28,7 +28,7 @@ from preempt.engine.layer_resolution import (
 )
 from preempt.engine.expert_loaders import DiskBackedExpertLoader
 
-from preempt.expert_bank.expert_io import PreadExpertBank, MmapExpertBank
+from preempt.expert_bank.banks import PreadExpertBank, MmapExpertBank
 
 from preempt.utils.pipeline_utils import (
     validate_output_path,

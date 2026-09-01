@@ -51,7 +51,7 @@ from preempt.core.encoding import parse_payload_encoding_tag
 from preempt.core.protocols.expert_bank import ReadPriority
 
 from preempt.expert_bank.manifest import ExpertBankManifest
-from preempt.expert_bank.expert_io import PreadExpertBank
+from preempt.expert_bank.banks import PreadExpertBank
 
 from preempt.utils.hf_utils import resolve_model_dir
 

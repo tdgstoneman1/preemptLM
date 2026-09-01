@@ -22,13 +22,17 @@ UNQUANTIZED_RE: Final[re.Pattern[str]] = re.compile(
     r"^(?P<family>[a-z0-9]+)-unquantized-(?P<scalar>[a-z0-9]+)$"
 )
 
-# Storage
+# Expert bank
 
 MANIFEST_FILENAME: Final[str] = "manifest.json"
 EXPERTS_FILENAME: Final[str] = "experts.bin"
 EXPERT_BANK_SCHEMA: Final[int] = 1  # TODO rename to 'EXPERT_BANK_SCHEMA_VERSION'?
 
-F_NOCACHE = 48  # TODO rename
+# TODO rewrite this comment slop
+# macOS `<sys/fcntl.h>` value of `F_NOCACHE`; absent from Python's `fcntl`
+# module, so it is spelled out here. Turns off page caching for reads/writes
+# on the fd, so blobs come off the SSD rather than the kernel's file cache.
+F_NOCACHE = 48
 
 # Tracing
 
