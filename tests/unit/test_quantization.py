@@ -6,20 +6,20 @@ import mlx.core as mx
 
 import attrs
 
-from preempt.backends.mlx_metal.quantization import MlxQuantParams
+from preempt.backends.mlx_metal.quantization import QuantSettings
 from preempt.backends.mlx_metal.constants import MLX_QUANTIZED_TENSOR_PARTS
 from preempt.backends.mlx_metal.utils import dtype_tag_from_arrays, make_encoding_tag
 
 
 class TestQuantParams:
     def test_construction(self) -> None:
-        q = MlxQuantParams(mode="affine", bits=4, group_size=64)
+        q = QuantSettings(mode="affine", bits=4, group_size=64)
         assert q.mode == "affine"
         assert q.bits == 4
         assert q.group_size == 64
 
     def test_frozen(self) -> None:
-        q = MlxQuantParams(mode="affine", bits=4, group_size=64)
+        q = QuantSettings(mode="affine", bits=4, group_size=64)
         with pytest.raises(attrs.exceptions.FrozenInstanceError):
             q.bits = 8  # type: ignore[misc]
 
@@ -31,14 +31,14 @@ class TestQuantizedTensorParts:
 
 class TestPayloadEncodingFor:
     def test_quantized(self) -> None:
-        q = MlxQuantParams(mode="affine", bits=4, group_size=64)
+        q = QuantSettings(mode="affine", bits=4, group_size=64)
         assert make_encoding_tag(q, "bf16") == "mlx-affine-q4-g64-bf16"
 
     def test_unquantized(self) -> None:
         assert make_encoding_tag(None, "bf16") == "mlx-unquantized-bf16"
 
     def test_f16(self) -> None:
-        q = MlxQuantParams(mode="affine", bits=4, group_size=64)
+        q = QuantSettings(mode="affine", bits=4, group_size=64)
         assert make_encoding_tag(q, "f16") == "mlx-affine-q4-g64-f16"
 
 

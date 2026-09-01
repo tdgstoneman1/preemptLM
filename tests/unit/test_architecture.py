@@ -8,7 +8,7 @@ from preempt.backends.mlx_metal.adapters.moe_arch_adapter import MoEArchAdapter
 from preempt.backends.mlx_metal.adapters.qwen3_x import Qwen3_xArchAdapter
 from preempt.backends.mlx_metal.expert_bank_conversion import model_to_expert_bank
 from preempt.backends.mlx_metal.expert_kernel import sequential_run_selected_experts
-from preempt.backends.mlx_metal.quantization import MlxQuantParams
+from preempt.backends.mlx_metal.quantization import QuantSettings
 
 
 def test_cannot_instantiate_abstract() -> None:
@@ -135,7 +135,7 @@ class TestQwenQuantization:
     def test_uniform_default(self, arch: Qwen3_xArchAdapter) -> None:
         config = {"quantization": {"mode": "affine", "bits": 4, "group_size": 64}}
         result = arch.resolve_quantization(config, (0, 1))
-        assert result == MlxQuantParams(mode="affine", bits=4, group_size=64)
+        assert result == QuantSettings(mode="affine", bits=4, group_size=64)
 
     def test_per_module_override_mixed_raises(self, arch: Qwen3_xArchAdapter) -> None:
         config = {
@@ -169,7 +169,7 @@ class TestQwenQuantization:
             }
         }
         result = arch.resolve_quantization(config, (0, 1))
-        assert result == MlxQuantParams(mode="affine", bits=8, group_size=32)
+        assert result == QuantSettings(mode="affine", bits=8, group_size=32)
 
     def test_text_config_quantization(self, arch: Qwen3_xArchAdapter) -> None:
         config = {
@@ -179,7 +179,7 @@ class TestQwenQuantization:
         }
         result = arch.resolve_quantization(config, (0,))
 
-        assert result == MlxQuantParams(mode="affine", bits=4, group_size=64)
+        assert result == QuantSettings(mode="affine", bits=4, group_size=64)
 
 
 class TestQwenMoESpec:
