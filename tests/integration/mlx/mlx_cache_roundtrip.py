@@ -51,7 +51,7 @@ from preempt.core.encoding import parse_payload_encoding_tag
 from preempt.core.protocols.expert_bank import ReadPriority
 
 from preempt.expert_bank.manifest import ExpertBankManifest
-from preempt.expert_bank.expert_io import ExpertBank
+from preempt.expert_bank.expert_io import PreadExpertBank
 
 from preempt.utils.hf_utils import resolve_model_dir
 
@@ -145,7 +145,7 @@ def compare_tensor(
 
 async def verify_expert(
     *,
-    expert_bank: ExpertBank,
+    expert_bank: PreadExpertBank,
     residency: MlxExpertCache,
     cache: ShardTensorCache,
     layer_tensors: Mapping[str, str],
@@ -193,7 +193,7 @@ async def verify_expert(
 
 async def verify_pending_graph_survives_eviction(
     *,
-    expert_bank: ExpertBank,
+    expert_bank: PreadExpertBank,
     residency: MlxExpertCache,
     block_idx: int,
     expert_idx: int,
@@ -233,7 +233,7 @@ async def verify_pending_graph_survives_eviction(
     )
 
 
-def verify_guards(residency: MlxExpertCache, store: ExpertBank) -> None:
+def verify_guards(residency: MlxExpertCache, store: PreadExpertBank) -> None:
     """Check the failures that must be loud rather than silent."""
     absent = store.key_for(0, 0, variant="not-a-variant")
 
@@ -259,7 +259,7 @@ def verify_guards(residency: MlxExpertCache, store: ExpertBank) -> None:
 
 
 async def verify_encoding_guard(
-    *, store: ExpertBank, residency: MlxExpertCache, block_idx: int
+    *, store: PreadExpertBank, residency: MlxExpertCache, block_idx: int
 ) -> None:
     """A payload from a differently encoded store must be refused, not decoded."""
     key = store.key_for(block_idx, 0)
@@ -293,7 +293,7 @@ async def run(args: argparse.Namespace) -> None:
     by_layer = group_expert_tensors_by_layer(shard_index, arch)
     cache = ShardTensorCache(shard_index=shard_index)
 
-    with ExpertBank(args.expert_bank) as bank:
+    with PreadExpertBank(args.expert_bank) as bank:
         manifest = bank.manifest
         encoding = parse_payload_encoding_tag(manifest.payload_encoding)
         print(f"Encoding: {manifest.payload_encoding} -> {encoding!r}", flush=True)

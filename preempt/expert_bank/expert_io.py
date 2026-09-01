@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Self, BinaryIO
+from typing import Self, BinaryIO, TypedDict
 from types import TracebackType
 
 from pathlib import Path
@@ -29,7 +29,14 @@ from .manifest import (
 # on the fd, so blobs come off the SSD rather than the kernel's file cache.
 
 
-class ExpertBank:  # TODO rename to PreadExpertBank
+class _CompatibilitySpec(TypedDict):
+    model_id: str
+    num_routed_experts: int
+    top_k: int
+    moe_block_idxs: tuple[int, ...]
+
+
+class PreadExpertBank:  # TODO rename to PreadExpertBank
     """Implements `IExpertBank` interface."""
 
     _manifest: ExpertBankManifest
@@ -74,25 +81,23 @@ class ExpertBank:  # TODO rename to PreadExpertBank
         top_k: int,
         moe_block_idxs: tuple[int, ...],
     ) -> None:
-        observed = {
-            "model_id": model_id,
-            "num_routed_experts": num_routed_experts,
-            "top_k": top_k,
-            "moe_block_idxs": moe_block_idxs,
-        }  # TODO use TypedDict
-        expected = {
-            "model_id": self._manifest.model_id,
-            "num_routed_experts": self._manifest.model_moe_spec.num_routed_experts,
-            "top_k": self._manifest.model_moe_spec.top_k,
-            "moe_block_idxs": self._manifest.model_moe_spec.moe_block_idxs,
-        }  # TODO use TypedDict
-
-        mismatches = {
+        observed = _CompatibilitySpec(
+            model_id=model_id,
+            num_routed_experts=num_routed_experts,
+            top_k=top_k,
+            moe_block_idxs=moe_block_idxs,
+        )
+        expected = _CompatibilitySpec(
+            model_id=self._manifest.model_id,
+            num_routed_experts=self._manifest.model_moe_spec.num_routed_experts,
+            top_k=self._manifest.model_moe_spec.top_k,
+            moe_block_idxs=self._manifest.model_moe_spec.moe_block_idxs,
+        )
+        if mismatches := {
             name: (expected[name], observed[name])
             for name in expected
             if expected[name] != observed[name]
-        }
-        if mismatches:
+        }:
             raise ExpertBankCompatibilityError(repr(mismatches))
 
     async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload:
@@ -104,7 +109,7 @@ class ExpertBank:  # TODO rename to PreadExpertBank
         data = await asyncio.to_thread(os.pread, self._fd, blob.length, blob.offset)
 
         if len(data) != blob.length:
-            raise IOError()
+            raise IOError()  # TODO error msg
 
         return ExpertPayload(
             key=key,
@@ -130,7 +135,7 @@ class ExpertBank:  # TODO rename to PreadExpertBank
         self.close()
 
 
-class MmapExpertBank(ExpertBank):
+class MmapExpertBank(PreadExpertBank):
     """Implements the `IExpertBank` interface using a memory-mapped file."""
 
     _manifest: ExpertBankManifest

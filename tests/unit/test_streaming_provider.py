@@ -177,7 +177,7 @@ async def test_a_repeated_key_within_one_batch_is_read_once() -> None:
         metrics=metrics,
         batches=[(key(0), key(1), key(0))],
     )
-    # ! Actual ExpertBank has no `reads` attribute, why is this being tested?
+    # ! Actual PreadExpertBank has no `reads` attribute, why is this being tested?
     # assert [read_key for read_key, _ in expert_bank.reads] == [key(0), key(1)]
     # assert metrics.cache_hits == 1
     assert metrics.cache_misses == 2
@@ -327,7 +327,7 @@ async def test_a_failure_mid_batch_does_not_continue_with_the_experts_it_had() -
     with pytest.raises(KeyError):
         await asyncio.to_thread(provider.load, (key(0), key(1), key(2)))
 
-    # ! Actual ExpertBank has no `reads` attribute, why is this being tested?
+    # ! Actual PreadExpertBank has no `reads` attribute, why is this being tested?
     # ! WHAT IS ACTUALLY BEING TESTED HERE??
     # assert [read_key for read_key, _ in expert_bank.reads] == [key(0), key(1)]
     assert set(cache.payloads) == {key(0)}

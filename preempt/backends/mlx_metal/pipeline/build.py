@@ -28,7 +28,7 @@ from preempt.engine.layer_resolution import (
 )
 from preempt.engine.expert_loaders import DiskBackedExpertLoader
 
-from preempt.storage.expert_io import ExpertBank, MmapExpertBank
+from preempt.expert_bank.expert_io import PreadExpertBank, MmapExpertBank
 
 from preempt.utils.pipeline_utils import (
     validate_output_path,
@@ -49,7 +49,7 @@ from ..recorder import MoERecorder
 from ..cache import MlxExpertCache
 from ..runner import MlxModelRunner
 
-# TODO use IExpertBank instead of ExpertBank
+# TODO use IExpertBank instead of PreadExpertBank
 
 
 def _get_streaming_deps(
@@ -58,7 +58,7 @@ def _get_streaming_deps(
     config: PipelineConfig,
     metrics: GenerationMetrics | None,
     event_loop: asyncio.AbstractEventLoop | None,
-) -> tuple[ExpertBank, MlxExpertCache, DiskBackedExpertLoader]:
+) -> tuple[PreadExpertBank, MlxExpertCache, DiskBackedExpertLoader]:
     if config.stream_settings is None:
         raise ValueError()
 
@@ -66,7 +66,7 @@ def _get_streaming_deps(
         raise ValueError()
 
     expert_bank_path = base_dir / config.stream_settings.expert_bank_path
-    expert_bank = ExpertBank(
+    expert_bank = PreadExpertBank(
         expert_bank_path,
         bypass_page_cache=config.stream_settings.bypass_page_cache,
     )
@@ -119,7 +119,7 @@ def _instrument_model(
     *,
     moe_blocks: list[LayerCandidate],
     config: PipelineConfig,
-    expert_bank: ExpertBank | None,
+    expert_bank: PreadExpertBank | None,
     expert_loader: IExpertLoader | None,
     expert_cache: MlxExpertCache | None,
     recorder: MoERecorder | None,
@@ -152,7 +152,7 @@ def _evaluate_model(
     *,
     moe_blocks: list[LayerCandidate],
     config: PipelineConfig,
-    expert_bank: ExpertBank | None,
+    expert_bank: PreadExpertBank | None,
 ) -> None:
     if expert_bank is not None:
         block = dict(loaded_model.model.named_modules())[moe_blocks[0].layer_path].inner
