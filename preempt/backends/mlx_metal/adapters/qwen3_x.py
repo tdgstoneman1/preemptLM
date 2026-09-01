@@ -16,6 +16,7 @@ import mlx.core as mx
 from preempt.expert_bank.manifest import ModelMoESpec
 
 from .moe_arch_adapter import MoEArchAdapter
+
 from ..constants import (
     SWIGLU_PROJECTION_NAMES,
     MLX_QUANTIZED_TENSOR_PARTS,
@@ -172,7 +173,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
 
         if all(param in quantization for param in ("bits", "group_size")):
             default = MlxQuantParams(
-                mode=mode,
+                mode=mode,  # type: ignore
                 bits=int(quantization["bits"]),
                 group_size=int(quantization["group_size"]),
             )
@@ -189,7 +190,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
             identity = (int(match.group("layer")), match.group("projection"))
             overrides[identity] = (
                 MlxQuantParams(
-                    mode=mode,
+                    mode=mode,  # type: ignore
                     bits=int(value["bits"]),
                     group_size=int(value["group_size"]),
                 )

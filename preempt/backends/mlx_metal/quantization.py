@@ -17,10 +17,11 @@ from attrs import field
 import mlx.core as mx
 
 from .constants import (
-    SCALAR_DTYPE_TAGS,
+    MLX_DTYPE_TAGS,
     MLX_ENCODING_QUANTIZED_TEMPLATE,
     MLX_ENCODING_UNQUANTIZED_TEMPLATE,
 )
+from .enums import MlxQuantMode
 
 
 @attrs.define(frozen=True, kw_only=True)
@@ -28,18 +29,23 @@ class MlxQuantParams:
     """Quantization parameters for an MLX module.
 
     Specifies the structural metadata required to correctly decode and
-    interpret packed expert weights.
+    interpret quantized serialized weights.
 
     Parameters
     ----------
-    mode : str
-        The quantization algorithm used (e.g., `"affine"`)
+    mode : MlxQuantModes
+        The quantization algorithm used. A string may be passed,
+        e.g., 'affine'.
     bits : int
         The precision of each quantized weight, in bits
     group_size : int
         The number of individual weights sharing a single scale and bias
     """
 
-    mode: str = field()  # TODO use literal instead of string
+    mode: MlxQuantMode = field()
     bits: int = field()
     group_size: int = field()
+
+    @mode.validator  # type: ignore
+    def validate_mode(self, attribute, value) -> MlxQuantMode:
+        return MlxQuantMode(value)
