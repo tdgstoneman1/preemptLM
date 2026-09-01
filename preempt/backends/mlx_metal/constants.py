@@ -15,12 +15,12 @@ QUANTIZED_TENSOR_PARTS: Final[tuple[str, str, str]] = ("weight", "scales", "bias
 
 MLX_QUANT_PARAMS: Final[tuple[str, str, str]] = ("group_size", "bits", "mode")
 
-# The surrogate numpy dtype used to serialize `bfloat16` tensors
+# Surrogate numpy dtype used to serialize `bfloat16` tensors
 BIT_VIEWED_STORAGE_DTYPE: Final[str] = "uint16"
 
 # Tags requiring BIT_VIEWED_STORAGE_DTYPE surrogate serialization
 # Native numpy dtypes require no relabeling and omit entries here
-BIT_VIEWED_SCALARS: Final[dict[str, mx.Dtype]] = {"bf16": mx.bfloat16}
+BIT_VIEWED_SCALARS: Final[dict[str, mx.Dtype]] = {"bf16": mx.bfloat16}  # TODO rename
 
 # Durable string tags for exact decoding dtypes for serialization
 # TODO add more dtypes, e.g. int8

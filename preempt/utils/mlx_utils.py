@@ -175,7 +175,7 @@ def dtype_tag_from_arrays(arrays: Mapping[str, mx.array], quantized: bool) -> st
     raise ValueError(f"Arrays have unsupported dtype: {dtype!r}")
 
 
-def make_encoding_tag(quant: MlxQuantParams | None, scalar_tag: str) -> str:
+def make_encoding_tag(quant: MlxQuantParams | None, dtype_tag: str) -> str:
     """Generates the payload encoding tag for the expert bank.
 
     Produces a formatted string identifying the quantization state and
@@ -188,7 +188,7 @@ def make_encoding_tag(quant: MlxQuantParams | None, scalar_tag: str) -> str:
     quant : MlxQuantParams | None
         The quantization parameters used for the experts, or `None` if
         unquantized
-    scalar_tag : str
+    dtype_tag : str
         The short tag representing the scalar dtype (e.g. `"bf16"`) as
         derived from `dtype_tag_from_arrays()`
 
@@ -199,11 +199,11 @@ def make_encoding_tag(quant: MlxQuantParams | None, scalar_tag: str) -> str:
         `"mlx-unquantized-bf16"`)
     """
     if quant is None:
-        return MLX_ENCODING_UNQUANTIZED_TEMPLATE.substitute(scalar_tag=scalar_tag)
+        return MLX_ENCODING_UNQUANTIZED_TEMPLATE.substitute(dtype=dtype_tag)
 
     return MLX_ENCODING_QUANTIZED_TEMPLATE.substitute(
         mode=quant.mode,
         bits=quant.bits,
         group_size=quant.group_size,
-        scalar_tag=scalar_tag,
+        dtype=dtype_tag,
     )
