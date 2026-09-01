@@ -3,8 +3,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable, Any
 from collections.abc import Sequence, Mapping, Hashable
 
-from .identity import ExpertKey
-
+from preempt.datamodel.identity import ExpertKey
 from preempt.datamodel.experts import ExpertPayload
 
 

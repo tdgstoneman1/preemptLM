@@ -7,7 +7,7 @@ from attrs import field
 
 import random
 
-from preempt.core.identity import ExpertKey
+from preempt.datamodel.identity import ExpertKey
 from preempt.core.enums import CachePolicy
 
 # TODO rename module

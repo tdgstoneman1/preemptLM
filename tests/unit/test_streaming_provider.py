@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 import asyncio
 
-from preempt.core.identity import ExpertKey, TensorSpec
+from preempt.datamodel.identity import ExpertKey, TensorSpec
 from preempt.core.enums import CachePolicy
 
 from preempt.core.protocols import IExpertLoader

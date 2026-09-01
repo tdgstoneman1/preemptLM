@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from preempt.core.identity import ExpertKey, TensorSpec
+from preempt.datamodel.identity import ExpertKey, TensorSpec
 from preempt.core.enums import ReadPriority
 from preempt.core.exceptions import ExpertBankCompatibilityError
 from preempt.expert_bank.banks import BaseExpertBank

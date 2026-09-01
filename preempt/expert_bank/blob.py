@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
-from preempt.core.identity import TensorSpec
+from preempt.datamodel.identity import TensorSpec
 
 
 def derive_tensor_specs(

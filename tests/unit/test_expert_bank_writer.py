@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from preempt.core.identity import TensorSpec
+from preempt.datamodel.identity import TensorSpec
 from preempt.core.constants import EXPERTS_FILENAME, MANIFEST_FILENAME
 
 from preempt.expert_bank.manifest import (

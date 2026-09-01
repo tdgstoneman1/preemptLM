@@ -8,7 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from preempt.core.identity import ExpertKey, TensorSpec
+from preempt.datamodel.identity import ExpertKey, TensorSpec
 from preempt.core.constants import (
     MANIFEST_FILENAME,
     EXPERT_BANK_SCHEMA,

@@ -1,6 +1,6 @@
 import pytest
 
-from preempt.core.identity import ExpertKey
+from preempt.datamodel.identity import ExpertKey
 
 
 def test_key_is_hashable_and_value_equal() -> None:

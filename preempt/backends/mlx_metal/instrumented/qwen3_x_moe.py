@@ -27,7 +27,7 @@ from ..cache import MlxExpertCache
 from ..types import MlxWrapperFactory
 from ..constants import SWIGLU_PROJECTION_NAMES
 
-from preempt.core.identity import ExpertKey
+from preempt.datamodel.identity import ExpertKey
 from preempt.core.protocols import IExpertLoader
 
 from preempt.engine.layer_resolution import LayerCandidate

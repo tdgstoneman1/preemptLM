@@ -5,7 +5,7 @@ from types import TracebackType
 
 from pathlib import Path
 
-from preempt.core.identity import TensorSpec
+from preempt.datamodel.identity import TensorSpec
 from preempt.core.constants import EXPERTS_FILENAME, MANIFEST_FILENAME
 
 from .manifest import (

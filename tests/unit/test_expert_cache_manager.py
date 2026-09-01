@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from preempt.core.identity import ExpertKey
+from preempt.datamodel.identity import ExpertKey
 from preempt.core.enums import CachePolicy
 
 from preempt.engine.expert_cache import ExpertCacheManager

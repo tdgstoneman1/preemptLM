@@ -9,7 +9,7 @@ import time
 
 from preempt.expert_bank.banks import BaseExpertBank
 from preempt.core.protocols import IExpertCache
-from preempt.core.identity import ExpertKey
+from preempt.datamodel.identity import ExpertKey
 from preempt.core.enums import ReadPriority
 
 from .expert_cache import ExpertCacheManager

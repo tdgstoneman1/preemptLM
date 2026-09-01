@@ -53,7 +53,7 @@ from preempt.config.pipeline import (
     PipelineConfig,
     StreamSettings,
 )
-from preempt.core.identity import ExpertKey
+from preempt.datamodel.identity import ExpertKey
 from preempt.core.protocols.expert_bank import ExpertPayload
 from preempt.engine.metrics import GenerationMetrics
 from preempt.expert_bank.manifest import ExpertBankManifest

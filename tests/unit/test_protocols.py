@@ -7,7 +7,7 @@ from preempt.core.protocols import IModelRunner, ITokenizer
 from preempt.datamodel.experts import ExpertPayload
 
 from preempt.core.enums import ReadPriority
-from preempt.core.identity import ExpertKey, TensorSpec
+from preempt.datamodel.identity import ExpertKey, TensorSpec
 
 from preempt.engine.expert_loaders import DummyExpertLoader
 
