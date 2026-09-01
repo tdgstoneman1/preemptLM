@@ -4,7 +4,6 @@ from typing import Protocol, runtime_checkable, Any
 from collections.abc import Sequence, Mapping, Hashable
 
 from .identity import ExpertKey
-from .enums import ReadPriority
 
 from preempt.datamodel.experts import ExpertPayload
 
