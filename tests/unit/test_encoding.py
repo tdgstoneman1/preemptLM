@@ -1,6 +1,6 @@
 import pytest
 
-from preempt.core.encoding import PayloadEncoding, parse_payload_encoding_tag
+from preempt.expert_bank.encoding import PayloadEncoding, parse_payload_encoding_tag
 
 
 def test_parses_the_real_stores_tag() -> None:

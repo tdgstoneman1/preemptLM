@@ -47,7 +47,7 @@ from preempt.backends.mlx_metal.convert import (
 )
 from preempt.backends.mlx_metal.cache import MlxExpertCache
 
-from preempt.core.encoding import parse_payload_encoding_tag
+from preempt.expert_bank.encoding import parse_payload_encoding_tag
 from preempt.core.protocols.expert_bank import ReadPriority
 
 from preempt.expert_bank.manifest import ExpertBankManifest

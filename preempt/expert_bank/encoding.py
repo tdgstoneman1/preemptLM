@@ -3,7 +3,7 @@ from __future__ import annotations
 import attrs
 from attrs import field, validators
 
-from .constants import (
+from preempt.core.constants import (
     TAG_GRAMMAR,
     KNOWN_FAMILIES,
     KNOWN_SCALARS,

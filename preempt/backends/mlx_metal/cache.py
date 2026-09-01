@@ -11,7 +11,7 @@ import numpy as np
 
 import mlx.core as mx
 
-from preempt.core.encoding import PayloadEncoding, parse_payload_encoding_tag
+from preempt.expert_bank.encoding import PayloadEncoding, parse_payload_encoding_tag
 
 from preempt.datamodel.identity import ExpertKey, TensorSpec
 from preempt.datamodel.experts import ExpertPayload
