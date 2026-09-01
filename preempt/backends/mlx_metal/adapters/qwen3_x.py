@@ -13,16 +13,17 @@ import re
 
 import mlx.core as mx
 
-from preempt.backends.mlx_metal.architecture import MoEArchAdapter
-from preempt.backends.mlx_metal.constants import (
+from preempt.expert_bank.manifest import ModelMoESpec
+
+from .moe_arch_adapter import MoEArchAdapter
+from ..constants import (
     SWIGLU_PROJECTION_NAMES,
     QUANTIZED_TENSOR_PARTS,
 )
-from preempt.backends.mlx_metal.quantization import (
+from ..quantization import (
     MlxQuantParams,
     dtype_tag_from_arrays,
 )
-from preempt.expert_bank.manifest import ModelMoESpec
 
 
 class Qwen3_xArchAdapter(MoEArchAdapter):

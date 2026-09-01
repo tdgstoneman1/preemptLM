@@ -11,7 +11,7 @@ import mlx.core as mx
 
 from preempt.expert_bank.manifest import ModelMoESpec
 
-from .quantization import MlxQuantParams
+from ..quantization import MlxQuantParams
 
 
 class MoEArchAdapter(ABC):

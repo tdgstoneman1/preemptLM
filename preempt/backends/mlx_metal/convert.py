@@ -20,7 +20,7 @@ from preempt.expert_bank.manifest import ExpertBankManifest
 from preempt.expert_bank.writer import ExpertBankWriter
 
 from .quantization import make_encoding_tag
-from .architecture import MoEArchAdapter
+from .adapters.moe_arch_adapter import MoEArchAdapter
 
 
 def hash_model_ckpt(ckpt_path: Path) -> str:

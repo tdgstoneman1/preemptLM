@@ -5,7 +5,7 @@ import mlx.nn as nn
 
 from preempt.engine.layer_resolution import LayerCandidate
 
-from .architecture import MoEArchAdapter
+from .adapters.moe_arch_adapter import MoEArchAdapter
 
 MlxModuleT = TypeVar("MlxModuleT", bound=nn.Module)
 

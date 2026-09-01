@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Never
 
 from .types import MlxArchAdapterFactory
-from .architecture import MoEArchAdapter
+from .adapters.moe_arch_adapter import MoEArchAdapter
 from .adapters.defaults import V1_MOE_FACTORIES
 
 # TODO make `register`, `get`, and `available` classmethods
