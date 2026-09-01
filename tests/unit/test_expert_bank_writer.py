@@ -9,7 +9,7 @@ from preempt.expert_bank.manifest import (
     ExpertBankManifest,
     ModelMoESpec,
 )
-from preempt.expert_bank.expert_io import ExpertBankWriter
+from preempt.expert_bank.writer import ExpertBankWriter
 
 SPECS = (TensorSpec(name="w", dtype="uint8", shape=(3,), num_bytes=3),)
 TOPOLOGY = ModelMoESpec(moe_block_idxs=(0,), num_routed_experts=2, top_k=1)

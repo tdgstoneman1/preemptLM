@@ -17,7 +17,7 @@ import mlx.core as mx
 
 from preempt.expert_bank.blob import assemble_expert_blob, derive_tensor_specs
 from preempt.expert_bank.manifest import ExpertBankManifest
-from preempt.expert_bank.expert_io import ExpertBankWriter
+from preempt.expert_bank.writer import ExpertBankWriter
 
 from .quantization import make_encoding_tag
 from .architecture import MoEArchAdapter
