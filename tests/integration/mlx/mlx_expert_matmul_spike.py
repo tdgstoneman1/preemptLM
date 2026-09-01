@@ -86,7 +86,7 @@ from mlx_lm.models.switch_layers import (
     _scatter_unsort,
 )
 
-from preempt.backends.mlx_metal.loader import load_mlx_model
+from preempt.utils.mlx_utils import load_mlx_model
 
 # `named_modules()` yields dotted paths like `model.layers.7.mlp.switch_mlp`;
 # the transformer block index is the only part of the path that is stable
@@ -530,7 +530,7 @@ def compare(reference: mx.array, candidate: mx.array) -> dict[str, Any]:
 
     max_abs = float(mx.max(absolute))
     max_rel = float(mx.max(absolute / denominator))
-    mismatches = int(mx.sum(absolute != 0)) # type: ignore
+    mismatches = int(mx.sum(absolute != 0))  # type: ignore
 
     return {
         "bitwise_equal": equal,

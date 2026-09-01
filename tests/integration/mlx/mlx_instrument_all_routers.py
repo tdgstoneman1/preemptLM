@@ -56,24 +56,27 @@ from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import (
     make_qwen3_x_moe_wrapper_factory,
 )
 from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
-from preempt.backends.mlx_metal.loader import load_mlx_model
 from preempt.backends.mlx_metal.recorder import MoERecorder
 from preempt.backends.mlx_metal.runner import MlxModelRunner
+
 from preempt.config.pipeline import PipelineConfig
-from preempt.engine.sinks import ParquetEventSink
+
 from preempt.datamodel.tracing.context import TraceRunContext
 from preempt.datamodel.tracing.expert_routing import (
     EXPERT_ROUTING_EVENT_TYPE,
     EXPERT_ROUTING_SCHEMA_VERSION,
     ExpertRoutingEvent,
 )
+from preempt.engine.sinks import ParquetEventSink
 from preempt.engine.layer_resolution import (
     LayerCandidate,
     ensure_no_target_layer_overlap,
 )
 from preempt.engine.metrics import StepMetrics
 from preempt.engine.pipeline import GenerationResult, GenerationPipeline
+
 from preempt.utils.io_utils import read_and_validate_toml
+from preempt.utils.mlx_utils import load_mlx_model
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_CONFIG = _REPO_ROOT / "tests" / "integration" / "qwen3_6-35b-mlx-pipeline.toml"

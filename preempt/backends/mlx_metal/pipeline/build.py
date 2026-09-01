@@ -8,19 +8,15 @@ import asyncio
 
 from rich.console import Console
 
+from preempt.core.enums import Backends
+from preempt.core.protocols import IExpertLoader
+
 from preempt.config.pipeline import PipelineConfig
 from preempt.config.target_layers import (
     TargetLayers,
 )
 from preempt.engine.metrics import GenerationMetrics
 from preempt.engine.pipeline import GenerationPipeline
-
-from preempt.expert_bank.encoding import parse_payload_encoding_tag
-from preempt.core.enums import Backends
-from preempt.core.protocols import IExpertLoader
-
-from preempt.datamodel.tracing.context import TraceRunContext
-
 from preempt.engine.expert_cache import ExpertCacheManager
 from preempt.engine.layer_resolution import (
     LayerCandidate,
@@ -28,7 +24,10 @@ from preempt.engine.layer_resolution import (
 )
 from preempt.engine.expert_loaders import DiskBackedExpertLoader
 
+from preempt.expert_bank.encoding import parse_payload_encoding_tag
 from preempt.expert_bank.banks import BaseExpertBank, PreadExpertBank, MmapExpertBank
+
+from preempt.datamodel.tracing.context import TraceRunContext
 
 from preempt.utils.pipeline_utils import (
     validate_output_path,
@@ -44,10 +43,12 @@ from ..instrumented.qwen3_x_moe import (
     make_qwen3_x_moe_wrapper_factory,
 )
 from ..layer_discovery import resolve_mlx_target_layers
-from ..loader import MlxLoadedModel, load_mlx_model
 from ..recorder import MoERecorder
 from ..expert_cache import MlxExpertCache
 from ..runner import MlxModelRunner
+from ..types import MlxLoadedModel
+
+from preempt.utils.mlx_utils import load_mlx_model
 
 
 def _get_streaming_deps(

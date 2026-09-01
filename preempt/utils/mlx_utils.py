@@ -1,19 +1,24 @@
-from typing import Any
+from typing import Any, cast
 from collections.abc import Callable
 
 from pathlib import Path
 
 import gc
 
+from rich import print
+
 import numpy as np
 
 import mlx.core as mx
+
 from mlx_lm.utils import _get_classes
+from mlx_lm import load
 
 from safetensors import safe_open
 
+from preempt.core.protocols import ITokenizer
 
-from rich import print
+from preempt.backends.mlx_metal.types import MlxLoadedModel
 
 
 def sanitize_fn_for(
@@ -92,3 +97,27 @@ def mlx_to_numpy(tensor: mx.array) -> np.ndarray:
         return np.array(tensor.view(mx.uint16))
 
     return np.array(tensor)
+
+
+def load_mlx_model(model_id: str, *, lazy: bool = False) -> MlxLoadedModel:
+    """Loads an MLX model and tokenizer via `mlx_lm`.
+
+    Parameters
+    ----------
+    model_id : str
+        Hugging Face repo id or local path accepted by `mlx_lm.load(...)`
+    lazy : bool
+        If False, model weights are evaluated eagerly at load time. If True, `mlx_lm`
+        skips its internal weight evaluation, and all weights remain unevaluated
+        mmap-backed arrays. This is required for model instrumentation when streaming
+        expert weights from disk as it defers weight materialization, allowing expert
+        weights to be stripped so only the dense backbone materializes in memory.
+        by default False.
+
+    Returns
+    -------
+    MlxLoadedModel
+        The loaded `mlx_lm` model and its tokenizer
+    """
+    model, tokenizer = load(model_id, lazy=lazy)  # type: ignore
+    return MlxLoadedModel(model=model, tokenizer=cast(ITokenizer, tokenizer))
