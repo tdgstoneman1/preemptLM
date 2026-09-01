@@ -130,25 +130,29 @@ class MoEArchAdapter(ABC):
         ...
 
     @abstractmethod
-    def validate_layer_tensors(
-        self, layer_tensors: Mapping[str, str]
+    def validate_weight_tensor_paths(
+        self, tensor_paths: Mapping[str, str]
     ) -> tuple[str, ...]:
-        """Validates and returns the tensor order for a specific layer.
+        """Validates an MoE block's weight tensor paths against expected path
+        names for the architecture and returns them in order.
 
         Parameters
         ----------
-        layer_tensors : Mapping[str, str]
-            Tensor suffixes mapped to full tensor names for one layer
+        tensor_paths : Mapping[str, str]
+            Weight tensor paths relative to the layer mapped to their
+            full paths within the model (both in dot notation)
 
         Returns
         -------
         tuple[str, ...]
-            The ordered tensor suffixes present in the layer.
+            Validated relative weight tensor paths
 
         Raises
         ------
         ValueError
-            If required tensors are missing or unexpected tensors are found.
+            If expected paths are missing from `tensor_paths`.
+        ValueError
+            If `tensor_paths` contains unexpected paths.
         """
         ...
 

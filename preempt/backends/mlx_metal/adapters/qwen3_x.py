@@ -94,49 +94,43 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
             for part in self.quantized_tensor_parts
         )
 
-    # TODO rename layer_tensors arg
-    def validate_layer_tensors(
-        self, layer_tensors: Mapping[str, str]
+    def validate_weight_tensor_paths(
+        self, tensor_paths: Mapping[str, str]
     ) -> tuple[str, ...]:
-        """Validates weights in `layer_tensors` against the expected tensor
-        order and projection weight names for the adapter's MoE architecture.
-
-        Supports both quantized and unquantized checkpoints.
+        """Validates an MoE block's weight tensor paths against expected path
+        names for the architecture and returns them in order.
 
         Parameters
         ----------
-        layer_tensors : Mapping[str, str]
-            Mapping of a layer's tensor suffixes to absolute tensor paths (in dot
-            notation)
+        tensor_paths : Mapping[str, str]
+            Weight tensor paths relative to the layer mapped to their
+            full paths within the model (both in dot notation)
 
         Returns
         -------
         tuple[str, ...]
-            The subset of tensor suffixes present in this layer in adapter's
-            `tensor_order`.
+            Validated relative weight tensor paths
 
         Raises
         ------
         ValueError
-            If a required projection's `weight` tensor is missing
+            If expected paths are missing from `tensor_paths`.
         ValueError
-            If `layer_tensors` contains an unexpected tensor name
+            If `tensor_paths` contains unexpected paths.
         """
-        present = tuple(filter(lambda x: x in layer_tensors, self.tensor_order))
+        present = tuple(filter(lambda x: x in tensor_paths, self.tensor_order))
         missing = list(
-            filter(lambda x: f"{x}.weight" not in layer_tensors, self.projection_names)
+            filter(lambda x: f"{x}.weight" not in tensor_paths, self.projection_names)
         )
         if missing:
             raise ValueError(
-                "The following weight tensors are missing from `layer_tensors`: "
-                f"{missing!r}"
+                "The following are missing from `tensor_paths`: " f"{missing!r}"
             )
 
-        unexpected = set(layer_tensors) - set(self.tensor_order)
+        unexpected = set(tensor_paths) - set(self.tensor_order)
         if unexpected:
             raise ValueError(
-                "`layer_tensors` contains the following unexpected weight tensors: "
-                f"{unexpected!r}"
+                f"`tensor_paths` contains the following unexpected items: {unexpected!r}"
             )
 
         return present
@@ -174,7 +168,6 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
         if quantization is None:
             return None
 
-        # TODO check if affine is a valid default
         mode = str(quantization.get("mode", "affine"))
 
         if all(param in quantization for param in ("bits", "group_size")):

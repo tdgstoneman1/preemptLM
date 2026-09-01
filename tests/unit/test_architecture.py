@@ -87,7 +87,7 @@ class TestQwenTensorOrder:
             for p in arch.projection_names
             for part in arch.quantized_tensor_parts
         }
-        result = arch.validate_layer_tensors(layer_tensors)
+        result = arch.validate_weight_tensor_paths(layer_tensors)
 
         assert result == arch.tensor_order
 
@@ -99,7 +99,7 @@ class TestQwenTensorOrder:
             ValueError,
             match="The following weight tensors are missing from `layer_tensors`",
         ):
-            arch.validate_layer_tensors(layer_tensors)
+            arch.validate_weight_tensor_paths(layer_tensors)
 
     def test_validate_layer_tensors_unquantized(self, arch: Qwen3_xArchAdapter) -> None:
         layer_tensors = {
@@ -107,7 +107,7 @@ class TestQwenTensorOrder:
             "up_proj.weight": "x",
             "down_proj.weight": "x",
         }
-        result = arch.validate_layer_tensors(layer_tensors)
+        result = arch.validate_weight_tensor_paths(layer_tensors)
 
         assert result == ("gate_proj.weight", "up_proj.weight", "down_proj.weight")
 
@@ -124,7 +124,7 @@ class TestQwenTensorOrder:
             ValueError,
             match="`layer_tensors` contains the following unexpected weight tensors",
         ):
-            arch.validate_layer_tensors(layer_tensors)
+            arch.validate_weight_tensor_paths(layer_tensors)
 
 
 class TestQwenQuantization:

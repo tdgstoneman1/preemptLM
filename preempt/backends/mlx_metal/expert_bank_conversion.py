@@ -233,7 +233,7 @@ def model_to_expert_bank(
     cache = ShardTensorCache(shard_index=shard_index)
 
     first_stacked = cache.load_layer(by_layer[block_idxs[0]])
-    order = architecture.validate_layer_tensors(by_layer[block_idxs[0]])
+    order = architecture.validate_weight_tensor_paths(by_layer[block_idxs[0]])
     specs = derive_tensor_specs(expert_ndarrays(first_stacked, 0), order)
     num_routed_experts = int(next(iter(first_stacked.values())).shape[0])
 
@@ -258,7 +258,7 @@ def model_to_expert_bank(
         overwrite=overwrite,
     ) as writer:
         for block_idx in block_idxs:
-            layer_order = architecture.validate_layer_tensors(by_layer[block_idx])
+            layer_order = architecture.validate_weight_tensor_paths(by_layer[block_idx])
             if layer_order != order:
                 raise ValueError(
                     f"Layer {block_idx} holds tensors {layer_order!r}; the expert bank's "
