@@ -5,10 +5,10 @@ import pytest
 from preempt.core.identity import ExpertKey, TensorSpec
 from preempt.core.protocols.expert_bank import IExpertBank, ReadPriority
 from preempt.core.exceptions import ExpertBankCompatibilityError
-from preempt.storage.manifest import (
+from preempt.expert_bank.manifest import (
     ModelMoESpec,
 )
-from preempt.storage.expert_io import ExpertBank, ExpertBankWriter
+from preempt.expert_bank.expert_io import ExpertBank, ExpertBankWriter
 
 SPECS = (TensorSpec(name="w", dtype="uint8", shape=(3,), num_bytes=3),)
 

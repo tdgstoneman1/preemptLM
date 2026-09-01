@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from pathlib import Path
 
 from preempt.core.identity import ExpertKey, TensorSpec
-from preempt.storage.manifest import (
+from preempt.expert_bank.manifest import (
     ExpertBlobRecord,
     ExpertBankManifest,
     ModelMoESpec,

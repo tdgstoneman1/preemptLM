@@ -12,10 +12,10 @@ from mlx_lm import load
 import mlx.core as mx
 
 from preempt.backends.mlx_metal.layer_discovery import iter_layer_candidates
-from preempt.backends.mlx_metal.instrumented.qwen3_next_moe import (
-    InstrumentedQwen3NextMoE,
+from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import (
+    InstrumentedQwen3_xMoE,
 )
-from preempt.backends.mlx_metal.recorder import MlxExpertRoutingRecorder
+from preempt.backends.mlx_metal.recorder import MoERecorder
 from preempt.config.target_layers import TargetLayerConfig
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
 from preempt.datamodel.tracing.expert_routing import ExpertRoutingEvent
@@ -85,11 +85,11 @@ def replace_single_router_layer(
     model,
     path: str,
     block_idx: int,
-    recorder: MlxExpertRoutingRecorder,
+    recorder: MoERecorder,
 ) -> None:
     inner = get_module_by_path(model, path)
 
-    wrapper = InstrumentedQwen3NextMoE(
+    wrapper = InstrumentedQwen3_xMoE(
         inner=inner,
         recorder=recorder,
         capture_gate_logits=True,
@@ -106,7 +106,7 @@ def replace_single_router_layer(
 
     installed = get_module_by_path(model, path)
 
-    if not isinstance(installed, InstrumentedQwen3NextMoE):
+    if not isinstance(installed, InstrumentedQwen3_xMoE):
         raise RuntimeError(
             f"Wrapper installation failed at {path!r}; "
             f"got {type(installed).__name__}."
@@ -155,7 +155,7 @@ async def run(args: argparse.Namespace, output_path: Path) -> None:
         batch_size=16,
         overwrite=True,
     ) as sink:
-        recorder = MlxExpertRoutingRecorder(
+        recorder = MoERecorder(
             run_context=run_context,
         )
 

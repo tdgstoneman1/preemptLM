@@ -22,7 +22,7 @@ from preempt.backends.mlx_metal.quantization import (
     MlxQuantParams,
     dtype_tag_from_arrays,
 )
-from preempt.storage.manifest import ModelMoESpec
+from preempt.expert_bank.manifest import ModelMoESpec
 
 
 class Qwen3_xArchAdapter(MoEArchAdapter):

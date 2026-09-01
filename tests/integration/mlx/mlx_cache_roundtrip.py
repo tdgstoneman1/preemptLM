@@ -38,7 +38,7 @@ import numpy as np
 
 import mlx.core as mx
 
-from preempt.backends.mlx_metal.architectures.qwen3_next import Qwen3NextMoEArchitecture
+from preempt.backends.mlx_metal.architectures.qwen3_x import Qwen3_xArchAdapter
 from preempt.backends.mlx_metal.convert import (
     ShardTensorCache,
     build_tensor_shard_index,
@@ -50,8 +50,8 @@ from preempt.backends.mlx_metal.cache import MlxExpertCache
 from preempt.core.encoding import parse_payload_encoding_tag
 from preempt.core.protocols.expert_bank import ReadPriority
 
-from preempt.storage.manifest import ExpertBankManifest
-from preempt.storage.expert_io import ExpertBank
+from preempt.expert_bank.manifest import ExpertBankManifest
+from preempt.expert_bank.expert_io import ExpertBank
 
 from preempt.utils.hf_utils import resolve_model_dir
 
@@ -288,7 +288,7 @@ async def run(args: argparse.Namespace) -> None:
     print(f"Model directory: {model_dir}", flush=True)
     print(f"Store directory: {args.expert_bank}", flush=True)
 
-    arch = Qwen3NextMoEArchitecture()
+    arch = Qwen3_xArchAdapter()
     shard_index = build_tensor_shard_index(model_dir, arch)
     by_layer = group_expert_tensors_by_layer(shard_index, arch)
     cache = ShardTensorCache(shard_index=shard_index)

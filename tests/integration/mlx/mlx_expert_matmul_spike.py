@@ -62,6 +62,8 @@ Usage (from the repo root, on the macOS host)::
         --output out/
 """
 
+# TODO DESLOP
+
 from __future__ import annotations
 
 from typing import Any
@@ -234,7 +236,7 @@ def describe_projection(projection: QuantizedSwitchLinear) -> dict[str, Any]:
     biases = projection.get("biases")
 
     return {
-        "num_routed_experts": int(projection.num_routed_experts),  # type: ignore
+        "num_routed_experts": int(projection.num_experts),  # type: ignore
         "input_dims": int(projection.input_dims),
         "output_dims": int(projection.output_dims),
         "group_size": int(projection.group_size),
@@ -528,7 +530,7 @@ def compare(reference: mx.array, candidate: mx.array) -> dict[str, Any]:
 
     max_abs = float(mx.max(absolute))
     max_rel = float(mx.max(absolute / denominator))
-    mismatches = int(mx.sum(absolute != 0))
+    mismatches = int(mx.sum(absolute != 0)) # type: ignore
 
     return {
         "bitwise_equal": equal,
@@ -670,7 +672,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     print(f"Loading model: {args.model}", flush=True)
     loaded = load_mlx_model(args.model)
 
-    path, switch_glu = find_switch_glu(loaded.model, args.block_idx)
+    path, switch_glu = find_switch_glu(loaded.model, args.layer_idx)
     projection = getattr(switch_glu, args.projection)
 
     if not isinstance(projection, QuantizedSwitchLinear):

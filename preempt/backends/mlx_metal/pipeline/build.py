@@ -78,7 +78,7 @@ def _get_streaming_deps(
     )
     loader = DiskBackedExpertLoader(
         expert_bank=expert_bank,
-        cache=cache,
+        cache=cache,  # type: ignore
         cache_manager=cache_manager,
         loop=event_loop,
         metrics=metrics,

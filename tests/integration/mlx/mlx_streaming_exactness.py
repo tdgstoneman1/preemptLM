@@ -32,8 +32,8 @@ Three checks run in sequence, each an independent model load (~60-90 s):
 
 Usage (from the repo root, on the macOS host)::
 
-    python tests/integration/mlx_streaming_exactness.py \
-        --store expert-bank/store --max-tokens 16
+    python tests/integration/mlx/mlx_streaming_exactness.py \
+        --store expert-bank/qwen3.6-35b-8bit --max-tokens 16
 """
 
 from __future__ import annotations
@@ -56,19 +56,19 @@ from preempt.config.pipeline import (
 from preempt.core.identity import ExpertKey
 from preempt.core.protocols.expert_bank import ExpertPayload
 from preempt.engine.metrics import GenerationMetrics
-from preempt.storage.manifest import ExpertBankManifest
+from preempt.expert_bank.manifest import ExpertBankManifest
 
-from main import build_pipeline
+from preempt.backends.mlx_metal.pipeline.build import mlx_build_generation_pipeline
 
 # TODO CLEAN UP CLAUDE SLOP, BOTH CODE AND LOGS ARE UTTERLY UNINTERPRETABLE.
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_STORE = _REPO_ROOT / "expert-bank" / "store"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_STORE = _REPO_ROOT / "expert-bank" / "qwen3.6-35b-8bit"
 
 # Starved: ~32 MB holds ~18 experts of ~1.77 MB, so eviction bites well within a
 # single 8-of-256 layer over a wide prompt while staying above one expert (a
 # budget below one expert would be a configuration error, not a stress test).
-_STARVED_BUDGET_BYTES = 32_000_000
+_STARVED_BUDGET_BYTES = 32 * 1024**2
 
 # A wide, coherent prompt so the router touches many distinct experts per layer
 # and eviction pressure is real. Tokenised length is asserted >= 200 at runtime.
@@ -114,7 +114,7 @@ def _streaming_config(
         generation_settings=GenerationSettings(max_tokens=max_tokens),
         stream_settings=StreamSettings(
             expert_bank_path=store.resolve(),
-            memory_bytes_budget=budget_bytes,
+            memory_budget_gb=budget_bytes / 1024**3,
             bypass_page_cache=True,
         ),
     )
@@ -137,26 +137,29 @@ async def _run(
     prompt: str,
     max_tokens: int,
 ) -> tuple[list[int], GenerationMetrics, int, int]:
-    """Build a fresh pipeline, generate greedily, and free it.
-
-    Returns the generated token ids, the streaming metrics accumulated during
-    the run, the peak device memory in bytes, and the tokenised prompt length.
-    Each call is an independent model load; the pipeline is dropped and MLX's
-    cache cleared before returning so the next load starts from a clean budget.
-    """
+    """Build a fresh pipeline, generate greedily, and free it."""
     mx.reset_peak_memory()
     metrics = GenerationMetrics()
-    pipeline = build_pipeline(config, config_dir=None, loop=loop, metrics=metrics)
-    prompt_len = len(pipeline._tokenizer.encode(prompt))
+    pipeline = mlx_build_generation_pipeline(
+        config,
+        config_dir=None,
+        event_loop=loop,
+        metrics=metrics,
+        stream_experts=config.stream_settings is not None,
+        save_traces=False,
+    )
+    prompt_len = len(pipeline.tokenizer.encode(prompt))
     result = await pipeline.generate(prompt, max_tokens=max_tokens)
     peak = mx.get_peak_memory()
 
+    # Merge step-level execution telemetry into the provider's streaming metrics
+    metrics.steps = result.metrics.steps
+    metrics.records_written = result.metrics.records_written
+
     del pipeline
-    del result.metrics
-    token_ids = result.token_ids
     gc.collect()
     _clear_mlx_cache()
-    return token_ids, metrics, peak, prompt_len
+    return result.token_ids, metrics, peak, prompt_len
 
 
 def _make_corrupting_decoder(

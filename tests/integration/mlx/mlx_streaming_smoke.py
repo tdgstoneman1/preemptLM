@@ -16,8 +16,8 @@ projection tensor here points straight at that convention.
 
 Usage (from the repo root, on the macOS host)::
 
-    python tests/integration/mlx_streaming_smoke.py \
-        --store expert-bank/expert-bank/qwen3.5-35b --prompt "Fire and fury like the world has never"
+    python tests/integration/mlx/mlx_streaming_smoke.py \
+        --store expert-bank/qwen3.6-35b --prompt "Fire and fury like the world has never"
 """
 
 from __future__ import annotations
@@ -28,6 +28,8 @@ from pathlib import Path
 
 import mlx.core as mx
 
+from icecream import ic
+
 from preempt.config.pipeline import (
     GenerationSettings,
     LlmConfig,
@@ -35,9 +37,9 @@ from preempt.config.pipeline import (
     StreamSettings,
 )
 from preempt.engine.metrics import GenerationMetrics
-from preempt.storage.manifest import ExpertBankManifest
+from preempt.expert_bank.manifest import ExpertBankManifest
 
-from main import build_pipeline
+from preempt.backends.mlx_metal.pipeline.build import mlx_build_generation_pipeline
 
 # TODO CLEAN UP CLAUDE SLOP.
 
@@ -50,7 +52,7 @@ _DEFAULT_STORE = _REPO_ROOT / "expert-bank" / "store"
 # ~32 MB holds ~18 experts of ~1.77 MB each, so eviction bites well within a
 # single 8-of-256 layer over a multi-token prompt while staying comfortably above
 # one expert.
-_DEFAULT_BUDGET_BYTES = 32_000_000
+_DEFAULT_BUDGET_BYTES = 2 * 1024**3
 
 
 def parse_args() -> argparse.Namespace:
@@ -84,7 +86,7 @@ def _build_config(args: argparse.Namespace, model_id: str) -> PipelineConfig:
         generation_settings=GenerationSettings(max_tokens=args.max_tokens),
         stream_settings=StreamSettings(
             expert_bank_path=args.store.resolve(),
-            memory_bytes_budget=args.budget_bytes,
+            memory_budget_gb=args.budget_bytes / 1024**3,
             bypass_page_cache=True,
         ),
     )
@@ -95,7 +97,14 @@ async def _run(args: argparse.Namespace, config: PipelineConfig) -> GenerationMe
     metrics = GenerationMetrics()
 
     # Absolute store path, so config_dir is irrelevant.
-    pipeline = build_pipeline(config, config_dir=None, loop=loop, metrics=metrics)
+    pipeline = mlx_build_generation_pipeline(
+        config,
+        config_dir=None,
+        event_loop=loop,
+        metrics=metrics,
+        save_traces=False,
+        stream_experts=True,
+    )
     result = await pipeline.generate(args.prompt, max_tokens=args.max_tokens)
 
     print(f"Generated {len(result.token_ids)} token(s): {result.token_ids!r}")
@@ -118,7 +127,7 @@ def main() -> None:
     demands = metrics.cache_hits + metrics.cache_misses
     hit_rate = metrics.cache_hits / demands if demands else 0.0
     peak_gb = mx.get_peak_memory() / 1e9
-    print(
+    ic(
         f"Expert cache: {metrics.cache_hits} hit(s), {metrics.cache_misses} "
         f"miss(es) over {demands} demand(s) (hit rate {hit_rate:.1%})."
     )

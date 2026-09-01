@@ -2,7 +2,7 @@ import pytest
 
 import numpy as np
 
-from preempt.storage.blob import assemble_expert_blob, derive_tensor_specs
+from preempt.expert_bank.blob import assemble_expert_blob, derive_tensor_specs
 
 
 def make_arrays() -> dict[str, np.ndarray]:

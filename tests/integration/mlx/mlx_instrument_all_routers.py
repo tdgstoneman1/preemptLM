@@ -51,13 +51,13 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from preempt.backends.mlx_metal.instrument import mlx_instrument_model
-from preempt.backends.mlx_metal.instrumented.qwen3_next_moe import (
-    InstrumentedQwen3NextMoE,
-    make_qwen3next_moe_wrapper_factory,
+from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import (
+    InstrumentedQwen3_xMoE,
+    make_qwen3_x_moe_wrapper_factory,
 )
 from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
 from preempt.backends.mlx_metal.loader import load_mlx_model
-from preempt.backends.mlx_metal.recorder import MlxExpertRoutingRecorder
+from preempt.backends.mlx_metal.recorder import MoERecorder
 from preempt.backends.mlx_metal.runner import MlxModelRunner
 from preempt.config.pipeline import PipelineConfig
 from preempt.core.sinks import ParquetEventSink
@@ -245,7 +245,7 @@ def instrument_router_layers(
     *,
     model: nn.Module,
     layers: Sequence[LayerCandidate],
-    recorder: MlxExpertRoutingRecorder,
+    recorder: MoERecorder,
     capture_gate_logits: bool,
 ) -> None:
     """Swap every resolved block for a capture wrapper, then verify all landed."""
@@ -253,7 +253,7 @@ def instrument_router_layers(
     mlx_instrument_model(
         model,
         layers,
-        make_qwen3next_moe_wrapper_factory(
+        make_qwen3_x_moe_wrapper_factory(
             recorder,
             capture_gate_logits=capture_gate_logits,
         ),
@@ -263,7 +263,7 @@ def instrument_router_layers(
     not_wrapped = [
         path
         for path, module in installed.items()
-        if not isinstance(module, InstrumentedQwen3NextMoE)
+        if not isinstance(module, InstrumentedQwen3_xMoE)
     ]
 
     if not_wrapped:
@@ -519,7 +519,7 @@ async def run(args: argparse.Namespace, output_path: Path) -> None:
         model_architecture=config.llm.architecture,
         model_revision=config.llm.revision,
     )
-    recorder = MlxExpertRoutingRecorder(run_context=run_context)
+    recorder = MoERecorder(run_context=run_context)
 
     instrument_router_layers(
         model=loaded.model,

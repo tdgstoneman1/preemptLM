@@ -26,9 +26,11 @@ never materialized.
 
 Usage (from the repo root, on the macOS host)::
 
-    python tests/integration/mlx_lazy_load.py \
-        --config tests/integration/qwen3_6-35b-mlx-pipeline.toml
+    python tests/integration/mlx/mlx_lazy_load.py \
+        --config tests/integration/mlx/configs/qwen3_6-35b-mlx-pipeline.toml
 """
+
+# TODO DESLOP
 
 from __future__ import annotations
 
@@ -41,8 +43,8 @@ from preempt.backends.mlx_metal.instrument import (
     mlx_instrument_model,
     mlx_strip_instrumented_expert_weights,
 )
-from preempt.backends.mlx_metal.instrumented.qwen3_next_moe import (
-    make_qwen3next_moe_wrapper_factory,
+from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import (
+    make_qwen3_x_moe_wrapper_factory,
 )
 from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
 from preempt.backends.mlx_metal.loader import load_mlx_model
@@ -53,15 +55,11 @@ from preempt.engine.layer_resolution import (
 )
 from preempt.utils.io_utils import read_and_validate_toml
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_CONFIG = _REPO_ROOT / "tests" / "integration" / "qwen3_6-35b-mlx-pipeline.toml"
-
-# A correct strip leaves only the dense backbone (attention, norms, embeddings,
-# router gates, shared experts) resident; on the 4-bit 35B that backbone is a few
-# GB, while a failed strip materializes the full ~18 GB model. 8 GB sits
-# comfortably above any plausible backbone footprint and far below the full-model
-# footprint, so it catches the failure with generous margin either way.
-_PEAK_MEMORY_CEILING_GB = 8.0
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_CONFIG_PATH = (
+    Path(__file__).resolve().parent / "configs" / "qwen3_6-35b-mlx-pipeline.toml"
+)
+DEFAULT_MAX_MEMORY_GB = 8.0
 
 
 def sort_and_check_layers(
@@ -98,8 +96,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        default=_DEFAULT_CONFIG,
-        help=f"TOML pipeline config with a [tracing] table. Default: {_DEFAULT_CONFIG}",
+        default=DEFAULT_CONFIG_PATH,
+        help=f"TOML pipeline config with a [tracing] table. Default: {DEFAULT_CONFIG_PATH}",
     )
     parser.add_argument(
         "--model",
@@ -109,9 +107,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--peak-ceiling-gb",
         type=float,
-        default=_PEAK_MEMORY_CEILING_GB,
+        default=DEFAULT_MAX_MEMORY_GB,
         help="Fail if peak resident memory (GB) exceeds this after the dense "
-        f"backbone eval. Default: {_PEAK_MEMORY_CEILING_GB}.",
+        f"backbone eval. Default: {DEFAULT_MAX_MEMORY_GB}.",
     )
     return parser.parse_args()
 
@@ -145,7 +143,7 @@ def main() -> None:
     mlx_instrument_model(
         loaded.model,
         layers,
-        make_qwen3next_moe_wrapper_factory(recorder=None),
+        make_qwen3_x_moe_wrapper_factory(recorder=None),
     )
     print(f"Instrumented {len(layers)} MoE block(s).")
 
