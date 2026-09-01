@@ -12,7 +12,7 @@ import os
 import sys
 import mmap
 
-from preempt.core.protocols.expert_bank import ExpertPayload, ReadPriority
+from preempt.core.protocols import ExpertPayload, ReadPriority
 from preempt.core.identity import ExpertKey, TensorSpec
 from preempt.core.exceptions import ExpertBankCompatibilityError
 from preempt.core.constants import EXPERTS_FILENAME, MANIFEST_FILENAME, F_NOCACHE

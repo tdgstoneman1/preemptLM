@@ -39,8 +39,8 @@ class ExpertPayload:
     tensor_specs: tuple[TensorSpec, ...] = field()
 
 
-@runtime_checkable
-class IExpertBank(Protocol):
-    """Read-only source of expert blobs keyed by `ExpertKey`"""
+# @runtime_checkable
+# class IExpertBank(Protocol):
+#     """Read-only source of expert blobs keyed by `ExpertKey`"""
 
-    async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload: ...
+#     async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload: ...

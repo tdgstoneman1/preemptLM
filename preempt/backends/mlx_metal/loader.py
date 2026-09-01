@@ -9,7 +9,7 @@ import mlx.nn as nn
 
 from mlx_lm import load
 
-from preempt.core.protocols.runner import ITokenizer
+from preempt.core.protocols import ITokenizer
 
 
 @attrs.define(kw_only=True, frozen=True, eq=False)

@@ -8,7 +8,7 @@ from attrs import field
 
 from functools import partial
 
-from preempt.core.protocols.runner import IModelRunner, ITokenizer
+from preempt.core.protocols import IModelRunner, ITokenizer
 from preempt.core.sinks import BaseEventSink
 
 from preempt.engine.generation import generate_greedy

@@ -18,7 +18,7 @@ from .constants import (
 @attrs.define(kw_only=True, frozen=True)
 class PayloadEncoding:
     """An expert bank's payload encoding information corresponding to its
-    `payload_encoding` tag
+    `payload_encoding` tag. Example: `'mlx-affine-q8-g64-bf16'`
 
     Attributes
     ----------

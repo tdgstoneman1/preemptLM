@@ -17,7 +17,7 @@ from preempt.engine.pipeline import GenerationPipeline
 
 from preempt.core.encoding import parse_payload_encoding_tag
 from preempt.core.enums import Backends
-from preempt.core.protocols.loader import IExpertLoader
+from preempt.core.protocols import IExpertLoader
 
 from preempt.datamodel.tracing.context import TraceRunContext
 
@@ -48,8 +48,6 @@ from ..loader import MlxLoadedModel, load_mlx_model
 from ..recorder import MoERecorder
 from ..cache import MlxExpertCache
 from ..runner import MlxModelRunner
-
-from icecream import ic
 
 # TODO use IExpertBank instead of ExpertBank
 

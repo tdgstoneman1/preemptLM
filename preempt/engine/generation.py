@@ -6,7 +6,7 @@ import asyncio
 
 import time
 
-from preempt.core.protocols.runner import IModelRunner
+from preempt.core.protocols import IModelRunner
 from preempt.core.sinks import BaseEventSink
 
 from preempt.datamodel.tracing.context import TraceStepContext

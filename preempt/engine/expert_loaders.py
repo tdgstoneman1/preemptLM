@@ -7,9 +7,7 @@ from concurrent.futures import Future
 
 import time
 
-from preempt.core.protocols.cache import IExpertCache
-from preempt.core.protocols.expert_bank import IExpertBank, ReadPriority
-
+from preempt.core.protocols import IExpertCache, IExpertBank, ReadPriority
 from preempt.core.identity import ExpertKey
 
 from .expert_cache import ExpertCacheManager
