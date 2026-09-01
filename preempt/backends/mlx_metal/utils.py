@@ -83,8 +83,8 @@ def convert_and_save_shard(
     return shard_name, tensor_names
 
 
-# TODO find alternative solution to uint16 for numpy incompatibility w/ bf16
-def mlx_to_numpy(tensor: mx.array) -> np.ndarray:
+# TODO use ml_dtypes to preserve bfloat16
+def mlx_to_numpy(array: mx.array, copy: bool = False) -> np.ndarray:
     """Converts an MLX array to NumPy with zero mutation.
 
     :Note: MLX arrays of dtype `bfloat16` reinterpreted as `uint16`
@@ -92,18 +92,20 @@ def mlx_to_numpy(tensor: mx.array) -> np.ndarray:
 
     Parameters
     ----------
-    tensor : mx.array
+    array : mx.array
         An MLX array
+    copy : bool
+        Whether to copy the array during conversion, by default False
 
     Returns
     -------
     np.ndarray
         The converted array
     """
-    if tensor.dtype == mx.bfloat16:
-        return np.array(tensor.view(mx.uint16))
+    if array.dtype == mx.bfloat16:
+        return np.array(array.view(mx.uint16), copy=copy)
 
-    return np.array(tensor)
+    return np.array(array, copy=copy)
 
 
 def load_mlx_model(model_id: str, *, lazy: bool = False) -> MlxLoadedModel:
