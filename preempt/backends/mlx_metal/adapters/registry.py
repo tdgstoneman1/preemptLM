@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import Never
+from typing import Final, Never
 
 from ..types import MlxArchAdapterFactory
-from ..adapters.moe_arch_adapter import MoEArchAdapter
-from ..adapters.defaults import V1_MOE_FACTORIES
+from .moe_arch_adapter import MoEArchAdapter
+from .qwen3_x import Qwen3_xArchAdapter
 
 # TODO make `register`, `get`, and `available` classmethods
 
@@ -68,6 +68,12 @@ class MoEArchAdapterRegistry:
         return tuple(sorted(self._factories))
 
 
+V1_MOE_ARCH_ADAPTER_FACTORIES: Final[dict[str, MlxArchAdapterFactory]] = {
+    "qwen3-next": Qwen3_xArchAdapter,
+    "qwen3_x": Qwen3_xArchAdapter,
+}
+
+
 class DefaultMoEArchAdapterRegistry(MoEArchAdapterRegistry):
     """Frozen registry with preemptLM's built-in MoE factories registered.
 
@@ -79,7 +85,7 @@ class DefaultMoEArchAdapterRegistry(MoEArchAdapterRegistry):
     def __init__(self) -> None:
         super().__init__()
 
-        self._factories = V1_MOE_FACTORIES
+        self._factories = V1_MOE_ARCH_ADAPTER_FACTORIES
 
     def register(self, name: str, factory: MlxArchAdapterFactory) -> Never:
         """Automatically raises `AttributeError` when called to prevent mutating
