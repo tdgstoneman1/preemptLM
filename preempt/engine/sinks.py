@@ -16,7 +16,7 @@ import json
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .enums import ParquetCompressionCodecs
+from preempt.core.enums import ParquetCompressionCodecs
 
 # TODO move to engine/
 
