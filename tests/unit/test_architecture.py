@@ -5,7 +5,7 @@ import pytest
 import inspect
 
 from preempt.backends.mlx_metal.architecture import MoEArchAdapter
-from preempt.backends.mlx_metal.architectures.qwen3_x import Qwen3_xArchAdapter
+from preempt.backends.mlx_metal.adapters.qwen3_x import Qwen3_xArchAdapter
 from preempt.backends.mlx_metal.convert import model_to_expert_bank
 from preempt.backends.mlx_metal.expert_kernel import sequential_run_selected_experts
 from preempt.backends.mlx_metal.quantization import MlxQuantParams

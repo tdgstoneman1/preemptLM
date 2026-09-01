@@ -38,7 +38,7 @@ import numpy as np
 
 import mlx.core as mx
 
-from preempt.backends.mlx_metal.architectures.qwen3_x import Qwen3_xArchAdapter
+from preempt.backends.mlx_metal.adapters.qwen3_x import Qwen3_xArchAdapter
 from preempt.backends.mlx_metal.convert import (
     ShardTensorCache,
     build_tensor_shard_index,

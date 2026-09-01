@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from preempt.backends.mlx_metal.architecture import MoEArchAdapter
-from preempt.backends.mlx_metal.architectures.qwen3_x import Qwen3_xArchAdapter
+from preempt.backends.mlx_metal.adapters.qwen3_x import Qwen3_xArchAdapter
 from preempt.backends.mlx_metal.registry import (
     MoEArchRegistry,
     DefaultMoEArchRegistry,

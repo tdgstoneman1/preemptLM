@@ -4,7 +4,7 @@ from typing import Never
 
 from .types import MlxArchAdapterFactory
 from .architecture import MoEArchAdapter
-from .architectures.defaults import V1_MOE_FACTORIES
+from .adapters.defaults import V1_MOE_FACTORIES
 
 # TODO make `register`, `get`, and `available` classmethods
 
