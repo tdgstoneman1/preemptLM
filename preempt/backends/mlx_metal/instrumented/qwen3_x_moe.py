@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import Optional, Literal
 from collections.abc import Callable, Mapping
 
+from functools import partial
+
 import mlx.core as mx
 
 import mlx.nn as nn
 from mlx.nn.layers.distributed import sum_gradients
 
 from mlx_lm.models.qwen3_next import Qwen3NextSparseMoeBlock
-
-from functools import partial
 
 from ..expert_kernel import (
     ExpertProjections,
@@ -23,7 +23,7 @@ from ..expert_kernel import (
     describe_switch_quantization,
 )
 from ..recorder import MoERecorder
-from ..cache import MlxExpertCache
+from ..expert_cache import MlxExpertCache
 from ..types import MlxWrapperFactory
 from ..constants import SWIGLU_PROJECTION_NAMES
 

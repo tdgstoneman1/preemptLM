@@ -46,7 +46,7 @@ from pathlib import Path
 
 import mlx.core as mx
 
-import preempt.backends.mlx_metal.cache as residency_module
+import preempt.backends.mlx_metal.expert_cache as residency_module
 from preempt.config.pipeline import (
     GenerationSettings,
     LlmConfig,
@@ -54,8 +54,10 @@ from preempt.config.pipeline import (
     StreamSettings,
 )
 from preempt.datamodel.identity import ExpertKey
-from preempt.core.protocols.expert_bank import ExpertPayload
+from preempt.datamodel.experts import ExpertPayload
+
 from preempt.engine.metrics import GenerationMetrics
+
 from preempt.expert_bank.manifest import ExpertBankManifest
 
 from preempt.backends.mlx_metal.pipeline.build import mlx_build_generation_pipeline

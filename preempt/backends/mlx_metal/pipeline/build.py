@@ -46,7 +46,7 @@ from ..instrumented.qwen3_x_moe import (
 from ..layer_discovery import resolve_mlx_target_layers
 from ..loader import MlxLoadedModel, load_mlx_model
 from ..recorder import MoERecorder
-from ..cache import MlxExpertCache
+from ..expert_cache import MlxExpertCache
 from ..runner import MlxModelRunner
 
 
