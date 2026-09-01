@@ -1,5 +1,5 @@
 from typing import TypeVar
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 import attrs
 from attrs import field
@@ -19,6 +19,7 @@ MlxWrapperFactory = Callable[[MlxModuleT, LayerCandidate], nn.Module]
 MlxArchAdapterFactory = Callable[[], MoEArchAdapter]
 
 
+# ExpertProjections = Mapping[str, ]
 @attrs.define(kw_only=True, frozen=True, eq=False)
 class MlxLoadedModel:
     """An `mlx_lm` model-tokenizer pair.

@@ -22,8 +22,6 @@ from .constants import (
     MLX_ENCODING_UNQUANTIZED_TEMPLATE,
 )
 
-# TODO find alternative solution to uint16 for numpy incompatibility w/ bf16
-
 
 @attrs.define(frozen=True, kw_only=True)
 class MlxQuantParams:
@@ -48,37 +46,37 @@ class MlxQuantParams:
 
 
 # TODO rename scalar_tag to scalar_dtype for clarity
-def make_encoding_tag(quant: MlxQuantParams | None, scalar_tag: str) -> str:
-    """Generates the payload encoding tag for the expert bank.
+# def make_encoding_tag(quant: MlxQuantParams | None, scalar_tag: str) -> str:
+#     """Generates the payload encoding tag for the expert bank.
 
-    Produces a formatted string identifying the quantization state and
-    exact scalar dtype of the tensor. This tag must be kept in sync with
-    the parsing logic in `preempt.core.encoding.parse_payload_encoding_tag()`
-    to ensure bit-exact decoding.
+#     Produces a formatted string identifying the quantization state and
+#     exact scalar dtype of the tensor. This tag must be kept in sync with
+#     the parsing logic in `preempt.core.encoding.parse_payload_encoding_tag()`
+#     to ensure bit-exact decoding.
 
-    Parameters
-    ----------
-    quant : MlxQuantParams | None
-        The quantization parameters used for the experts, or `None` if
-        unquantized
-    scalar_tag : str
-        The short tag representing the scalar dtype (e.g. `"bf16"`) as
-        derived from `dtype_tag_from_arrays()`
+#     Parameters
+#     ----------
+#     quant : MlxQuantParams | None
+#         The quantization parameters used for the experts, or `None` if
+#         unquantized
+#     scalar_tag : str
+#         The short tag representing the scalar dtype (e.g. `"bf16"`) as
+#         derived from `dtype_tag_from_arrays()`
 
-    Returns
-    -------
-    str
-        The formatted encoding tag (e.g., `"mlx-affine-q4-g64-bf16"` or
-        `"mlx-unquantized-bf16"`)
-    """
-    if quant is None:
-        # return f"mlx-unquantized-{scalar_tag}"
-        return MLX_ENCODING_UNQUANTIZED_TEMPLATE.substitute(scalar_tag=scalar_tag)
+#     Returns
+#     -------
+#     str
+#         The formatted encoding tag (e.g., `"mlx-affine-q4-g64-bf16"` or
+#         `"mlx-unquantized-bf16"`)
+#     """
+#     if quant is None:
+#         # return f"mlx-unquantized-{scalar_tag}"
+#         return MLX_ENCODING_UNQUANTIZED_TEMPLATE.substitute(scalar_tag=scalar_tag)
 
-    # return f"mlx-{quant.mode}-q{quant.bits}-g{quant.group_size}-{scalar_tag}"
-    return MLX_ENCODING_QUANTIZED_TEMPLATE.substitute(
-        mode=quant.mode,
-        bits=quant.bits,
-        group_size=quant.group_size,
-        scalar_tag=scalar_tag,
-    )
+#     # return f"mlx-{quant.mode}-q{quant.bits}-g{quant.group_size}-{scalar_tag}"
+#     return MLX_ENCODING_QUANTIZED_TEMPLATE.substitute(
+#         mode=quant.mode,
+#         bits=quant.bits,
+#         group_size=quant.group_size,
+#         scalar_tag=scalar_tag,
+#     )

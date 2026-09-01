@@ -20,9 +20,8 @@ from ..constants import (
     SWIGLU_PROJECTION_NAMES,
     QUANTIZED_TENSOR_PARTS,
 )
-from ..quantization import (
-    MlxQuantParams,
-)
+from ..quantization import MlxQuantParams
+
 from preempt.utils.mlx_utils import dtype_tag_from_arrays
 
 
