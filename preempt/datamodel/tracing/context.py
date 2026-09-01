@@ -9,9 +9,9 @@ from attrs import field, validators
 
 import pyarrow as pa
 
-from preempt.datamodel.arrow import arrow_metadata
-
 from preempt.core.constants import RUN_ID_TIMESTAMP_FMT
+
+from .arrow import arrow_metadata
 
 
 def generate_run_id(prefix: str, *, timestamp_fn: datetime | None = None) -> str:

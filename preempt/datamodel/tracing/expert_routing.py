@@ -7,7 +7,7 @@ from attrs import field, validators
 
 import pyarrow as pa
 
-from ..arrow import arrow_metadata, arrow_args_for, arrow_schema_field, serialize_utc
+from .arrow import arrow_metadata, arrow_args_for, arrow_schema_field, serialize_utc
 from .context import TraceRunContext, TraceStepContext
 
 from preempt.utils.attrs_utils import recurse_attrs_instance_fields
