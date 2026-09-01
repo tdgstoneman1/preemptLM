@@ -7,7 +7,7 @@ import re
 TAG_GRAMMAR: Final[str] = (
     "'<family>-<mode>-q<bits>-g<group_size>-<scalar>' or "
     "'<family>-unquantized-<scalar>'"
-)
+)  # TODO make this a string template
 
 KNOWN_FAMILIES: Final[frozenset[str]] = frozenset({"mlx"})  # TODO rename
 KNOWN_SCALARS: Final[frozenset[str]] = frozenset(
