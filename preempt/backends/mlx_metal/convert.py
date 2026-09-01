@@ -19,6 +19,8 @@ from preempt.expert_bank.blob import assemble_expert_blob, derive_tensor_specs
 from preempt.expert_bank.manifest import ExpertBankManifest
 from preempt.expert_bank.writer import ExpertBankWriter
 
+from preempt.utils.mlx_utils import mlx_to_numpy
+
 from .quantization import make_encoding_tag
 from .adapters.moe_arch_adapter import MoEArchAdapter
 
@@ -128,28 +130,6 @@ def group_expert_tensors_by_layer(
         )
 
     return by_layer
-
-
-def mlx_to_numpy(tensor: mx.array) -> np.ndarray:
-    """Converts an MLX array to NumPy with zero mutation.
-
-    :Note: MLX arrays of dtype `bfloat16` reinterpreted as `uint16`
-    to account for NumPy's lack of native `bfloat16` support.
-
-    Parameters
-    ----------
-    tensor : mx.array
-        An MLX array
-
-    Returns
-    -------
-    np.ndarray
-        The converted array
-    """
-    if tensor.dtype == mx.bfloat16:
-        return np.array(tensor.view(mx.uint16))
-
-    return np.array(tensor)
 
 
 @attrs.define

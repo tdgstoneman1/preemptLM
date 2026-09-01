@@ -5,10 +5,13 @@ from pathlib import Path
 
 import gc
 
+import numpy as np
+
 import mlx.core as mx
 from mlx_lm.utils import _get_classes
 
 from safetensors import safe_open
+
 
 from rich import print
 
@@ -67,3 +70,25 @@ def convert_and_save_shard(
 
     print(f"{log_prefix}: Saved MLX shard to {out_path.as_posix()!r}\n")
     return shard_name, tensor_names
+
+
+def mlx_to_numpy(tensor: mx.array) -> np.ndarray:
+    """Converts an MLX array to NumPy with zero mutation.
+
+    :Note: MLX arrays of dtype `bfloat16` reinterpreted as `uint16`
+    to account for NumPy's lack of native `bfloat16` support.
+
+    Parameters
+    ----------
+    tensor : mx.array
+        An MLX array
+
+    Returns
+    -------
+    np.ndarray
+        The converted array
+    """
+    if tensor.dtype == mx.bfloat16:
+        return np.array(tensor.view(mx.uint16))
+
+    return np.array(tensor)
