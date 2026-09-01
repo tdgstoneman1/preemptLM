@@ -21,7 +21,7 @@ from ..constants import (
     SWIGLU_PROJECTION_NAMES,
     MLX_QUANTIZED_TENSOR_PARTS,
 )
-from ..quantization import MlxQuantParams
+from ..quantization import QuantSettings
 from ..utils import dtype_tag_from_arrays
 
 
@@ -139,7 +139,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
     # TODO verify block_idxs = transformer blocks
     def resolve_quantization(
         self, config: Mapping[str, Any], block_idxs: Sequence[int]
-    ) -> MlxQuantParams | None:
+    ) -> QuantSettings | None:
         """Determines the effective quantization parameters used by routed experts.
 
         Handles dynamically quantized checkpoints (e.g. Unsloth UD format) which
@@ -155,7 +155,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
 
         Returns
         -------
-        MlxQuantParams | None
+        QuantSettings | None
             The quantization parameters shared by experts in the checkpoint,
             or `None` if experts are unquantized.
 
@@ -172,7 +172,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
         mode = str(quantization.get("mode", "affine"))
 
         if all(param in quantization for param in ("bits", "group_size")):
-            default = MlxQuantParams(
+            default = QuantSettings(
                 mode=mode,  # type: ignore
                 bits=int(quantization["bits"]),
                 group_size=int(quantization["group_size"]),
@@ -180,7 +180,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
         else:
             default = None
 
-        overrides: dict[tuple[int, str], MlxQuantParams | None] = {}
+        overrides: dict[tuple[int, str], QuantSettings | None] = {}
 
         for key, value in quantization.items():
             match = self.expert_module_regex.match(key)
@@ -189,7 +189,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
 
             identity = (int(match.group("layer")), match.group("projection"))
             overrides[identity] = (
-                MlxQuantParams(
+                QuantSettings(
                     mode=mode,  # type: ignore
                     bits=int(value["bits"]),
                     group_size=int(value["group_size"]),

@@ -24,7 +24,7 @@ from mlx_lm.models.switch_layers import (
 
 from preempt.core.exceptions import EngineCompatibilityError
 
-from .constants import MLX_QUANT_PARAM_NAMES
+from .constants import MLX_QUANT_PARAMS
 
 # TODO move dataclasses to separate module
 # TODO add support for expert layer bias terms in forward pass
@@ -32,19 +32,19 @@ from .constants import MLX_QUANT_PARAM_NAMES
 # TODO fix hallucinated 'row' terminology, confusing
 
 
-@attrs.define(kw_only=True, frozen=True)
-class ProjectionQuantParams:
-    """Quantization parameters for a single projection stored as scalars.
+# @attrs.define(kw_only=True, frozen=True)
+# class ProjectionQuantParams:
+#     """Quantization parameters for a single projection stored as scalars.
 
-    Parameters are captured during instantiation of instrumented module
-    wrappers, such as like `InstrumentedQwen3_xMoE`. This avoids having
-    to dynamically inspect the inner layer's weights which may be stripped
-    or offloaded from memory during the forward pass.
-    """
+#     Parameters are captured during instantiation of instrumented module
+#     wrappers, such as like `InstrumentedQwen3_xMoE`. This avoids having
+#     to dynamically inspect the inner layer's weights which may be stripped
+#     or offloaded from memory during the forward pass.
+#     """
 
-    group_size: int = field()
-    bits: int = field()
-    mode: str = field()
+#     group_size: int = field()
+#     bits: int = field()
+#     mode: str = field()
 
 
 # TODO move to quantization/
@@ -160,7 +160,7 @@ def describe_switch_quantization(  # TODO rename
                 "This is currently unsupported in the per-expert forward pass. "
             )
 
-        if all(hasattr(module, attr) for attr in MLX_QUANT_PARAM_NAMES):
+        if all(hasattr(module, attr) for attr in MLX_QUANT_PARAMS):
             params[name] = ProjectionQuantParams(
                 group_size=int(module.group_size),  # type: ignore
                 bits=int(module.bits),  # type: ignore

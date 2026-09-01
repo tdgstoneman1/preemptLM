@@ -18,14 +18,14 @@ import mlx.core as mx
 
 from .constants import (
     MLX_DTYPE_TAGS,
-    MLX_ENCODING_QUANTIZED_TEMPLATE,
-    MLX_ENCODING_UNQUANTIZED_TEMPLATE,
+    MLX_QUANTIZED_ENCODING_TEMPLATE,
+    MLX_UNQUANTIZED_ENCODING_TEMPLATE,
 )
 from .enums import MlxQuantMode
 
 
 @attrs.define(frozen=True, kw_only=True)
-class MlxQuantParams:
+class QuantSettings:
     """Quantization parameters for an MLX module.
 
     Specifies the structural metadata required to correctly decode and

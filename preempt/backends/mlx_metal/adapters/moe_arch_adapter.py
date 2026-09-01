@@ -11,7 +11,7 @@ import mlx.core as mx
 
 from preempt.expert_bank.manifest import ModelMoESpec
 
-from ..quantization import MlxQuantParams
+from ..quantization import QuantSettings
 
 
 class MoEArchAdapter(ABC):
@@ -159,7 +159,7 @@ class MoEArchAdapter(ABC):
     @abstractmethod
     def resolve_quantization(
         self, config: Mapping[str, Any], block_idxs: Sequence[int]
-    ) -> MlxQuantParams | None:
+    ) -> QuantSettings | None:
         """Determines quantization parameters from `config`.
 
         Parameters
@@ -171,7 +171,7 @@ class MoEArchAdapter(ABC):
 
         Returns
         -------
-        MlxQuantParams | None
+        QuantSettings | None
             The shared quantization parameters, or `None` if unquantized.
 
         Raises
