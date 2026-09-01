@@ -4,7 +4,7 @@ import pytest
 
 from preempt.backends.mlx_metal.adapters.moe_arch_adapter import MoEArchAdapter
 from preempt.backends.mlx_metal.adapters.qwen3_x import Qwen3_xArchAdapter
-from preempt.backends.mlx_metal.registry import (
+from preempt.backends.mlx_metal.adapters.registry import (
     MoEArchAdapterRegistry,
     DefaultMoEArchAdapterRegistry,
 )

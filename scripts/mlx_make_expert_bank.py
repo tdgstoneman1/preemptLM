@@ -59,7 +59,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    from preempt.backends.mlx_metal.registry import DefaultMoEArchAdapterRegistry
+    from preempt.backends.mlx_metal.adapters.registry import (
+        DefaultMoEArchAdapterRegistry,
+    )
 
     registry = DefaultMoEArchAdapterRegistry()
     architecture = registry.get(args.architecture)
