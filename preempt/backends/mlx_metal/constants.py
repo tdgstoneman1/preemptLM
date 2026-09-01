@@ -11,7 +11,7 @@ SWIGLU_PROJECTION_NAMES: Final[tuple[str, str, str]] = (
     "down_proj",
 )
 # Structural components of a quantized MLX tensor in blob order
-QUANTIZED_TENSOR_PARTS: Final[tuple[str, str, str]] = ("weight", "scales", "biases")
+MLX_QUANTIZED_TENSOR_PARTS: Final[tuple[str, str, str]] = ("weight", "scales", "biases")
 
 MLX_QUANT_PARAMS: Final[tuple[str, str, str]] = ("group_size", "bits", "mode")
 
@@ -25,7 +25,7 @@ BIT_VIEWED_SCALARS: Final[dict[str, mx.Dtype]] = {"bf16": mx.bfloat16}  # TODO r
 # Durable string tags for exact decoding dtypes for serialization
 # TODO add more dtypes, e.g. int8
 # TODO make this an enum or something better than a tuple
-SCALAR_DTYPE_TAGS: Final[tuple[tuple[Any, str], ...]] = (
+MLX_DTYPE_TAGS: Final[tuple[tuple[Any, str], ...]] = (
     (mx.bfloat16, "bf16"),
     (mx.float16, "f16"),
     (mx.float32, "f32"),

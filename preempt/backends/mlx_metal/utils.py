@@ -21,7 +21,7 @@ from preempt.core.protocols import ITokenizer
 from preempt.backends.mlx_metal.types import MlxLoadedModel
 from preempt.backends.mlx_metal.quantization import MlxQuantParams
 from preempt.backends.mlx_metal.constants import (
-    SCALAR_DTYPE_TAGS,
+    MLX_DTYPE_TAGS,
     MLX_ENCODING_QUANTIZED_TEMPLATE,
     MLX_ENCODING_UNQUANTIZED_TEMPLATE,
 )
@@ -170,7 +170,7 @@ def dtype_tag_from_arrays(arrays: Mapping[str, mx.array], quantized: bool) -> st
         raise ValueError(f"Arrays have multiple dtypes: {sorted(dtypes)!r}")
 
     dtype = arrays[names[0]].dtype
-    for candidate, tag in SCALAR_DTYPE_TAGS:
+    for candidate, tag in MLX_DTYPE_TAGS:
         if dtype == candidate:
             return tag
 

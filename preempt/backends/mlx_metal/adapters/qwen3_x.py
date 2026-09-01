@@ -18,7 +18,7 @@ from preempt.expert_bank.manifest import ModelMoESpec
 from .moe_arch_adapter import MoEArchAdapter
 from ..constants import (
     SWIGLU_PROJECTION_NAMES,
-    QUANTIZED_TENSOR_PARTS,
+    MLX_QUANTIZED_TENSOR_PARTS,
 )
 from ..quantization import MlxQuantParams
 from ..utils import dtype_tag_from_arrays
@@ -48,7 +48,7 @@ class Qwen3_xArchAdapter(MoEArchAdapter):
     @property
     def quantized_tensor_parts(self) -> tuple[str, ...]:  # TODO redundant, remove
         """Structural components of a quantized MLX tensor."""
-        return QUANTIZED_TENSOR_PARTS
+        return MLX_QUANTIZED_TENSOR_PARTS
 
     @property
     def expert_module_pattern(self) -> str:
