@@ -22,8 +22,8 @@ from ..constants import (
 )
 from ..quantization import (
     MlxQuantParams,
-    dtype_tag_from_arrays,
 )
+from preempt.utils.mlx_utils import dtype_tag_from_arrays
 
 
 class Qwen3_xArchAdapter(MoEArchAdapter):

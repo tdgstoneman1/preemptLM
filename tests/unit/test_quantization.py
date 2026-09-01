@@ -9,9 +9,10 @@ import attrs
 from preempt.backends.mlx_metal.quantization import (
     MlxQuantParams,
     make_encoding_tag,
-    dtype_tag_from_arrays,
 )
 from preempt.backends.mlx_metal.constants import QUANTIZED_TENSOR_PARTS
+
+from preempt.utils.mlx_utils import dtype_tag_from_arrays
 
 
 class TestQuantParams:

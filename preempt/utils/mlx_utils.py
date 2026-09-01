@@ -1,5 +1,5 @@
 from typing import Any, cast
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from pathlib import Path
 
@@ -19,6 +19,7 @@ from safetensors import safe_open
 from preempt.core.protocols import ITokenizer
 
 from preempt.backends.mlx_metal.types import MlxLoadedModel
+from preempt.backends.mlx_metal.constants import SCALAR_DTYPE_TAGS
 
 
 def sanitize_fn_for(
@@ -121,3 +122,48 @@ def load_mlx_model(model_id: str, *, lazy: bool = False) -> MlxLoadedModel:
     """
     model, tokenizer = load(model_id, lazy=lazy)  # type: ignore
     return MlxLoadedModel(model=model, tokenizer=cast(ITokenizer, tokenizer))
+
+
+def dtype_tag_from_arrays(arrays: Mapping[str, mx.array], quantized: bool) -> str:
+    """Returns a the scalar dtype of the arrays in `stacked` as a string tag.
+
+    Parameters
+    ----------
+    arrays : Mapping[str, mx.array]
+        A mapping of names to `mx.array`s
+    quantized : bool
+        Whether arrays are quantized and should be scanned for quantization
+        parameters
+
+    Returns
+    -------
+    str
+        Scalar dtype tag, e.g. 'bf16', 'f16', or 'f32'
+
+    Raises
+    ------
+    ValueError
+        If no applicable arrays found in `arrays`.
+    ValueError
+        If arrays have multiple different dtypes.
+    ValueError
+        If the detected dtype is not currently supported for tagging.
+    """
+    names = sorted(
+        name
+        for name in arrays
+        if not quantized or name.endswith((".scales", ".biases"))
+    )
+    if not names:
+        raise ValueError()  # TODO add message
+
+    dtypes = {str(arrays[name].dtype) for name in names}
+    if len(dtypes) != 1:
+        raise ValueError(f"Arrays have multiple dtypes: {sorted(dtypes)!r}")
+
+    dtype = arrays[names[0]].dtype
+    for candidate, tag in SCALAR_DTYPE_TAGS:
+        if dtype == candidate:
+            return tag
+
+    raise ValueError(f"Arrays have unsupported dtype: {dtype!r}")
