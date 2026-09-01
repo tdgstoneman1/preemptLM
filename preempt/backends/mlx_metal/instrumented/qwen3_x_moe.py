@@ -215,6 +215,7 @@ class InstrumentedQwen3_xMoE(nn.Module):
         return y
 
 
+# TODO make this a static method
 # TODO rename to meta_factory?
 def make_qwen3_x_moe_wrapper_factory(
     recorder: MoERecorder | None,
