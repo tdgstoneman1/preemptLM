@@ -9,11 +9,11 @@ from .adapters.defaults import V1_MOE_FACTORIES
 # TODO make `register`, `get`, and `available` classmethods
 
 
-class MoEArchRegistry:
+class MoEArchAdapterRegistry:
     """Mutable registry mapping MoE architecture names to `MoEArchAdapter`
     factories.
 
-    :Note: For tamper-proof defaults, use the `DefaultMoEArchRegistry` subclass.
+    :Note: For tamper-proof defaults, use the `DefaultMoEArchAdapterRegistry` subclass.
     """
 
     _factories: dict[str, MlxArchAdapterFactory]
@@ -68,10 +68,10 @@ class MoEArchRegistry:
         return tuple(sorted(self._factories))
 
 
-class DefaultMoEArchRegistry(MoEArchRegistry):
+class DefaultMoEArchAdapterRegistry(MoEArchAdapterRegistry):
     """Frozen registry with preemptLM's built-in MoE factories registered.
 
-    Use for built-in defaults, otherwise use or subclass `MoEArchRegistry` for
+    Use for built-in defaults, otherwise use or subclass `MoEArchAdapterRegistry` for
     user-extensibility. The public `register` method is overridden to prevent
     registry mutation.
     """
@@ -86,7 +86,7 @@ class DefaultMoEArchRegistry(MoEArchRegistry):
         built-in defaults.
         """
         raise AttributeError(
-            "`DefaultMoEArchRegistry` is frozen and cannot be extended. "
-            "For extensible registries, use or subclass `MoEArchRegistry`,"
+            "`DefaultMoEArchAdapterRegistry` is frozen and cannot be extended. "
+            "For extensible registries, use or subclass `MoEArchAdapterRegistry`,"
             "instead."
         )

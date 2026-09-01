@@ -3,7 +3,6 @@ from typing import Sequence
 import argparse
 
 from rich import print
-
 import textwrap
 
 from pathlib import Path
@@ -22,7 +21,6 @@ from preempt.utils.hf_utils import resolve_model_dir
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-
     parser = argparse.ArgumentParser(
         description="Writes MoE expert layers to an expert bank on disk."
     )
@@ -53,7 +51,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=str,
         required=True,
         help="Name of a MoE architecture adapter. Currently, this must be "
-        "an architecture registered in `DefaultMoEArchRegistry`.",
+        "an architecture registered in `DefaultMoEArchAdapterRegistry`.",
     )
     return parser.parse_args(argv)
 
@@ -61,9 +59,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    from preempt.backends.mlx_metal.registry import DefaultMoEArchRegistry
+    from preempt.backends.mlx_metal.registry import DefaultMoEArchAdapterRegistry
 
-    registry = DefaultMoEArchRegistry()
+    registry = DefaultMoEArchAdapterRegistry()
     architecture = registry.get(args.architecture)
 
     model_dir = resolve_model_dir(args.model)
