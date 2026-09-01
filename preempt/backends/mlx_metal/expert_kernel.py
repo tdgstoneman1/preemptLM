@@ -24,7 +24,7 @@ from mlx_lm.models.switch_layers import (
 
 from preempt.core.exceptions import EngineCompatibilityError
 
-from .constants import MLX_QUANT_PARAMS
+from .constants import MLX_QUANT_PARAM_NAMES
 
 # TODO move dataclasses to separate module
 # TODO add support for expert layer bias terms in forward pass
@@ -160,7 +160,7 @@ def describe_switch_quantization(  # TODO rename
                 "This is currently unsupported in the per-expert forward pass. "
             )
 
-        if all(hasattr(module, attr) for attr in MLX_QUANT_PARAMS):
+        if all(hasattr(module, attr) for attr in MLX_QUANT_PARAM_NAMES):
             params[name] = ProjectionQuantParams(
                 group_size=int(module.group_size),  # type: ignore
                 bits=int(module.bits),  # type: ignore
