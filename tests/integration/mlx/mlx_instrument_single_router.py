@@ -16,7 +16,7 @@ from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import (
     InstrumentedQwen3_xMoE,
 )
 from preempt.backends.mlx_metal.recorder import MoERecorder
-from preempt.config.target_layers import TargetLayerConfig
+from preempt.config.target_layers import TargetLayers
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
 from preempt.datamodel.tracing.expert_routing import ExpertRoutingEvent
 from preempt.engine.layer_resolution import match_target_layers
@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def get_single_target(config: TargetLayerConfig):
+def get_single_target(config: TargetLayers):
     if len(config.target_layers) != 1:
         raise ValueError("This smoke test expects exactly one [[target_layers]] entry.")
 
@@ -114,7 +114,7 @@ def replace_single_router_layer(
 
 
 async def run(args: argparse.Namespace, output_path: Path) -> None:
-    config = read_and_validate_toml(args.config, TargetLayerConfig)
+    config = read_and_validate_toml(args.config, TargetLayers)
     target = get_single_target(config)
 
     print(f"Loading model: {args.model}")

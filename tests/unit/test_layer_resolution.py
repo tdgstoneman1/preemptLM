@@ -1,6 +1,6 @@
 import pytest
 
-from preempt.config.target_layers import TargetLayerConfig, TargetLayerSearchParams
+from preempt.config.target_layers import TargetLayers, TargetLayerSearchParams
 
 from preempt.engine.layer_resolution import (
     LayerCandidate,
@@ -51,7 +51,7 @@ def test_match_target_layers_no_match_raises() -> None:
 
 
 def test_resolve_target_layers_groups_by_spec_name() -> None:
-    config = TargetLayerConfig.model_validate(
+    config = TargetLayers.model_validate(
         {
             "target_layers": [
                 {
@@ -71,7 +71,7 @@ def test_resolve_target_layers_groups_by_spec_name() -> None:
 
 
 def test_ensure_no_target_layer_overlap_raises_on_shared_layer() -> None:
-    config = TargetLayerConfig.model_validate(
+    config = TargetLayers.model_validate(
         {
             "target_layers": [
                 {"name": "a", "search_params": {"layer_class": "SparseMoeBlock"}},

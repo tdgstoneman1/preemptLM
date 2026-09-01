@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator, computed_field
 
-from preempt.config.target_layers import TargetLayerConfig, TargetLayerSpec
+from preempt.config.target_layers import TargetLayers, TargetLayerSpec
 
 
 class LlmConfig(BaseModel):
@@ -45,16 +45,16 @@ class TraceSettings(BaseModel):
 
     @model_validator(mode="after")
     def validate_target_layers_as_layer_config(self) -> Self:
-        """Calls `TargetLayerConfig` validators early to avoid deferring
+        """Calls `TargetLayers` validators early to avoid deferring
         potential failures.
         """
         self.to_target_layer_config()
 
         return self
 
-    def to_target_layer_config(self) -> TargetLayerConfig:
-        """Projects traced target layers onto `TargetLayerConfig`."""
-        return TargetLayerConfig(target_layers=self.target_layers)
+    def to_target_layer_config(self) -> TargetLayers:
+        """Projects traced target layers onto `TargetLayers`."""
+        return TargetLayers(target_layers=self.target_layers)
 
 
 class StreamSettings(BaseModel):

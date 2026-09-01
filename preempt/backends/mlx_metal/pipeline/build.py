@@ -10,7 +10,7 @@ from rich.console import Console
 
 from preempt.config.pipeline import PipelineConfig
 from preempt.config.target_layers import (
-    TargetLayerConfig,
+    TargetLayers,
 )
 from preempt.engine.metrics import GenerationMetrics
 from preempt.engine.pipeline import GenerationPipeline
@@ -100,7 +100,7 @@ def _get_recorder(
 
 
 def _moe_blocks_for_model(
-    loaded_model: MlxLoadedModel, target_layer_config: TargetLayerConfig | None
+    loaded_model: MlxLoadedModel, target_layer_config: TargetLayers | None
 ) -> list[LayerCandidate]:
     blocks = []
     if target_layer_config is not None:

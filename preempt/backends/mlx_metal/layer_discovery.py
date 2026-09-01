@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 import mlx.nn as nn
 
-from preempt.config.target_layers import TargetLayerConfig
+from preempt.config.target_layers import TargetLayers
 
 from preempt.engine.layer_resolution import LayerCandidate, resolve_target_layers
 
@@ -42,7 +42,7 @@ def iter_layer_candidates(model: nn.Module) -> Iterator[LayerCandidate]:
 
 def resolve_mlx_target_layers(
     model: nn.Module,
-    config: TargetLayerConfig,
+    config: TargetLayers,
 ) -> dict[str, tuple[LayerCandidate, ...]]:
     """Resolves the target layers in `config` against named child modules in
     `model` keyed by target name.

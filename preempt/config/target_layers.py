@@ -34,7 +34,6 @@ class TargetLayerSearchParams(BaseModel):
         return self
 
 
-# TODO move to datamodel/
 class TargetLayerSpec(BaseModel):
     """Name and search parameters for a single target layer"""
 
@@ -44,10 +43,8 @@ class TargetLayerSpec(BaseModel):
     search_params: TargetLayerSearchParams
 
 
-# TODO move to datamodel/
 # TODO use attrs
-# TODO rename for clarity
-class TargetLayerConfig(BaseModel):
+class TargetLayers(BaseModel):
     """A set of unique named target layers"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)

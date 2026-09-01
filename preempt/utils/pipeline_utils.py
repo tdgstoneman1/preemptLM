@@ -4,7 +4,7 @@ import textwrap
 
 from preempt.config.pipeline import PipelineConfig
 from preempt.config.target_layers import (
-    TargetLayerConfig,
+    TargetLayers,
     TargetLayerSpec,
     TargetLayerSearchParams,
 )
@@ -56,14 +56,14 @@ _MOE_BLOCK_CLASS_BY_ARCHITECTURE: dict[str, str] = {
 # TODO pass registry as an arg
 def target_layers_for_architecture(
     architecture: str, target_layer_count: int | None
-) -> TargetLayerConfig:
+) -> TargetLayers:
     block_class = _MOE_BLOCK_CLASS_BY_ARCHITECTURE.get(architecture)
     if block_class is None:
         raise ValueError(
             f"No MoE block class known for architecture {architecture!r}; "
             f"streaming supports {sorted(_MOE_BLOCK_CLASS_BY_ARCHITECTURE)}."
         )
-    return TargetLayerConfig(
+    return TargetLayers(
         target_layers=(
             TargetLayerSpec(
                 name="stream-moe",  # TODO change this to something meaningful
@@ -77,7 +77,7 @@ def target_layers_for_architecture(
 
 def target_layers_for_model(
     config: PipelineConfig, expert_bank: BaseExpertBank | None
-) -> TargetLayerConfig | None:
+) -> TargetLayers | None:
 
     if config.trace_settings is not None:
         return config.trace_settings.to_target_layer_config()

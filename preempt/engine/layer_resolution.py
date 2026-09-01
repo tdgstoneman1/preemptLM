@@ -7,7 +7,7 @@ from attrs import field
 
 from fnmatch import fnmatchcase
 
-from preempt.config.target_layers import TargetLayerConfig, TargetLayerSearchParams
+from preempt.config.target_layers import TargetLayers, TargetLayerSearchParams
 
 
 @attrs.define(frozen=True, kw_only=True)
@@ -99,7 +99,7 @@ def match_target_layers(
 
 def resolve_target_layers(
     candidates: Iterable[LayerCandidate],
-    config: TargetLayerConfig,
+    config: TargetLayers,
 ) -> dict[str, tuple[LayerCandidate, ...]]:
     candidates = tuple(candidates)
 
