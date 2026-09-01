@@ -60,7 +60,7 @@ from preempt.backends.mlx_metal.loader import load_mlx_model
 from preempt.backends.mlx_metal.recorder import MoERecorder
 from preempt.backends.mlx_metal.runner import MlxModelRunner
 from preempt.config.pipeline import PipelineConfig
-from preempt.core.sinks import ParquetEventSink
+from preempt.engine.sinks import ParquetEventSink
 from preempt.datamodel.tracing.context import TraceRunContext
 from preempt.datamodel.tracing.expert_routing import (
     EXPERT_ROUTING_EVENT_TYPE,

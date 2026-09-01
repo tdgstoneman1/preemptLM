@@ -9,7 +9,7 @@ from preempt.config.target_layers import (
     TargetLayerSearchParams,
 )
 
-from preempt.core.sinks import ParquetEventSink
+from preempt.engine.sinks import ParquetEventSink
 
 from preempt.datamodel.tracing.expert_routing import ExpertRoutingEvent
 

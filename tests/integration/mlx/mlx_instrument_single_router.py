@@ -20,7 +20,7 @@ from preempt.config.target_layers import TargetLayerConfig
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
 from preempt.datamodel.tracing.expert_routing import ExpertRoutingEvent
 from preempt.engine.layer_resolution import match_target_layers
-from preempt.core.sinks import ParquetEventSink
+from preempt.engine.sinks import ParquetEventSink
 from preempt.utils.io_utils import read_and_validate_toml
 
 

@@ -16,8 +16,7 @@ from preempt.datamodel.tracing.expert_routing import (
     EventMetadata,
     LayerIdentifiers,
 )
-from preempt.core.sinks import BaseEventSink
-
+from preempt.engine.sinks import BaseEventSink
 from preempt.engine.recorder import BaseEventRecorder
 
 

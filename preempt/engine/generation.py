@@ -7,12 +7,12 @@ import asyncio
 import time
 
 from preempt.core.protocols import IModelRunner
-from preempt.core.sinks import BaseEventSink
 
 from preempt.datamodel.tracing.context import TraceStepContext
 
 from preempt.engine.metrics import GenerationMetrics, StepMetrics
 from preempt.engine.recorder import BaseEventRecorder
+from preempt.engine.sinks import BaseEventSink
 
 # TODO track total elapsed time during generation
 # TODO track bytes read

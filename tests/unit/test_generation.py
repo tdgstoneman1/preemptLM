@@ -5,7 +5,7 @@ import pytest
 
 import asyncio
 
-from preempt.core.sinks import BaseEventSink
+from preempt.engine.sinks import BaseEventSink
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
 from preempt.engine.generation import generate_greedy
 from preempt.engine.metrics import StepMetrics

@@ -4,7 +4,7 @@ from typing import Any
 
 from abc import ABC, abstractmethod
 
-from preempt.core.sinks import BaseEventSink
+from preempt.engine.sinks import BaseEventSink
 
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
 

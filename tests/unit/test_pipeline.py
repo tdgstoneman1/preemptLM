@@ -3,7 +3,7 @@ from collections.abc import Mapping, Sequence
 
 import pytest
 
-from preempt.core.sinks import BaseEventSink
+from preempt.engine.sinks import BaseEventSink
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
 from preempt.engine.pipeline import GenerationPipeline
 from preempt.engine.recorder import BaseEventRecorder

@@ -4,7 +4,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from preempt.core.sinks import ParquetEventSink
+from preempt.engine.sinks import ParquetEventSink
 
 SCHEMA = pa.schema([pa.field("a", pa.int64(), nullable=False)])
 
