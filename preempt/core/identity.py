@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 @attrs.define(kw_only=True, frozen=True, slots=True)
 class ExpertKey:
-    """Unique identifier for one routed expert's weights used as the cache and
+    """Unique identifier for one routed expert's weights. Used as the cache and
     storage key throughout the preemptLM engine.
 
     Attributes
@@ -30,10 +30,10 @@ class ExpertKey:
 
 
 class TensorSpec(BaseModel):  # TODO use attrs
-    """Specs for one of an expert's weight tensors (e.g. `gate_proj.weight`).
+    """Specs for one of an expert's weight tensors, e.g. `gate_proj.weight`.
 
-    Pure data description (no I/O) used by backends to reconstruct tensors from
-    raw bytes without depending on `preempt.storage`.
+    Pure data description used by backends to reconstruct tensors from
+    raw bytes.
 
     Attributes
     ----------
