@@ -32,8 +32,8 @@ SCALAR_DTYPE_TAGS: Final[tuple[tuple[Any, str], ...]] = (
 )
 
 MLX_ENCODING_QUANTIZED_TEMPLATE: Final[Template] = Template(
-    "mlx-${mode}-q${bits}-g${group_size}-${scalar_tag}"
+    "mlx-${mode}-q${bits}-g${group_size}-${dtype}"
 )
 MLX_ENCODING_UNQUANTIZED_TEMPLATE: Final[Template] = Template(
-    "mlx-unquantized-${scalar_tag}"
+    "mlx-unquantized-${dtype}"
 )
