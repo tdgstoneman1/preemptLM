@@ -13,9 +13,7 @@ from huggingface_hub import snapshot_download
 
 from safetensors import safe_open
 
-from icecream import ic
-
-from preempt.core.defaults import MAX_SAFETENSOR_SHARD_MB
+from preempt.core.constants import DEFAULT_MAX_SAFETENSOR_SHARD_MB
 
 DTYPE_SIZES: MappingProxyType[str, int] = MappingProxyType(
     {
@@ -124,7 +122,7 @@ def copy_non_weight_files(
 def make_shard_map(
     ckpt_path: Path,
     weight_map: dict[str, str],
-    max_shard_mb: int | float = MAX_SAFETENSOR_SHARD_MB,
+    max_shard_mb: int | float = DEFAULT_MAX_SAFETENSOR_SHARD_MB,
 ) -> list[dict[str, str]]:
     # Separate layers belonging to parent blocks from others, e.g.
     # `model.language_model.layers.40.mlp.experts.down_proj` vs.

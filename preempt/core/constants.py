@@ -33,3 +33,8 @@ F_NOCACHE = 48  # TODO rename
 # Tracing
 
 RUN_ID_TIMESTAMP_FMT = "%Y%m%dT%H%M%SZ"
+
+
+# Defaults
+
+DEFAULT_MAX_SAFETENSOR_SHARD_MB: Final[int] = 9 * 1024  # 9 GB * 1024
