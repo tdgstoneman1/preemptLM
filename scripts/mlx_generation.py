@@ -2,7 +2,7 @@
 Example usage (macOS host)::
 
     uv run scripts/mlx_generation.py\
-        --config configs/mlx/unsloth-qwen3_6-35b-4bit.toml\
+        --config configs/mlx/unsloth-qwen3.6-35b-4bit.toml\
         --stream-experts\
         --save-traces\
         --max-tokens 1024\
@@ -137,7 +137,7 @@ async def run(
 
             stats = Text(
                 f"step time: {step.duration_s:.2f}s | "
-                f"tok/s: {toks_per_s:.2f}s | "
+                f"tok/s: {toks_per_s:.2f} | "
                 f"cache hits: {metrics.cache_hits} ({hit_rate:.2%}) | "
                 f"cache misses: {metrics.cache_misses} ({miss_rate:.2%})",
                 justify="right",
