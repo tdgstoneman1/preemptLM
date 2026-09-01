@@ -1,10 +1,12 @@
 from collections.abc import Sequence
 
-from preempt.core.protocols.loader import IExpertLoader
-from preempt.core.protocols.cache import IExpertCache
-from preempt.core.protocols.runner import IModelRunner, ITokenizer
-from preempt.core.protocols.expert_bank import ExpertPayload, IExpertBank, ReadPriority
+from preempt.core.protocols import IExpertLoader
+from preempt.core.protocols import IExpertCache
+from preempt.core.protocols import IModelRunner, ITokenizer
 
+from preempt.datamodel.experts import ExpertPayload
+
+from preempt.core.enums import ReadPriority
 from preempt.core.identity import ExpertKey, TensorSpec
 
 from preempt.engine.expert_loaders import DummyExpertLoader
@@ -47,18 +49,18 @@ class FakeCache:
         return 0
 
 
-class FakeExpertBank:
-    async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload:
-        return ExpertPayload(
-            key=key, data=b"\x00", encoding="mlx-unquantized-f32", tensor_specs=SPECS
-        )
+# class FakeExpertBank:
+#     async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload:
+#         return ExpertPayload(
+#             key=key, data=b"\x00", encoding="mlx-unquantized-f32", tensor_specs=SPECS
+#         )
 
 
 def test_fakes_satisfy_protocols_structurally() -> None:
     assert isinstance(FakeRunner(), IModelRunner)
     assert isinstance(FakeTokenizer(), ITokenizer)
     assert isinstance(FakeCache(), IExpertCache)
-    assert isinstance(FakeExpertBank(), IExpertBank)
+    # assert isinstance(FakeExpertBank(), IExpertBank)
     assert isinstance(DummyExpertLoader(), IExpertLoader)
 
 

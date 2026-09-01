@@ -9,9 +9,13 @@ import asyncio
 from preempt.core.identity import ExpertKey, TensorSpec
 from preempt.core.enums import CachePolicy
 
-from preempt.core.protocols.loader import IExpertLoader
-from preempt.core.protocols.cache import IExpertCache
-from preempt.core.protocols.expert_bank import ExpertPayload, IExpertBank, ReadPriority
+from preempt.core.protocols import IExpertLoader
+from preempt.core.protocols import IExpertCache
+from preempt.core.protocols import ExpertPayload
+
+from preempt.core.enums import ReadPriority
+
+from preempt.expert_bank.banks import BaseExpertBank
 
 from preempt.engine.expert_cache import ExpertCacheManager
 from preempt.engine.metrics import GenerationMetrics
@@ -24,6 +28,8 @@ SPECS = (
         name="w", dtype="uint8", shape=(PAYLOAD_BYTES,), num_bytes=PAYLOAD_BYTES
     ),
 )
+
+# TODO update to be compatible with 'BaseExpertBank' after removing 'IExpertBank' proto
 
 
 def key(expert_idx: int, block_idx: int = 0) -> ExpertKey:

@@ -13,7 +13,7 @@ from preempt.core.sinks import ParquetEventSink
 
 from preempt.datamodel.tracing.expert_routing import ExpertRoutingEvent
 
-from preempt.expert_bank.banks import PreadExpertBank
+from preempt.expert_bank.banks import BaseExpertBank, PreadExpertBank
 
 from preempt.engine.metrics import GenerationMetrics
 
@@ -76,7 +76,7 @@ def target_layers_for_architecture(
 
 
 def target_layers_for_model(
-    config: PipelineConfig, expert_bank: PreadExpertBank | None
+    config: PipelineConfig, expert_bank: BaseExpertBank | None
 ) -> TargetLayerConfig | None:
 
     if config.trace_settings is not None:

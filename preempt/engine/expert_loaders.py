@@ -7,8 +7,10 @@ from concurrent.futures import Future
 
 import time
 
-from preempt.core.protocols import IExpertCache, IExpertBank, ReadPriority
+from preempt.expert_bank.banks import BaseExpertBank
+from preempt.core.protocols import IExpertCache
 from preempt.core.identity import ExpertKey
+from preempt.core.enums import ReadPriority
 
 from .expert_cache import ExpertCacheManager
 from .metrics import GenerationMetrics
@@ -32,7 +34,7 @@ class DiskBackedExpertLoader:
     inexact.
     """
 
-    _expert_bank: IExpertBank
+    _expert_bank: BaseExpertBank
     _cache: IExpertCache
     _cache_manager: ExpertCacheManager
     _loop: asyncio.AbstractEventLoop
@@ -41,7 +43,7 @@ class DiskBackedExpertLoader:
     def __init__(
         self,
         *,
-        expert_bank: IExpertBank,
+        expert_bank: BaseExpertBank,
         cache: IExpertCache,
         cache_manager: ExpertCacheManager,
         loop: asyncio.AbstractEventLoop,  # TODO rename to 'event_loop'
@@ -50,7 +52,7 @@ class DiskBackedExpertLoader:
         """
         Parameters
         ----------
-        expert_bank : IExpertBank
+        expert_bank : BaseExpertBank
             Source of expert payloads. Read when an MoE router selects an expert that has not
             been loaded into memory and must be read from disk.
         residency : IExpertCache

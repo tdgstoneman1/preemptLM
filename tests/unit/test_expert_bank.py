@@ -3,8 +3,9 @@ from pathlib import Path
 import pytest
 
 from preempt.core.identity import ExpertKey, TensorSpec
-from preempt.core.protocols import IExpertBank, ReadPriority
+from preempt.core.enums import ReadPriority
 from preempt.core.exceptions import ExpertBankCompatibilityError
+from preempt.expert_bank.banks import BaseExpertBank
 from preempt.expert_bank.manifest import (
     ModelMoESpec,
 )
@@ -35,7 +36,7 @@ def expert_bank_dir(tmp_path: Path) -> Path:
 
 async def test_round_trips_written_blobs(expert_bank_dir: Path) -> None:
     with PreadExpertBank(expert_bank_dir) as expert_bank:
-        assert isinstance(expert_bank, IExpertBank)
+        assert isinstance(expert_bank, BaseExpertBank)
         key = ExpertKey(model_fingerprint="fp", block_idx=2, expert_idx=0)
         payload = await expert_bank.read(key, ReadPriority.DEMAND)
         assert payload.data == b"ccc"
