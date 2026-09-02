@@ -11,10 +11,10 @@ import numpy as np
 
 import mlx.core as mx
 
-from preempt.expert_bank.encoding import PayloadEncoding, parse_payload_encoding_tag
+from preempt.expert_bank.encoding import ExpertBankEncoding, parse_payload_encoding_tag
 
 from preempt.datamodel.identity import ExpertKey, TensorSpec
-from preempt.datamodel.experts import ExpertPayload
+from preempt.datamodel.experts import SerializedExpert
 
 from .constants import BIT_VIEWED_STORAGE_DTYPE, BIT_VIEWED_SCALARS
 
@@ -36,7 +36,7 @@ class _CachedExpert:
 
 
 def _view_dtype_for(
-    spec: TensorSpec, encoding: PayloadEncoding
+    spec: TensorSpec, encoding: ExpertBankEncoding
 ) -> mx.Dtype | None:  # TODO rename
     """Determines target MLX dtype when reinterpreting bit-viewed tensor storage.
 
@@ -44,7 +44,7 @@ def _view_dtype_for(
     ----------
     spec : TensorSpec
         Specification of the stored tensor
-    encoding : PayloadEncoding
+    encoding : ExpertBankEncoding
         Payload encoding metadata for the expert bank
 
     Returns
@@ -76,15 +76,15 @@ def _view_dtype_for(
 
 
 def decode_serialized_weights(
-    payload: ExpertPayload, encoding: PayloadEncoding
+    payload: SerializedExpert, encoding: ExpertBankEncoding
 ) -> dict[str, mx.array]:
     """Decodes serialized expert payload into a dictionary of MLX arrays.
 
     Parameters
     ----------
-    payload : ExpertPayload
+    payload : SerializedExpert
         Payload containing raw bytes, tensor specifications, and encoding tag
-    encoding : PayloadEncoding
+    encoding : ExpertBankEncoding
         Expected expert payload encoding
 
     Returns
@@ -151,16 +151,16 @@ class MlxExpertCache:
 
     Attributes
     ----------
-    encoding : PayloadEncoding
+    encoding : ExpertBankEncoding
         Payload encoding metadata for validating and decoding serialized experts
     """
 
-    _encoding: PayloadEncoding = field()
+    _encoding: ExpertBankEncoding = field()
     _resident: dict[ExpertKey, _CachedExpert] = field(factory=dict, init=False)
     _resident_bytes: int = field(default=0, init=False)
 
     # TODO get rid of `key` and get it from `payload`
-    def install(self, key: ExpertKey, payload: ExpertPayload) -> None:
+    def install(self, key: ExpertKey, payload: SerializedExpert) -> None:
         """Decodes serialized expert payload into MLX arrays and maps them to `key`
         in the cache.
 
@@ -171,7 +171,7 @@ class MlxExpertCache:
         ----------
         key : ExpertKey
             Identifier to map the expert weights to. Must match `payload.key`.
-        payload : ExpertPayload
+        payload : SerializedExpert
             Serialized expert payload containing byte data, layout specs, and
             encoding metadata.
 

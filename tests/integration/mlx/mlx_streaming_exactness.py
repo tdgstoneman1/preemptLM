@@ -54,7 +54,7 @@ from preempt.config.pipeline import (
     StreamSettings,
 )
 from preempt.datamodel.identity import ExpertKey
-from preempt.datamodel.experts import ExpertPayload
+from preempt.datamodel.experts import SerializedExpert
 
 from preempt.engine.metrics import GenerationMetrics
 
@@ -178,7 +178,7 @@ def _make_corrupting_decoder(
     install_counts: dict[ExpertKey, int] = {}
     fires: list[int] = [0]
 
-    def corrupt(payload: ExpertPayload, encoding):  # type: ignore[no-untyped-def]
+    def corrupt(payload: SerializedExpert, encoding):  # type: ignore[no-untyped-def]
         tensors = original(payload, encoding)
         key = payload.key
         install_counts[key] = install_counts.get(key, 0) + 1

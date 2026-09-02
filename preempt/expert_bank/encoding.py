@@ -14,7 +14,7 @@ from preempt.core.constants import (
 
 # TODO add support for more scalar dtypes e.g. int8
 @attrs.define(kw_only=True, frozen=True)
-class PayloadEncoding:
+class ExpertBankEncoding:
     """The model encoding information corresponding to an expert bank's
     `payload_encoding` tag, for example `'mlx-affine-q8-g64-bf16'`
 
@@ -47,22 +47,22 @@ class PayloadEncoding:
         return self.mode is not None
 
     @classmethod
-    def from_tag(cls, tag: str) -> PayloadEncoding:
+    def from_tag(cls, tag: str) -> ExpertBankEncoding:
         return parse_payload_encoding_tag(tag)
 
 
-def parse_payload_encoding_tag(tag: str) -> PayloadEncoding:
+def parse_payload_encoding_tag(tag: str) -> ExpertBankEncoding:
     """Decodes a payload encoding tag into its components.
 
     Parameters
     ----------
     tag : str
-        Encoding tag from an expert bank manifest or `ExpertPayload`, e.g.
+        Encoding tag from an expert bank manifest or `SerializedExpert`, e.g.
         `mlx-affine-q4-g64-bf16` or `mlx-unquantized-bf16`
 
     Returns
     -------
-    PayloadEncoding
+    ExpertBankEncoding
         The tag's decoded components
 
     Raises
@@ -96,7 +96,7 @@ def parse_payload_encoding_tag(tag: str) -> PayloadEncoding:
 
     groups = match.groupdict()
     if "bits" not in groups:
-        return PayloadEncoding(
+        return ExpertBankEncoding(
             family=family, mode=None, bits=None, group_size=None, scalar=scalar
         )
 
@@ -108,7 +108,7 @@ def parse_payload_encoding_tag(tag: str) -> PayloadEncoding:
             f"be positive, but got `{bits=}` and `{group_size=}`."
         )
 
-    return PayloadEncoding(
+    return ExpertBankEncoding(
         family=family,
         mode=groups["mode"],
         bits=bits,

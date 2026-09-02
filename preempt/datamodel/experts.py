@@ -7,7 +7,7 @@ from preempt.datamodel.identity import ExpertKey, TensorSpec
 
 
 @attrs.define(kw_only=True, frozen=True)
-class ExpertPayload:
+class SerializedExpert:
     """Raw weight bytes for one expert and the metadata required to decode them back
     into weight tensors.
 

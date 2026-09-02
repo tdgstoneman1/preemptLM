@@ -4,7 +4,7 @@ from typing import Protocol, runtime_checkable, Any
 from collections.abc import Sequence, Mapping, Hashable
 
 from preempt.datamodel.identity import ExpertKey
-from preempt.datamodel.experts import ExpertPayload
+from preempt.datamodel.experts import SerializedExpert
 
 
 @runtime_checkable
@@ -12,7 +12,7 @@ class IExpertCache(Protocol):
     """Interface for caching experts in memory."""
 
     def install(
-        self, key: ExpertKey, payload: ExpertPayload
+        self, key: ExpertKey, payload: SerializedExpert
     ) -> None:  # TODO to cache_expert
         """Decodes `payload` into weights and caches them under `key`."""
         ...
@@ -38,7 +38,7 @@ class IExpertCache(Protocol):
 # class IExpertBank(Protocol):
 #     """Read-only source of expert blobs keyed by `ExpertKey`"""
 
-#     async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload: ...
+#     async def read(self, key: ExpertKey, priority: ReadPriority) -> SerializedExpert: ...
 
 
 @runtime_checkable

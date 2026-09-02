@@ -1,18 +1,18 @@
 import pytest
 
-from preempt.expert_bank.encoding import PayloadEncoding, parse_payload_encoding_tag
+from preempt.expert_bank.encoding import ExpertBankEncoding, parse_payload_encoding_tag
 
 
 def test_parses_the_real_stores_tag() -> None:
     encoding = parse_payload_encoding_tag("mlx-affine-q4-g64-bf16")
-    assert encoding == PayloadEncoding(
+    assert encoding == ExpertBankEncoding(
         family="mlx", mode="affine", bits=4, group_size=64, scalar="bf16"
     )
 
 
 def test_parses_unquantized_tag() -> None:
     encoding = parse_payload_encoding_tag("mlx-unquantized-f32")
-    assert encoding == PayloadEncoding(
+    assert encoding == ExpertBankEncoding(
         family="mlx", mode=None, bits=None, group_size=None, scalar="f32"
     )
 

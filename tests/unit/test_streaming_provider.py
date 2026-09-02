@@ -11,7 +11,7 @@ from preempt.core.enums import CachePolicy
 
 from preempt.core.protocols import IExpertLoader
 from preempt.core.protocols import IExpertCache
-from preempt.core.protocols import ExpertPayload
+from preempt.core.protocols import SerializedExpert
 
 from preempt.core.enums import ReadPriority
 
@@ -45,12 +45,12 @@ class FakeExpertBank:
         self.reads: list[tuple[ExpertKey, ReadPriority]] = []
         self.error = error
 
-    async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload:
+    async def read(self, key: ExpertKey, priority: ReadPriority) -> SerializedExpert:
         self.reads.append((key, priority))
         if self.error is not None:
             raise self.error
 
-        return ExpertPayload(
+        return SerializedExpert(
             key=key,
             data=bytes(PAYLOAD_BYTES),
             encoding="mlx-affine-q4-g64-bf16",
@@ -67,11 +67,11 @@ class FakeCache:
     """
 
     def __init__(self) -> None:
-        self.payloads: dict[ExpertKey, ExpertPayload] = {}
+        self.payloads: dict[ExpertKey, SerializedExpert] = {}
         self.installs: list[ExpertKey] = []
         self.evictions: list[ExpertKey] = []
 
-    def install(self, key: ExpertKey, payload: ExpertPayload) -> None:
+    def install(self, key: ExpertKey, payload: SerializedExpert) -> None:
         self.payloads[key] = payload
         self.installs.append(key)
 

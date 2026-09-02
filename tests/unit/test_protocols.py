@@ -4,7 +4,7 @@ from preempt.core.protocols import IExpertLoader
 from preempt.core.protocols import IExpertCache
 from preempt.core.protocols import IModelRunner, ITokenizer
 
-from preempt.datamodel.experts import ExpertPayload
+from preempt.datamodel.experts import SerializedExpert
 
 from preempt.core.enums import ReadPriority
 from preempt.datamodel.identity import ExpertKey, TensorSpec
@@ -40,7 +40,7 @@ class FakeTokenizer:
 
 
 class FakeCache:
-    def install(self, key: ExpertKey, payload: ExpertPayload) -> None: ...
+    def install(self, key: ExpertKey, payload: SerializedExpert) -> None: ...
     def evict(self, key: ExpertKey) -> None: ...
     def is_resident(self, key: ExpertKey) -> bool:
         return True
@@ -50,8 +50,8 @@ class FakeCache:
 
 
 # class FakeExpertBank:
-#     async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload:
-#         return ExpertPayload(
+#     async def read(self, key: ExpertKey, priority: ReadPriority) -> SerializedExpert:
+#         return SerializedExpert(
 #             key=key, data=b"\x00", encoding="mlx-unquantized-f32", tensor_specs=SPECS
 #         )
 

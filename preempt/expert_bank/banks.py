@@ -14,7 +14,7 @@ import os
 import sys
 import mmap
 
-from preempt.core.protocols import ExpertPayload
+from preempt.core.protocols import SerializedExpert
 from preempt.core.enums import ReadPriority
 from preempt.core.exceptions import ExpertBankCompatibilityError
 from preempt.core.constants import EXPERTS_FILENAME, F_NOCACHE
@@ -103,7 +103,9 @@ class BaseExpertBank(ABC):
             raise ExpertBankCompatibilityError(repr(mismatches))
 
     @abstractmethod
-    async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload: ...
+    async def read(
+        self, key: ExpertKey, priority: ReadPriority
+    ) -> SerializedExpert: ...
 
     @abstractmethod
     def close(self) -> None: ...
@@ -125,7 +127,7 @@ class PreadExpertBank(BaseExpertBank):
 
         self._fd = fd
 
-    async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload:
+    async def read(self, key: ExpertKey, priority: ReadPriority) -> SerializedExpert:
         if self._fd is None:
             raise RuntimeError("Cannot read closed expert bank.")
 
@@ -135,7 +137,7 @@ class PreadExpertBank(BaseExpertBank):
         if len(data) != blob.length:
             raise IOError()  # TODO error msg
 
-        return ExpertPayload(
+        return SerializedExpert(
             key=key,
             data=data,
             encoding=self._manifest.payload_encoding,
@@ -175,7 +177,7 @@ class MmapExpertBank(BaseExpertBank):
             if not success:
                 os.close(fd)
 
-    async def read(self, key: ExpertKey, priority: ReadPriority) -> ExpertPayload:
+    async def read(self, key: ExpertKey, priority: ReadPriority) -> SerializedExpert:
         if self._mmap is None:
             raise RuntimeError()  # TODO add message
 
@@ -185,7 +187,7 @@ class MmapExpertBank(BaseExpertBank):
         if len(slice_) != blob.length:
             raise IOError()  # TODO add message
 
-        return ExpertPayload(
+        return SerializedExpert(
             key=key,
             data=slice_,
             encoding=self._manifest.payload_encoding,
