@@ -52,14 +52,14 @@ class SpyRecorder(BaseEventRecorder):
         )
         self.step_contexts: list[TraceStepContext] = []
 
-    def start_step(self, step_context: TraceStepContext) -> None:
-        super().start_step(step_context)
+    def start_trace(self, step_context: TraceStepContext) -> None:
+        super().start_trace(step_context)
         self.step_contexts.append(step_context)
 
     def capture(self, **kwargs: Any) -> None: ...
 
     async def flush(self, sink: BaseEventSink) -> int:
-        self.end_step()
+        self.stop_trace()
         return 3  # pretend 3 records per step
 
 

@@ -44,7 +44,7 @@ class SpyRecorder(BaseEventRecorder):
     def capture(self, **kwargs: Any) -> None: ...
 
     async def flush(self, sink: BaseEventSink) -> int:
-        self.end_step()
+        self.stop_trace()
         return 1
 
 

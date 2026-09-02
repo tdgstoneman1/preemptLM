@@ -111,7 +111,7 @@ async def generate_greedy(
         started = time.perf_counter()
 
         if recorder is not None:
-            recorder.start_step(
+            recorder.start_trace(
                 TraceStepContext(
                     sequence_id=sequence_id,
                     token_idx=token_idx,
@@ -208,7 +208,7 @@ async def generate_greedy(
 
 #         # Initialize recorder
 #         if recorder is not None:
-#             recorder.start_step(
+#             recorder.start_trace(
 #                 TraceStepContext(
 #                     sequence_id=sequence_id,
 #                     token_idx=token_idx,

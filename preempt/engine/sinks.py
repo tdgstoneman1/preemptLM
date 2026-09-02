@@ -18,8 +18,6 @@ import pyarrow.parquet as pq
 
 from preempt.core.enums import ParquetCompressionCodecs
 
-# TODO move to engine/
-
 
 class BaseEventSink(ABC):
     """*Abstract, do not instantiate.*
@@ -51,23 +49,13 @@ class BaseEventSink(ABC):
         await self.aclose()
 
 
-# ! Why is this 'not intended as the final inference time tracing path'?
-# ! (last section in docstring written by Claude)
 class ParquetEventSink(BaseEventSink):
-    """Buffer recorded trace events and persists them as a Parquet file.
+    """Buffers recorded trace events and persists them as a Parquet file."""
 
-    The sink owns one Parquet file for its lifetime. All accepted events must
-    conform to the supplied Arrow schema. Events are written in batches to
-    avoid creating a row group for every record.
+    path: Path
+    batch_size: int
+    row_group_size: int | None
 
-    Appropriate for offline trace collection and building training datasets.
-    Not intended as the final inference time tracing path.
-    """
-
-    _path: Path
-    _schema: pa.Schema
-    _batch_size: int
-    _row_group_size: int | None
     _overwrite: bool
     _compression: ParquetCompressionCodecs
 
@@ -93,10 +81,10 @@ class ParquetEventSink(BaseEventSink):
         if row_group_size is not None and row_group_size <= 0:
             raise ValueError("`row_group_size` must be greater than 0.")
 
-        self._path = Path(path)
-        self._schema = schema
-        self._batch_size = batch_size
-        self._row_group_size = row_group_size
+        self.path = Path(path)
+        self.schema = schema
+        self.batch_size = batch_size
+        self.row_group_size = row_group_size
         self._overwrite = overwrite
         self._compression = compression
 
@@ -107,25 +95,19 @@ class ParquetEventSink(BaseEventSink):
         self._records_written = 0
 
     @property
-    def path(self) -> Path:
-        return self._path
-
-    @property
-    def schema(self) -> pa.Schema:
-        return self._schema
-
-    @property
     def records_written(self) -> int:
         return self._records_written
 
     async def write(self, event: Mapping[str, pa.Field]) -> None:
-        """Buffers an event and writes when buffer reaches or exceeds batch size."""
+        """Buffers an event and writes it to file when buffer reaches or
+        exceeds batch size.
+        """
 
         async with self._lock:
             self._raise_if_closed()
             self._buffer.append(dict(event))
 
-            if len(self._buffer) >= self._batch_size:
+            if len(self._buffer) >= self.batch_size:
                 await self._write_buffer_locked()
 
     async def flush(self) -> None:
@@ -162,14 +144,14 @@ class ParquetEventSink(BaseEventSink):
             batch = await asyncio.to_thread(
                 pa.RecordBatch.from_pylist,
                 records,
-                self._schema,
+                self.schema,
             )
             writer = await self._ensure_writer_locked()
 
             await asyncio.to_thread(
                 writer.write_batch,
                 batch,
-                self._row_group_size,
+                self.row_group_size,
             )
         except Exception as e:
             # TODO: a failed write_batch can leave PyArrow's underlying file stream
@@ -180,7 +162,7 @@ class ParquetEventSink(BaseEventSink):
             # discarding/closing `self._writer` (forcing recreation) whenever this
             # except branch fires. Found 2025-XX-XX debugging a schema mismatch in
             # ExpertRoutingEvent.as_arrow_record(); not fixed, low priority.
-            self._buffer = records + self._buffer
+            self._buffer += records
             raise e
 
         self._records_written += batch.num_rows
@@ -192,20 +174,20 @@ class ParquetEventSink(BaseEventSink):
             return self._writer
 
         await asyncio.to_thread(
-            self._path.parent.mkdir,
+            self.path.parent.mkdir,
             parents=True,
             exist_ok=True,
         )
-        if self._path.exists() and not self._overwrite:
+        if self.path.exists() and not self._overwrite:
             raise FileExistsError(
-                f"File already exists at `{self._path.as_posix()}`. "
+                f"File already exists at `{self.path.as_posix()}`. "
                 f"Either initialize `{self.__class__.__name__}` with a "
                 "different file path or pass `overwrite=True`."
             )
         self._writer = await asyncio.to_thread(
             pq.ParquetWriter,
-            self._path,
-            self._schema,
+            self.path,
+            self.schema,
             compression=self._compression,
         )
 
@@ -216,18 +198,9 @@ class ParquetEventSink(BaseEventSink):
             raise RuntimeError(f"`{self.__class__.__name__}` sink is closed.")
 
 
-class JsonlFileEventSink(BaseEventSink):
-    """Append capture events to a UTF-8 JSON Lines file.
+class JsonlEventSink(BaseEventSink):
+    path: Path
 
-    This is intentionally a dataset-collection implementation, not the
-    eventual inference-time tracing path. Each call appends exactly one
-    JSON object followed by a newline.
-
-    The sink serializes writes with an asyncio lock to prevent multiple
-    instrumented wrappers from interleaving bytes in the output file.
-    """
-
-    _path: Path
     _append: bool
     _flush_every_event: bool
     _fsync_every_event: bool
@@ -247,16 +220,12 @@ class JsonlFileEventSink(BaseEventSink):
                 "`fsync_every_event=True` requires `flush_every_event=True`"
             )
 
-        self._path = Path(path)
+        self.path = Path(path)
         self._append = append
         self._flush_every_event = flush_every_event
         self._fsync_every_event = fsync_every_event
         self._file = None
         self._lock = asyncio.Lock()
-
-    @property
-    def path(self) -> Path:
-        return self._path
 
     async def write(self, event: Mapping[str, Any]) -> None:
         """Appends a JSON-serializable event to disk."""
@@ -296,13 +265,13 @@ class JsonlFileEventSink(BaseEventSink):
     async def _ensure_open(self) -> Any:
         if self._file is None:
             await asyncio.to_thread(
-                self._path.parent.mkdir,
+                self.path.parent.mkdir,
                 parents=True,
                 exist_ok=True,
             )
             mode = "a" if self._append else "w"
             self._file = await asyncio.to_thread(
-                self._path.open,
+                self.path.open,
                 mode,
                 encoding="utf-8",
                 newline="\n",

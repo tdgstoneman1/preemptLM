@@ -90,13 +90,13 @@ class MoERecorder(BaseEventRecorder):
         Raises
         ------
         RuntimeError
-            If no `TraceStepContext` currently active (i.e. `start_step()`
+            If no `TraceStepContext` currently active (i.e. `start_trace()`
             hasn't been called, yet)
         """
         if self._step_context is None:
             raise RuntimeError(
                 "`capture()` called without an active `TraceStepContext`. "
-                "Call `start_step()` before recording events."
+                "Call `start_trace()` before recording events."
             )
         event_metadata = EventMetadata(
             event_idx=self._event_idx, timestamp=datetime.now(UTC)
@@ -146,7 +146,7 @@ class MoERecorder(BaseEventRecorder):
             return await self._to_sink(sink)
 
         finally:
-            self.end_step()
+            self.stop_trace()
 
     async def _to_sink(self, sink: BaseEventSink) -> int:
         """Internal routine orchestrating evaluation, materialization,

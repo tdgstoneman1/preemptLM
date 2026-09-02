@@ -154,7 +154,7 @@ class MlxExpertCache:
     def get(
         self, key: ExpertKey
     ) -> Mapping[str, mx.array]:  # TODO rename to weights_for
-        """Returns cached expert weights mapped to `key`.
+        """Returns cached expert mapped to `key`.
 
         Parameters
         ----------

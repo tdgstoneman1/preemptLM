@@ -173,7 +173,7 @@ async def run(args: argparse.Namespace, output_path: Path) -> None:
         token_id = 1
         input_ids = mx.array([[token_id]], dtype=mx.int32)
 
-        recorder.start_step(
+        recorder.start_trace(
             TraceStepContext(
                 sequence_id=0,
                 token_idx=0,
