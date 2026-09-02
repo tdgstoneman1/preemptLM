@@ -140,7 +140,7 @@ class PreadExpertBank(BaseExpertBank):
         return SerializedExpert(
             key=key,
             data=data,
-            encoding=self._manifest.payload_encoding,
+            encoding=self._manifest.encoding,
             tensor_specs=self._tensor_specs,
         )
 
@@ -190,7 +190,7 @@ class MmapExpertBank(BaseExpertBank):
         return SerializedExpert(
             key=key,
             data=slice_,
-            encoding=self._manifest.payload_encoding,
+            encoding=self._manifest.encoding,
             tensor_specs=self._tensor_specs,
         )
 

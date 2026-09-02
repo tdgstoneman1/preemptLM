@@ -41,7 +41,7 @@ class ExpertBankManifest(BaseModel):
     model_id: str = Field(min_length=1)
     model_fingerprint: str = Field(min_length=1)
 
-    payload_encoding: str = Field(min_length=1)  # TODO rename
+    encoding: str = Field(min_length=1)  # TODO rename
     tensor_specs: tuple[TensorSpec, ...] = Field(min_length=1)
     model_moe_spec: ModelMoESpec
 

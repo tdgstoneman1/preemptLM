@@ -1,11 +1,3 @@
-"""MLX quantization parameters and encoding tag utilities.
-
-Provides data structures and formatting logic for extracting quantization
-metadata from MLX checkpoints. This includes generating the `payload_encoding`
-tags used to durably record exact scalar types (e.g., `bfloat16`) across
-serialization boundaries.
-"""
-
 from __future__ import annotations
 
 from enum import StrEnum

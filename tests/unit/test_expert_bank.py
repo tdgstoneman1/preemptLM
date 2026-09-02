@@ -21,7 +21,7 @@ def expert_bank_dir(tmp_path: Path) -> Path:
         tmp_path / "store",
         model_id="m",
         model_fingerprint="fp",
-        payload_encoding="test-enc",
+        encoding="test-enc",
         tensor_specs=SPECS,
         model_moe_spec=ModelMoESpec(
             moe_block_idxs=(0, 2), num_routed_experts=2, top_k=1

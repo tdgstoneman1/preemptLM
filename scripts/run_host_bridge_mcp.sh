@@ -93,7 +93,7 @@ if [ ! -x "$VENV_PYTHON" ]; then
     # `uv sync` is not used: this project declares no [build-system], so uv would try to
     # build it as a package and fail. Installing from pyproject.toml directly is the
     # documented working path.
-    SETUP_CMDS="uv venv '$REPO/.venv' && uv pip install -r '$REPO/pyproject.toml' --python '$VENV_PYTHON'"
+    SETUP_CMDS="uv venv '$REPO/.venv' && uv pip add -r '$REPO/pyproject.toml' --python '$VENV_PYTHON'"
     if [ -t 0 ]; then
         printf "    Create it now? [Y/n] "
         read -r reply
@@ -102,7 +102,7 @@ if [ ! -x "$VENV_PYTHON" ]; then
         esac
         say "Creating .venv (this will take a while)"
         uv venv "$REPO/.venv"
-        uv pip install -r "$REPO/pyproject.toml" --python "$VENV_PYTHON"
+        uv pip add -r "$REPO/pyproject.toml" --python "$VENV_PYTHON"
     else
         die "Not a terminal, so not installing unprompted. Run:\n    $SETUP_CMDS"
     fi

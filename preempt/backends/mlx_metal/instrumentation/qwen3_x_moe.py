@@ -22,7 +22,7 @@ from ..types import (
     WeightsTensor,
     QuantizedWeightsTensor,
 )
-from ..expert_kernel import (
+from ..ops import (
     sequential_expert_matmul,
     swiglu_forward_fn,
     fused_expert_matmul,
@@ -130,7 +130,7 @@ class InstrumentedQwen3_xMoE(BaseMoEWrapper):
             expert_idx=expert_idx,
         )
         self.expert_loader.load((key,))
-        tensors = self.expert_cache.tensors(key)
+        tensors = self.expert_cache.get(key)
 
         return {
             name: self._projection_from_tensors(tensors, name)

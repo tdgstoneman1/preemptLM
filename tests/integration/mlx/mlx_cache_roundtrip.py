@@ -49,7 +49,7 @@ from preempt.backends.mlx_metal.utils import mlx_to_numpy
 
 from preempt.utils.hf_utils import resolve_model_dir
 
-from preempt.expert_bank.encoding import parse_payload_encoding_tag
+from preempt.expert_bank.encoding import parse_encoding_tag
 
 from preempt.expert_bank.manifest import ExpertBankManifest
 from preempt.expert_bank.banks import PreadExpertBank
@@ -153,12 +153,12 @@ async def verify_expert(
     block_idx: int,
     expert_idx: int,
 ) -> int:
-    """Read, install, and byte-verify one expert. Returns its blob size."""
+    """Read, add, and byte-verify one expert. Returns its blob size."""
     key = expert_bank.key_for(block_idx, expert_idx)
     payload = await expert_bank.read(key, ReadPriority.DEMAND)
-    residency.install(key, payload)
+    residency.add(payload)
 
-    tensors = residency.tensors(key)
+    tensors = residency.get(key)
     source = source_expert_tensors(cache, layer_tensors, expert_idx)
 
     if set(tensors) != set(source):
@@ -208,9 +208,9 @@ async def verify_pending_graph_survives_eviction(
     """
     key = expert_bank.key_for(block_idx, expert_idx)
     payload = await expert_bank.read(key, ReadPriority.DEMAND)
-    residency.install(key, payload)
+    residency.add(payload)
 
-    scales = residency.tensors(key)["gate_proj.scales"]
+    scales = residency.get(key)["gate_proj.scales"]
     pending = mx.sum(scales.astype(mx.float32))  # lazy: no math has run yet
 
     # An independent copy of the same bytes, evaluated now, is what the pending
@@ -239,7 +239,7 @@ def verify_guards(residency: MlxExpertCache, store: PreadExpertBank) -> None:
     absent = store.key_for(0, 0, variant="not-a-variant")
 
     try:
-        residency.tensors(absent)
+        residency.get(absent)
     except KeyError:
         pass
     else:
@@ -268,7 +268,7 @@ async def verify_encoding_guard(
     foreign = attrs.evolve(payload, encoding="mlx-affine-q4-g64-f16")
 
     try:
-        residency.install(key, foreign)
+        residency.add(foreign)
     except ValueError:
         pass
     else:
@@ -278,7 +278,7 @@ async def verify_encoding_guard(
         )
 
     print(
-        "Encoding guard verified: a mismatched `payload_encoding` raises "
+        "Encoding guard verified: a mismatched `encoding` raises "
         "instead of decoding.",
         flush=True,
     )
@@ -296,8 +296,8 @@ async def run(args: argparse.Namespace) -> None:
 
     with PreadExpertBank(args.expert_bank) as bank:
         manifest = bank.manifest
-        encoding = parse_payload_encoding_tag(manifest.payload_encoding)
-        print(f"Encoding: {manifest.payload_encoding} -> {encoding!r}", flush=True)
+        encoding = parse_encoding_tag(manifest.encoding)
+        print(f"Encoding: {manifest.encoding} -> {encoding!r}", flush=True)
 
         residency = MlxExpertCache(encoding=encoding)  # type: ignore
         installed_bytes = 0
@@ -323,10 +323,10 @@ async def run(args: argparse.Namespace) -> None:
                     f"`size` is {residency.size()}; "
                     f"{installed_bytes} bytes have been installed."
                 )
-            if not residency.is_resident(bank.key_for(block_idx, expert_idx)):
+            if not bank.key_for(block_idx, expert_idx) not in residency:
                 raise RuntimeError(
                     f"Expert (layer {block_idx}, expert {expert_idx}) is not "
-                    "resident after `install`."
+                    "resident after `add`."
                 )
 
         print(

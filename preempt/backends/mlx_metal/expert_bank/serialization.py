@@ -252,7 +252,7 @@ def model_to_expert_bank(
         expert_bank_dir,
         model_id=model_id if model_id is not None else ckpt_path.name,
         model_fingerprint=hash_model_ckpt(ckpt_path),
-        payload_encoding=encoding,
+        encoding=encoding,
         tensor_specs=specs,
         model_moe_spec=model_moe_spec,
         overwrite=overwrite,

@@ -21,7 +21,7 @@ class ExpertBankWriter:
     _model_id: str
     _model_fingerprint: str
 
-    _payload_encoding: str
+    _encoding: str
     _tensor_specs: tuple[TensorSpec, ...]
     _model_moe_spec: ModelMoESpec
 
@@ -39,7 +39,7 @@ class ExpertBankWriter:
         *,
         model_id: str,
         model_fingerprint: str,
-        payload_encoding: str,
+        encoding: str,
         tensor_specs: tuple[TensorSpec, ...],
         model_moe_spec: ModelMoESpec,
         alignment: int = 4096,
@@ -48,7 +48,7 @@ class ExpertBankWriter:
         self._store_dir = Path(expert_bank_path)
         self._model_id = model_id
         self._model_fingerprint = model_fingerprint
-        self._payload_encoding = payload_encoding
+        self._encoding = encoding
         self._tensor_specs = tensor_specs
         self._model_moe_spec = model_moe_spec
         self._alignment = alignment
@@ -110,7 +110,7 @@ class ExpertBankWriter:
         manifest = ExpertBankManifest(
             model_id=self._model_id,
             model_fingerprint=self._model_fingerprint,
-            payload_encoding=self._payload_encoding,
+            encoding=self._encoding,
             alignment=self._alignment,
             tensor_specs=self._tensor_specs,
             model_moe_spec=self._model_moe_spec,

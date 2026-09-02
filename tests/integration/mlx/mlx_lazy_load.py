@@ -140,7 +140,7 @@ def main() -> None:
         f"indices {layers[0].block_idx}..{layers[-1].block_idx}."
     )
 
-    # No recorder, no provider: instrumentation only needs to install the
+    # No recorder, no provider: instrumentation only needs to add the
     # wrappers so the strip can reach each `inner.switch_mlp`.
     mlx_instrument_model(
         loaded.model,

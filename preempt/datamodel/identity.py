@@ -41,7 +41,7 @@ class TensorSpec(BaseModel):  # TODO use attrs
         Tensor name (in dot notation) relative to an expert, e.g. `gate_proj.weight`
     dtype : str
         NumPy dtype name of the raw bytes, e.g. `uint32`. Note that `bfloat16`
-        tensors appear as `uint16` here, which the expert bank's `payload_encoding`
+        tensors appear as `uint16` here, which the expert bank's `encoding`
         scalar tag disambiguates.
     shape : tuple[int, ...]
         Tensor shape relative to an expert (no leading batch or expert dims)

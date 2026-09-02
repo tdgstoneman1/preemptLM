@@ -29,7 +29,7 @@ class ReadPriority(IntEnum):
     PREFETCH = 1
 
 
-class CachePolicy(StrEnum):
+class CacheEvictionPolicy(StrEnum):
     """Determines the eviction strategy for in-memory experts. Eviction occurs
     when a requested expert is not found in memory and there is insufficient
     memory available to load it from disk.

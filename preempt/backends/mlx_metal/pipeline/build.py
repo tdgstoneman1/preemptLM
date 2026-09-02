@@ -24,7 +24,7 @@ from preempt.engine.layer_resolution import (
 )
 from preempt.engine.expert_loaders import DiskBackedExpertLoader
 
-from preempt.expert_bank.encoding import parse_payload_encoding_tag
+from preempt.expert_bank.encoding import parse_encoding_tag
 from preempt.expert_bank.banks import BaseExpertBank, PreadExpertBank, MmapExpertBank
 
 from preempt.datamodel.tracing.context import TraceRunContext
@@ -67,7 +67,7 @@ def _get_streaming_deps(
         bypass_page_cache=config.stream_settings.bypass_page_cache,
     )
     cache = MlxExpertCache(
-        encoding=parse_payload_encoding_tag(expert_bank.manifest.payload_encoding)  # type: ignore
+        encoding=parse_encoding_tag(expert_bank.manifest.encoding)  # type: ignore
     )
     cache_manager = ExpertCacheManager(
         budget_bytes=config.stream_settings.memory_bytes_budget

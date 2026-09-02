@@ -67,7 +67,7 @@ At $h = 0.8$ — an ambitious but plausible target for learned prefetch + LRU �
 | `preempt/core/`               | Shared vocabulary:`enums.py` (`ParquetCompressionCodecs`), `protocols.py` (`IExpertCache` / `IExpertLoader` / `ITokenizer` / `IModelRunner` capability protocols).                                                                                                                                                                                                                                                                                                                                                                                            | MLX, PyTorch, backends, model adapters, training libs |
 | `preempt/datamodel/`          | Shared data classes:`arrow.py` (attrs↔Arrow field-metadata machinery) and `tracing/` (`TraceRunContext`, `TraceStepContext`, `ExpertRoutingEvent`, `EventMetadata`, `LayerIdentifiers`). Engine-side records (`ModelManifest`, `LoadRequest`, `PredictionRequest`, …) are not written yet. `identity.py` (`ExpertKey`, `TensorSpec`)                                                                                                                                                                                                            | Backends, trainers, ORMs, concrete storage            |
 | `preempt/config/`             | **Pydantic config models parsed from TOML.** `target_layers.py` (`TargetLayers` / `TargetLayerSpec` / `TargetLayerSearchParams`). Concrete config files live in `configs/*.toml`.                                                                                                                                                                                                                                                                                                                                                                           | Backends, models, engine internals                    |
-| `preempt/expert_bank/`        | Operations and interfaces for expert bank on disk:`banks.py` (`PreadExpertBank` — one `pread` per expert, `F_NOCACHE` page-cache bypass, `MmapExpertBank` – reads expert blobs from memory-mapped `experts.bin` ), `manifest.py` (`ExpertBankManifest`, model MoE spec + blob index), `writer.py` (`ExpertBankWriter`), `blob.py` (helper functions), `encoding.py` (`ExpertBankEncoding` + `parse_payload_encoding_tag`)                                                                                                                        | Backends, engine internals                            |
+| `preempt/expert_bank/`        | Operations and interfaces for expert bank on disk:`banks.py` (`PreadExpertBank` — one `pread` per expert, `F_NOCACHE` page-cache bypass, `MmapExpertBank` – reads expert blobs from memory-mapped `experts.bin` ), `manifest.py` (`ExpertBankManifest`, model MoE spec + blob index), `writer.py` (`ExpertBankWriter`), `blob.py` (helper functions), `encoding.py` (`ExpertBankEncoding` + `parse_encoding_tag`)                                                                                                                        | Backends, engine internals                            |
 | `preempt/engine/`             | **Decisions, inference, and coordination.** `layer_resolution.py` (platform-agnostic layer resolution — `LayerCandidate`, `match_target_layers`, `resolve_target_layers`), `recorder.py` (`BaseEventRecorder`, the trace-lifecycle ABC). The streaming scheduler is now written: `DiskBackedExpertLoader` (`scheduler.py`), `ExpertCacheManager` (`expert_cache.py`, LFRU eviction), chunked `generation.py`, `pipeline.py`, `BaseEventSink` async ABC + `ParquetEventSink` + `JsonlFileEventSink` (`sinks.py`), and `metrics.py`. | `backends/*` concrete classes, model-specific code  |
 | `preempt/backends/mlx_metal/` | Platform-specific execution and instrumentation:`layer_discovery.py` (enumerate MLX modules), `instrument.py` (`mlx_instrument_model` via `update_modules`/`tree_unflatten`, plus `mlx_strip_instrumented_expert_weights`), `recorder.py` (`MoERecorder`), `types.py` (`ModuleWrapperFactory` alias), `instrumented/` (forked-forward capture wrappers). Streaming/residency I/O now written: `expert_kernel.py` (the expert-major kernel), `residency.py` (`MlxExpertCache`), lazy expert load in `loader.py`.                                  | Scheduler/policy logic                                |
 | `preempt/predictors/`         | Predictor runtimes behind one contract: heuristic baseline, linear probe, transformer predictor later.**Empty.**                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Engine internals                                      |
@@ -271,11 +271,11 @@ Explicitly deferred: serving/API, speculative decoding, KV persistence, dual-SSD
 
   ```bash
   uv venv /home/agent/.venvs/preempt-linux --python 3.12
-  uv pip install -r pyproject.toml --python /home/agent/.venvs/preempt-linux/bin/python
+  uv pip add -r pyproject.toml --python /home/agent/.venvs/preempt-linux/bin/python
   ```
 
-  `uv pip install -r pyproject.toml` reads the `[project].dependencies` list directly. Do
-  **not** try `uv pip install -e .` — editable installs fail here on setuptools package
+  `uv pip add -r pyproject.toml` reads the `[project].dependencies` list directly. Do
+  **not** try `uv pip add -e .` — editable installs fail here on setuptools package
   discovery. Because nothing is installed as a package, `preempt` is imported off
   `PYTHONPATH` instead:
 
@@ -287,7 +287,7 @@ Explicitly deferred: serving/API, speculative decoding, KV persistence, dual-SSD
 Notes:
 
 - Always invoke the venv's `pytest` by absolute path, or pass `--python <venv>/bin/python`
-  to `uv`. Activating the environment is not enough — a bare `pytest`/`uv pip install` can
+  to `uv`. Activating the environment is not enough — a bare `pytest`/`uv pip add` can
   resolve against `.venv` and silently write to it.
 - The Linux env can only exercise MLX-free code. Anything under `backends/mlx_metal/`, and both
   scripts in `tests/integration/`, need the macOS host — run those through the host-bridge MCP

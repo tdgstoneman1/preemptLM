@@ -186,11 +186,11 @@ def dtype_tag_from_arrays(arrays: Mapping[str, mx.array], quantized: bool) -> st
 
 
 def make_encoding_tag(quant: QuantSettings | None, dtype_tag: str) -> str:
-    """Generates the payload encoding tag for the expert bank.
+    """Generates the encoding tag for the expert bank.
 
     Produces a formatted string identifying the quantization state and
     exact scalar dtype of the tensor. This tag must be kept in sync with
-    the parsing logic in `preempt.core.encoding.parse_payload_encoding_tag()`
+    the parsing logic in `preempt.core.encoding.parse_encoding_tag()`
     to ensure bit-exact decoding.
 
     Parameters

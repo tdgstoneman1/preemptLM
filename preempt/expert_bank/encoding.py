@@ -15,14 +15,14 @@ from preempt.core.constants import (
 # TODO add support for more scalar dtypes e.g. int8
 @attrs.define(kw_only=True, frozen=True)
 class ExpertBankEncoding:
-    """The model encoding information corresponding to an expert bank's
-    `payload_encoding` tag, for example `'mlx-affine-q8-g64-bf16'`
+    """An expert bank's model encoding information corresponding to the `encoding`
+    tag in its manifest, for example `'mlx-affine-q8-g64-bf16'`
 
     Attributes
     ----------
     family : str
-        The backend that produced the encoding (e.g. 'mlx') and defines the
-        binary layout/quantization conventions for handling weights.
+        The backend used to run the model, e.g. 'mlx'. Defines binary layout/
+        quantization conventions for handling weights.
     mode : str | None
         Quantization mode (e.g. `affine`), or `None` if unquantized. Since this
         class is backend-agnostic, validation of non-empty strings against a
@@ -48,11 +48,11 @@ class ExpertBankEncoding:
 
     @classmethod
     def from_tag(cls, tag: str) -> ExpertBankEncoding:
-        return parse_payload_encoding_tag(tag)
+        return parse_encoding_tag(tag)
 
 
-def parse_payload_encoding_tag(tag: str) -> ExpertBankEncoding:
-    """Decodes a payload encoding tag into its components.
+def parse_encoding_tag(tag: str) -> ExpertBankEncoding:
+    """Decodes a encoding tag into its components.
 
     Parameters
     ----------
@@ -76,21 +76,19 @@ def parse_payload_encoding_tag(tag: str) -> ExpertBankEncoding:
     """
     match = UNQUANTIZED_RE.match(tag) or QUANTIZED_RE.match(tag)
     if match is None:
-        raise ValueError(
-            f"Malformed payload encoding tag '{tag!r}'; expected '{TAG_GRAMMAR}'."
-        )
+        raise ValueError(f"Malformed encoding tag '{tag!r}'; expected '{TAG_GRAMMAR}'.")
 
     family = match["family"]
     if family not in KNOWN_FAMILIES:
         raise ValueError(
-            f"Unknown payload encoding family '{family!r}' in tag '{tag!r}'; "
+            f"Unknown encoding family '{family!r}' in tag '{tag!r}'; "
             f"known families: {sorted(KNOWN_FAMILIES)}."
         )
 
     scalar = match["scalar"]
     if scalar not in KNOWN_SCALARS:
         raise ValueError(
-            f"Unknown payload encoding scalar '{scalar!r}' in tag '{tag!r}'; "
+            f"Unknown encoding scalar '{scalar!r}' in tag '{tag!r}'; "
             f"known scalars: {sorted(KNOWN_SCALARS)}."
         )
 
@@ -104,7 +102,7 @@ def parse_payload_encoding_tag(tag: str) -> ExpertBankEncoding:
     group_size = int(groups["group_size"])
     if bits < 1 or group_size < 1:
         raise ValueError(
-            f"Malformed payload encoding tag '{tag!r}': bits and group size must "
+            f"Malformed encoding tag '{tag!r}': bits and group size must "
             f"be positive, but got `{bits=}` and `{group_size=}`."
         )
 

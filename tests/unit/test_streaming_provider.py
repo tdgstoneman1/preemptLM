@@ -7,7 +7,7 @@ from collections.abc import Sequence
 import asyncio
 
 from preempt.datamodel.identity import ExpertKey, TensorSpec
-from preempt.core.enums import CachePolicy
+from preempt.core.enums import CacheEvictionPolicy
 
 from preempt.core.protocols import IExpertLoader
 from preempt.core.protocols import IExpertCache
@@ -71,7 +71,7 @@ class FakeCache:
         self.installs: list[ExpertKey] = []
         self.evictions: list[ExpertKey] = []
 
-    def install(self, key: ExpertKey, payload: SerializedExpert) -> None:
+    def add(self, key: ExpertKey, payload: SerializedExpert) -> None:
         self.payloads[key] = payload
         self.installs.append(key)
 
@@ -90,7 +90,7 @@ def build(
     *,
     budget_experts: int = 4,
     expert_bank: FakeExpertBank | None = None,
-    policy: CachePolicy = CachePolicy.LFRU,
+    policy: CacheEvictionPolicy = CacheEvictionPolicy.LFRU,
 ) -> tuple[FakeExpertBank, FakeCache, ExpertCacheManager, GenerationMetrics]:
     return (
         expert_bank if expert_bank is not None else FakeExpertBank(),
@@ -236,8 +236,8 @@ async def test_lru_and_lfru_evict_different_victims_on_the_same_pattern() -> Non
         (key(3),),
     ]
 
-    victims: dict[CachePolicy, list[ExpertKey]] = {}
-    for policy in (CachePolicy.LFRU, CachePolicy.LRU):
+    victims: dict[CacheEvictionPolicy, list[ExpertKey]] = {}
+    for policy in (CacheEvictionPolicy.LFRU, CacheEvictionPolicy.LRU):
         expert_bank, cache, cache_manager, metrics = build(
             budget_experts=3, policy=policy
         )
@@ -250,8 +250,8 @@ async def test_lru_and_lfru_evict_different_victims_on_the_same_pattern() -> Non
         )
         victims[policy] = cache.evictions
 
-    assert victims[CachePolicy.LFRU] == [key(2)]
-    assert victims[CachePolicy.LRU] == [key(0)]
+    assert victims[CacheEvictionPolicy.LFRU] == [key(2)]
+    assert victims[CacheEvictionPolicy.LRU] == [key(0)]
 
 
 async def test_stall_time_accumulates_only_for_demand_reads() -> None:

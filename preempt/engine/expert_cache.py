@@ -8,7 +8,7 @@ from attrs import field
 import random
 
 from preempt.datamodel.identity import ExpertKey
-from preempt.core.enums import CachePolicy
+from preempt.core.enums import CacheEvictionPolicy
 
 # TODO rename module
 
@@ -58,26 +58,25 @@ class ExpertCacheManager:
     the max sequence length).
     """
 
-    _budget_bytes: int  # TODO rename to '_memory_budget'
-    _policy: CachePolicy
-    _sample_size: int  # TODO rename
+    _budget_bytes: int
+    _policy: CacheEvictionPolicy
+    _eviction_sample_size: int
     _rng: random.Random
 
     _entries: dict[ExpertKey, _Entry]
-    _keys: list[ExpertKey]  # TODO rename to '_expert_keys'
-    _resident_bytes: int  # TODO rename
+    _bytes_size: int
     _clock: int
 
-    _hits: int  # TODO rename to '_num_hits'
-    _misses: int  # TODO rename to '_num_misses'
-    _evictions: int  # TODO rename to '_num_evictions'
-    _bytes_read: int
+    _num_hits: int
+    _num_misses: int
+    _num_evictions: int
+    _num_bytes_read: int
 
     def __init__(
         self,
         *,
         budget_bytes: int,
-        policy: CachePolicy = CachePolicy.LFRU,
+        policy: CacheEvictionPolicy = CacheEvictionPolicy.LFRU,
         sample_size: int = 5,
         seed: int = 67,
     ) -> None:
@@ -86,8 +85,8 @@ class ExpertCacheManager:
         ----------
         budget_bytes : int
             Maximum memory footprint allowed across all cached expert layers
-        policy : CachePolicy
-            Eviction ranking policy (LFRU or LRU), by default CachePolicy.LFRU
+        policy : CacheEvictionPolicy
+            Eviction ranking policy (LFRU or LRU), by default CacheEvictionPolicy.LFRU
         sample_size : int
             Number of experts sampled for an eviction decision. When the number of cached
             experts exceeds this, random sampling is used. Otherwise, all cached experts
@@ -111,50 +110,50 @@ class ExpertCacheManager:
 
         self._budget_bytes = budget_bytes
         self._policy = policy
-        self._sample_size = sample_size
+        self._eviction_sample_size = sample_size
         self._rng = random.Random(seed)
 
         self._entries = dict()
         self._keys = list()
-        self._resident_bytes = 0
+        self._bytes_size = 0
         self._clock = 0
 
-        self._hits = 0
-        self._misses = 0
-        self._evictions = 0
-        self._bytes_read = 0
+        self._num_hits = 0
+        self._num_misses = 0
+        self._num_evictions = 0
+        self._num_bytes_read = 0
 
     @property
     def budget_bytes(self) -> int:
         return self._budget_bytes
 
     @property
-    def policy(self) -> CachePolicy:
+    def policy(self) -> CacheEvictionPolicy:
         return self._policy
 
     @property
     def cache_size(self) -> int:
-        return self._resident_bytes
+        return self._bytes_size
 
     @property
     def hits(self) -> int:
         """Number of demand accesses where an expert was already cached"""
-        return self._hits
+        return self._num_hits
 
     @property
     def misses(self) -> int:
         """Number of demand accesses where an expert had to be read from disk"""
-        return self._misses
+        return self._num_misses
 
     @property
     def evictions(self) -> int:
         """Number of evictions required to make room for new entries"""
-        return self._evictions
+        return self._num_evictions
 
     @property
     def bytes_read(self) -> int:
         """Total number of bytes read from expert bank on disk"""
-        return self._bytes_read
+        return self._num_bytes_read
 
     def __contains__(self, key: ExpertKey) -> bool:
         return key in self._entries
@@ -176,13 +175,11 @@ class ExpertCacheManager:
             `True` if the key was found in cache (frequency and recency updated),
             `False` otherwise (caller should read the expert and call `admit(...)`).
         """
-        entry = self._entries.get(key)
-
-        if entry is None:
-            self._misses += 1
+        if (entry := self._entries.get(key)) is None:
+            self._num_misses += 1
             return False
 
-        self._hits += 1
+        self._num_hits += 1
         self._clock += 1
 
         entry.freq += 1
@@ -198,7 +195,7 @@ class ExpertCacheManager:
         key : ExpertKey
             Key identifying an expert
         num_bytes : int
-            The expert's payload size in bytes
+            The serialized expert's size in bytes
 
         Returns
         -------
@@ -214,43 +211,43 @@ class ExpertCacheManager:
         """
         if num_bytes > self._budget_bytes:
             raise ValueError(
-                f"The size of expert {key!r} ({num_bytes} bytes) exceeds the "
-                f"cache's total memory budget ({self._budget_bytes} bytes)."
+                f"The size of expert {key!r} ({num_bytes/1024**3} GB) exceeds the "
+                f"cache's total memory budget ({self._budget_bytes/1024**3} GB)."
             )
 
         if key in self._entries:
             return tuple()
 
-        self._bytes_read += num_bytes
+        self._num_bytes_read += num_bytes
 
         evicted: list[ExpertKey] = []
-        while self._resident_bytes + num_bytes > self._budget_bytes:
-            victim = self._select_victim()
-            self._remove(victim)
+        while self._bytes_size + num_bytes > self._budget_bytes:
+            target = self._select_eviction_target()
+            self.evict(target)
 
-            self._evictions += 1
-            evicted.append(victim)
+            evicted.append(target)
+            self._num_evictions += 1
 
         self._clock += 1
         self._entries[key] = _Entry(
             num_bytes=num_bytes, freq=1, last=self._clock, slot=len(self._keys)
         )
         self._keys.append(key)
-        self._resident_bytes += num_bytes
+        self._bytes_size += num_bytes
 
         return tuple(evicted)
 
-    def _select_victim(self) -> ExpertKey:  # TODO rename
+    def _select_eviction_target(self) -> ExpertKey:
         candidates: Sequence[ExpertKey]
 
-        if len(self._keys) <= self._sample_size:
+        if len(self._keys) <= self._eviction_sample_size:
             candidates = self._keys
         else:
             # Sampling is cheaper w/ replacement than w/o, impact negligible when
             # cache size >> sample_size (see `waste/src/ecache.c:378` for similar approach)
             candidates = [
                 self._keys[self._rng.randrange(len(self._keys))]
-                for _ in range(self._sample_size)
+                for _ in range(self._eviction_sample_size)
             ]
 
         return min(candidates, key=self._rank)
@@ -258,12 +255,12 @@ class ExpertCacheManager:
     def _rank(self, key: ExpertKey) -> tuple[int, int]:
         entry = self._entries[key]
 
-        if self._policy is CachePolicy.LRU:
+        if self._policy is CacheEvictionPolicy.LRU:
             return (0, entry.last)
 
         return (entry.freq, entry.last)
 
-    def _remove(self, key: ExpertKey) -> None:
+    def evict(self, key: ExpertKey) -> None:
         entry = self._entries.pop(key)
         moved = self._keys.pop()
 
@@ -271,4 +268,4 @@ class ExpertCacheManager:
             self._keys[entry.slot] = moved
             self._entries[moved].slot = entry.slot
 
-        self._resident_bytes -= entry.num_bytes
+        self._bytes_size -= entry.num_bytes

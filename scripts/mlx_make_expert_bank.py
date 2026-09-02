@@ -93,7 +93,7 @@ def main() -> None:
 
     Size per expert: {expert_num_mb:,} MB ({total_mb:,} MB total)
     Model id: {manifest.model_id.lstrip(".").lstrip("/")!r}
-    Encoding: {manifest.payload_encoding!r}
+    Encoding: {manifest.encoding!r}
     Hash: {manifest.model_fingerprint!r}
     """))
 

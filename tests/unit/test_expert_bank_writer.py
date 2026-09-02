@@ -20,7 +20,7 @@ def make_writer(tmp_path: Path, **kwargs) -> ExpertBankWriter:
         tmp_path / "store",
         model_id="m",
         model_fingerprint="fp",
-        payload_encoding="test-enc",
+        encoding="test-enc",
         tensor_specs=SPECS,
         model_moe_spec=TOPOLOGY,
         alignment=8,

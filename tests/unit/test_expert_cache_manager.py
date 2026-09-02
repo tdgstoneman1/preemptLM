@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from preempt.datamodel.identity import ExpertKey
-from preempt.core.enums import CachePolicy
+from preempt.core.enums import CacheEvictionPolicy
 
 from preempt.engine.expert_cache import ExpertCacheManager
 
@@ -116,7 +116,7 @@ def test_resident_bytes_never_exceeds_budget_under_a_mixed_workload() -> None:
     assert manager.evictions > 0
 
 
-def _scripted_cache(policy: CachePolicy) -> ExpertCacheManager:
+def _scripted_cache(policy: CacheEvictionPolicy) -> ExpertCacheManager:
     """Build a 3-entry manager whose LFRU and LRU victims differ.
 
     After the script: `A` is the least recently used but the most frequently
@@ -137,13 +137,13 @@ def _scripted_cache(policy: CachePolicy) -> ExpertCacheManager:
 
 
 def test_lfru_evicts_the_least_frequently_used_entry() -> None:
-    manager = _scripted_cache(CachePolicy.LFRU)
+    manager = _scripted_cache(CacheEvictionPolicy.LFRU)
 
     assert manager.admit(key(9), UNIT) == (key(2),)
 
 
 def test_lru_evicts_the_least_recently_used_entry() -> None:
-    manager = _scripted_cache(CachePolicy.LRU)
+    manager = _scripted_cache(CacheEvictionPolicy.LRU)
 
     assert manager.admit(key(9), UNIT) == (key(0),)
 

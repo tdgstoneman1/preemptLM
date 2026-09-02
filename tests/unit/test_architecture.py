@@ -8,7 +8,7 @@ from preempt.backends.mlx_metal.expert_bank.base_adapter import BaseMoEArchAdapt
 from preempt.backends.mlx_metal.expert_bank.qwen3_x import Qwen3_xArchAdapter
 from preempt.backends.mlx_metal.expert_bank.serialization import model_to_expert_bank
 
-from preempt.backends.mlx_metal.expert_kernel import sequential_expert_matmul
+from preempt.backends.mlx_metal.ops import sequential_expert_matmul
 from preempt.backends.mlx_metal.quantization import QuantSettings
 
 

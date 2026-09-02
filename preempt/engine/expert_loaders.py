@@ -55,10 +55,10 @@ class DiskBackedExpertLoader:
         expert_bank : BaseExpertBank
             Source of expert payloads. Read when an MoE router selects an expert that has not
             been loaded into memory and must be read from disk.
-        residency : IExpertCache
+        cache : IExpertCache
             Decodes expert payloads into live device tensors and manages their lifecycle in
             memory.
-        cache : ExpertCacheManager
+        cache_manager : ExpertCacheManager
             Tracks and manages cached experts within allowed memory budget
         loop : asyncio.AbstractEventLoop
             Event loop on which expert bank reads are scheduled
@@ -95,15 +95,15 @@ class DiskBackedExpertLoader:
             )
             for key in cache_misses
         ]
-        loaded_payloads = [f.result() for f in futures]
+        loaded = [f.result() for f in futures]
         elapsed = time.perf_counter() - start_time
 
-        for payload in loaded_payloads:
-            for victim in self._cache_manager.admit(payload.key, len(payload.data)):
+        for expert in loaded:
+            for victim in self._cache_manager.admit(expert.key, len(expert.data)):
                 self._cache.evict(victim)
 
-            self._cache.install(payload.key, payload)
+            self._cache.add(expert)
 
         if self._metrics is not None:
             self._metrics.demand_stall_s += elapsed
-            self._metrics.prefetched_bytes += len(payload.data)
+            self._metrics.prefetched_bytes += len(expert.data)

@@ -11,34 +11,23 @@ from preempt.datamodel.experts import SerializedExpert
 class IExpertCache(Protocol):
     """Interface for caching experts in memory."""
 
-    def install(
-        self, key: ExpertKey, payload: SerializedExpert
-    ) -> None:  # TODO to cache_expert
-        """Decodes `payload` into weights and caches them under `key`."""
+    def __contains__(self, item) -> bool: ...
+
+    def add(self, expert: SerializedExpert) -> None:
+        """Adds expert to the cache."""
         ...
 
     def evict(self, key: ExpertKey) -> None:
-        """Drops the tensors mapped to `key` from the cache."""
-        ...
-
-    def is_resident(self, key: ExpertKey) -> bool:
-        """Checks if `key` is in the cache."""
+        """Drops the data mapped to `key` from the cache."""
         ...
 
     def size(self) -> int:
         """Total size of the cache in bytes."""
         ...
 
-    def tensors(self, key: Hashable) -> Mapping[str, Any]:
-        """Returns cache expert weight tensors mapped to `key`"""
+    def get(self, key: Hashable) -> Mapping[str, Any]:
+        """Returns cache weight tensors for `key`"""
         ...
-
-
-# @runtime_checkable
-# class IExpertBank(Protocol):
-#     """Read-only source of expert blobs keyed by `ExpertKey`"""
-
-#     async def read(self, key: ExpertKey, priority: ReadPriority) -> SerializedExpert: ...
 
 
 @runtime_checkable

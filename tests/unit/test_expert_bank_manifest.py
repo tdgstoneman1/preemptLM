@@ -24,7 +24,7 @@ def make_manifest() -> ExpertBankManifest:
     return ExpertBankManifest(
         model_id="some/model",
         model_fingerprint="fp",
-        payload_encoding="mlx-affine-q4-g64",
+        encoding="mlx-affine-q4-g64",
         tensor_specs=specs,
         model_moe_spec=ModelMoESpec(
             moe_block_idxs=(1, 3), num_routed_experts=2, top_k=1

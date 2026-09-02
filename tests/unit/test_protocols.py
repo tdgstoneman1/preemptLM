@@ -40,10 +40,12 @@ class FakeTokenizer:
 
 
 class FakeCache:
-    def install(self, key: ExpertKey, payload: SerializedExpert) -> None: ...
-    def evict(self, key: ExpertKey) -> None: ...
-    def is_resident(self, key: ExpertKey) -> bool:
+    def __contains__(self, item) -> bool:
         return True
+
+    def add(self, key: ExpertKey, payload: SerializedExpert) -> None: ...
+
+    def evict(self, key: ExpertKey) -> None: ...
 
     def size(self) -> int:
         return 0
