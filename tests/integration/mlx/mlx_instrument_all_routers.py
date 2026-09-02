@@ -51,10 +51,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from preempt.backends.mlx_metal.instrument import mlx_instrument_model
-from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import (
-    InstrumentedQwen3_xMoE,
-    make_qwen3_x_moe_wrapper_factory,
-)
+from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import InstrumentedQwen3_xMoE
 from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
 from preempt.backends.mlx_metal.recorder import MoERecorder
 from preempt.backends.mlx_metal.runner import MlxModelRunner
@@ -256,7 +253,7 @@ def instrument_router_layers(
     mlx_instrument_model(
         model,
         layers,
-        make_qwen3_x_moe_wrapper_factory(
+        InstrumentedQwen3_xMoE.make_factory(
             recorder,
             capture_gate_logits=capture_gate_logits,
         ),

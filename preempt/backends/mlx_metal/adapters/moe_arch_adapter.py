@@ -14,7 +14,7 @@ from preempt.expert_bank.manifest import ModelMoESpec
 from ..quantization import QuantSettings
 
 
-class MoEArchAdapter(ABC):
+class BaseMoEArchAdapter(ABC):
     """*Abstract; do not instantiate*
 
     Defines architecture-specific parameters for MLX MoE checkpoint conversion

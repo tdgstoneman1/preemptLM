@@ -1,25 +1,22 @@
-from typing import TypeVar
+from typing import TypeVar, NamedTuple
 from collections.abc import Callable, Mapping
 
 import attrs
 from attrs import field
 
 import mlx.nn as nn
+import mlx.core as mx
 
 from preempt.engine.layer_resolution import LayerCandidate
-
 from preempt.core.protocols import ITokenizer
 
-from .adapters.moe_arch_adapter import MoEArchAdapter
+from .quantization import QuantSettings
 
 MlxModuleT = TypeVar("MlxModuleT", bound=nn.Module)
 
-MlxWrapperFactory = Callable[[MlxModuleT, LayerCandidate], nn.Module]
-
-MlxArchAdapterFactory = Callable[[], MoEArchAdapter]
+ModuleWrapperFactory = Callable[[MlxModuleT, LayerCandidate], nn.Module]
 
 
-# ExpertProjections = Mapping[str, ]
 @attrs.define(kw_only=True, frozen=True, eq=False)
 class MlxLoadedModel:
     """An `mlx_lm` model-tokenizer pair.
@@ -35,3 +32,21 @@ class MlxLoadedModel:
 
     model: nn.Module = field()
     tokenizer: ITokenizer = field()
+
+
+# TODO remove weights data classes, adds unnecessary boilerplate
+class WeightsTensor(NamedTuple):
+    weight: mx.array
+
+
+@attrs.define(kw_only=True, frozen=True, eq=False)
+class QuantizedWeightsTensor(QuantSettings):
+    weight: mx.array
+    scales: mx.array
+    biases: mx.array | None
+
+
+ExpertLayerWeights = Mapping[str, WeightsTensor | QuantizedWeightsTensor]
+
+# TODO this is reduntant, quant settings already present in QuantizedWeightsTensor
+ExpertLayerQuants = Mapping[str, QuantSettings]

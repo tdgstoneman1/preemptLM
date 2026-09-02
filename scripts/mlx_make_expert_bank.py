@@ -51,7 +51,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=str,
         required=True,
         help="Name of a MoE architecture adapter. Currently, this must be "
-        "an architecture registered in `DefaultMoEArchAdapterRegistry`.",
+        "an architecture registered in `DefaultArchClassRegistry`.",
     )
     return parser.parse_args(argv)
 
@@ -60,12 +60,12 @@ def main() -> None:
     args = parse_args()
 
     from preempt.backends.mlx_metal.adapters.registry import (
-        DefaultMoEArchAdapterRegistry,
+        DefaultArchClassRegistry,
     )
 
-    registry = DefaultMoEArchAdapterRegistry()
-    architecture = registry.get(args.architecture)
-
+    architecture = DefaultArchClassRegistry.get_arch_adapter(
+        args.architecture, instantiate=True
+    )
     model_dir = resolve_model_dir(args.model)
     print(
         f"\nConverting model {model_dir.absolute().as_posix()} "

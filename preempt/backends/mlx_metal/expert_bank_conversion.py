@@ -20,7 +20,7 @@ from preempt.expert_bank.manifest import ExpertBankManifest
 from preempt.expert_bank.writer import ExpertBankWriter
 
 from .utils import mlx_to_numpy, make_encoding_tag
-from .adapters.moe_arch_adapter import MoEArchAdapter
+from .adapters.moe_arch_adapter import BaseMoEArchAdapter
 
 
 def hash_model_ckpt(ckpt_path: Path) -> str:
@@ -47,7 +47,7 @@ def hash_model_ckpt(ckpt_path: Path) -> str:
 
 
 def build_tensor_shard_index(
-    ckpt_path: Path, architecture: MoEArchAdapter
+    ckpt_path: Path, architecture: BaseMoEArchAdapter
 ) -> dict[str, Path]:
     """Indexes the file locations of all routed expert tensors in a checkpoint.
 
@@ -60,7 +60,7 @@ def build_tensor_shard_index(
     ----------
     ckpt_path : Path
         Local path to a Hugging Face model's checkpoint directory
-    architecture : MoEArchAdapter
+    architecture : BaseMoEArchAdapter
         The architecture definition providing the regex to identify expert
         weight tensors
 
@@ -86,7 +86,7 @@ def build_tensor_shard_index(
 
 def group_expert_tensors_by_layer(
     shard_index: Mapping[str, Path],
-    architecture: MoEArchAdapter,
+    architecture: BaseMoEArchAdapter,
 ) -> dict[int, dict[str, str]]:
     """Returns a dictionary of weight tensors grouped and keyed by layer index.
     Each group's nested dictionary maps a tensor's path relative to its parent
@@ -96,7 +96,7 @@ def group_expert_tensors_by_layer(
     ----------
     shard_index : Mapping[str, Path]
         Mapping of a tensor's full, dotted path to its file location
-    architecture : MoEArchAdapter
+    architecture : BaseMoEArchAdapter
         Adapter providing regex patterns to parse tensor paths
 
     Returns
@@ -181,7 +181,7 @@ def model_to_expert_bank(
     ckpt_path: Path,
     expert_bank_dir: Path,
     *,
-    architecture: MoEArchAdapter,
+    architecture: BaseMoEArchAdapter,
     model_id: str | None = None,
     max_moe_blocks: int | None = None,
     overwrite: bool = False,
@@ -194,7 +194,7 @@ def model_to_expert_bank(
         Local path to a Hugging Face model's checkpoint directory
     expert_bank_dir : Path
         Local directory where `experts.bin` and `manifest.json` will be written
-    architecture : MoEArchAdapter
+    architecture : BaseMoEArchAdapter
         Adapter defining the checkpoint's MoE structural patterns
     model_id : str | None
         A unique identifier used for compatibility checks when loading the saved expert bank.

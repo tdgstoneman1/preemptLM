@@ -4,20 +4,20 @@ import pytest
 
 import inspect
 
-from preempt.backends.mlx_metal.adapters.moe_arch_adapter import MoEArchAdapter
+from preempt.backends.mlx_metal.adapters.moe_arch_adapter import BaseMoEArchAdapter
 from preempt.backends.mlx_metal.adapters.qwen3_x import Qwen3_xArchAdapter
 from preempt.backends.mlx_metal.expert_bank_conversion import model_to_expert_bank
-from preempt.backends.mlx_metal.expert_kernel import sequential_run_selected_experts
+from preempt.backends.mlx_metal.expert_kernel import sequential_expert_matmul
 from preempt.backends.mlx_metal.quantization import QuantSettings
 
 
 def test_cannot_instantiate_abstract() -> None:
     with pytest.raises(TypeError):
-        MoEArchAdapter()  # type: ignore[abstract]
+        BaseMoEArchAdapter()  # type: ignore[abstract]
 
 
 def test_partial_subclass_cannot_instantiate() -> None:
-    class Partial(MoEArchAdapter):
+    class Partial(BaseMoEArchAdapter):
         @property
         def projection_names(self) -> tuple[str, ...]:
             return ("a",)
@@ -207,7 +207,7 @@ def test_convert_accepts_architecture_parameter() -> None:  # TODO remove, redun
 
 
 def test_apply_experts_accepts_apply_expert_fn() -> None:
-    sig = inspect.signature(sequential_run_selected_experts)
+    sig = inspect.signature(sequential_expert_matmul)
 
     assert "expert_forward_fn" in sig.parameters
     assert "activation" not in sig.parameters

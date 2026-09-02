@@ -12,7 +12,7 @@ from preempt.config.target_layers import TargetLayers, TargetLayerSpec
 class LlmConfig(BaseModel):
     """Model identifiers for the LLM used in a pipeline"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="allow", frozen=True)
 
     model_id: str = Field(min_length=1)
     revision: str | None = Field(default=None)

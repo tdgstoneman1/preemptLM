@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import mlx.core as mx
+from rich.console import Console
 
 import asyncio
 
-from rich.console import Console
+import mlx.core as mx
 
 from preempt.core.enums import Backends
 from preempt.core.protocols import IExpertLoader
@@ -34,14 +34,11 @@ from preempt.utils.pipeline_utils import (
     get_parquet_sink,
     target_layers_for_model,
 )
-
 from ..instrument import (
     mlx_instrument_model,
     mlx_strip_instrumented_expert_weights,
 )
-from ..instrumented.qwen3_x_moe import (
-    make_qwen3_x_moe_wrapper_factory,
-)
+from ..adapters.registry import DefaultArchClassRegistry
 from ..layer_discovery import resolve_mlx_target_layers
 from ..recorder import MoERecorder
 from ..expert_cache import MlxExpertCache
@@ -130,8 +127,9 @@ def _instrument_model(
     model_fingerprint = (
         expert_bank.model_fingerprint if expert_bank is not None else None
     )
-    wrapper_factory = make_qwen3_x_moe_wrapper_factory(
-        recorder,
+    wrapper_cls = DefaultArchClassRegistry.get_moe_wrapper(loaded_model.model)
+    wrapper_factory = wrapper_cls.make_factory(
+        recorder=recorder,
         capture_gate_logits=capture_gate_logits,
         expert_loader=expert_loader,
         model_fingerprint=model_fingerprint,

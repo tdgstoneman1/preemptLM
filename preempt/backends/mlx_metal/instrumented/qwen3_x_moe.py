@@ -3,34 +3,36 @@ from __future__ import annotations
 from typing import Optional, Literal
 from collections.abc import Callable, Mapping
 
+from attrs import asdict
+
 from functools import partial
 
 import mlx.core as mx
-
 import mlx.nn as nn
-from mlx.nn.layers.distributed import sum_gradients
 
 from mlx_lm.models.qwen3_next import Qwen3NextSparseMoeBlock
 
-from ..expert_kernel import (
-    ExpertProjections,
-    QuantizedProjection,
-    UnquantizedProjection,
-    SwitchQuantParams,
-    sequential_run_selected_experts,
-    swiglu_forward_fn,
-    fused_run_selected_experts,
-    describe_switch_quantization,
-)
-from ..recorder import MoERecorder
-from ..expert_cache import MlxExpertCache
-from ..types import MlxWrapperFactory
-from ..constants import SWIGLU_PROJECTION_NAMES
-
 from preempt.datamodel.identity import ExpertKey
 from preempt.core.protocols import IExpertLoader
-
 from preempt.engine.layer_resolution import LayerCandidate
+
+from ..types import (
+    ModuleWrapperFactory,
+    ExpertLayerWeights,
+    WeightsTensor,
+    QuantizedWeightsTensor,
+)
+from ..expert_kernel import (
+    sequential_expert_matmul,
+    swiglu_forward_fn,
+    fused_expert_matmul,
+)
+from ..expert_cache import MlxExpertCache
+from ..recorder import MoERecorder
+from ..constants import SWIGLU_PROJECTION_NAMES
+from ..utils import get_expert_quants
+
+from .module_wrapper import BaseMoEWrapper
 
 # TODO make module wrapper hold experts in memory, external cache manager handles eviction decisions
 
@@ -41,6 +43,7 @@ def _compute_topk_routing(
     top_k: int,
     norm_topk_prob: bool,
 ) -> tuple[mx.array, mx.array]:
+    """Copied from upstream __call__"""
     gates = mx.softmax(logits, axis=-1, precise=True)
     inds = mx.argpartition(gates, kth=-top_k, axis=-1)[..., -top_k:]
     scores = mx.take_along_axis(gates, inds, axis=-1)
@@ -58,11 +61,12 @@ def _combine_and_apply_experts(
     shared_y: mx.array,
     shared_gate: mx.array,
 ) -> mx.array:
+    """Copied from upstream __call__"""
     sum_routed_experts = (y * scores[..., None]).sum(axis=-2)
     return sum_routed_experts + (mx.sigmoid(shared_gate) * shared_y)
 
 
-class InstrumentedQwen3_xMoE(nn.Module):
+class InstrumentedQwen3_xMoE(BaseMoEWrapper):
     """Module wrapper for instrumenting Qwen3.x and Qwen3-Next MoE blocks.
 
     Forward pass currently computes one expert at a time when reading from disk.
@@ -70,22 +74,12 @@ class InstrumentedQwen3_xMoE(nn.Module):
     `__call__` forked from `mlx_lm.models.qwen3_next.Qwen3NextSparseMoeBlock` (see
     https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/models/qwen3_next.py#L308).
 
-    :Note: The `mlx_lm` implementations of Qwen3.5 (for Qwen3.x) and Qwen3-Next both
-    use the same `Qwen3NextSparseMoeBlock` for MoE blocks, and this wrapper can
-    thus be applied to either of the two architectures.
+    :Note: The `mlx_lm` implementations of Qwen3.5 and Qwen3-Next both use the same
+    `Qwen3NextSparseMoeBlock`. This wrapper can thus be used for all Qwen3.x and
+    Qwen3-Next MoE architectures.
     """
 
     inner: Qwen3NextSparseMoeBlock
-    recorder: MoERecorder | None
-    capture_gate_logits: bool
-    layer_path: str
-    block_idx: int
-    expert_loader: IExpertLoader | None
-    expert_cache: MlxExpertCache | None
-    model_fingerprint: str | None
-
-    quantization: SwitchQuantParams | None
-    _is_quantized: bool
     _apply_experts_fn: Callable[[mx.array, mx.array], mx.array]
 
     def __init__(
@@ -95,55 +89,37 @@ class InstrumentedQwen3_xMoE(nn.Module):
         capture_gate_logits: bool,
         layer_path: str,
         block_idx: int,
-        expert_loader: Optional[IExpertLoader] = None,
-        expert_cache: Optional[MlxExpertCache] = None,
-        model_fingerprint: Optional[str] = None,
-        expert_kernel: Literal["sequential", "fused"] = "sequential",
+        expert_loader: Optional[IExpertLoader],
+        expert_cache: Optional[MlxExpertCache],
+        model_fingerprint: Optional[str],
+        expert_matmul: Literal["sequential", "fused"],
     ) -> None:
-        super().__init__()
-
-        if expert_loader is not None and (
-            model_fingerprint is None or expert_cache is None
-        ):
-            raise ValueError(
-                f"{type(expert_loader).__name__=}, "
-                f"{type(model_fingerprint).__name__=}, "
-                f"{type(expert_cache).__name__=}"
-            )
-        if expert_loader is None and expert_cache is not None:
-            raise ValueError()
-
-        self.inner = inner
-
-        self.recorder = recorder
-        self.capture_gate_logits = capture_gate_logits
-
-        self.layer_path = layer_path
-        self.block_idx = block_idx
-
-        self.expert_loader = expert_loader
-        self.expert_cache = expert_cache
-        self.model_fingerprint = model_fingerprint
-
-        self.quantization = describe_switch_quantization(
-            inner.switch_mlp, SWIGLU_PROJECTION_NAMES
+        super().__init__(
+            inner=inner,
+            recorder=recorder,
+            capture_gate_logits=capture_gate_logits,
+            layer_path=layer_path,
+            block_idx=block_idx,
+            expert_loader=expert_loader,
+            expert_cache=expert_cache,
+            model_fingerprint=model_fingerprint,
         )
-        self._is_quantized = self.quantization is not None
+        self._quants = get_expert_quants(inner.switch_mlp, SWIGLU_PROJECTION_NAMES)
 
-        if expert_kernel == "sequential":
+        if expert_matmul == "sequential":
             self._apply_experts_fn = partial(
-                sequential_run_selected_experts,
+                sequential_expert_matmul,
                 expert_forward_fn=swiglu_forward_fn,
-                load_expert_fn=self._read_expert_from_disk,
+                load_expert_fn=self._get_expert_weights,
             )
         else:
             self._apply_experts_fn = partial(
-                fused_run_selected_experts,
-                load_expert_fn=self._read_expert_from_disk,
-                is_quantized=self._is_quantized,
+                fused_expert_matmul,
+                load_expert_fn=self._get_expert_weights,
+                is_quantized=self.is_quantized,
             )
 
-    def _read_expert_from_disk(self, expert_idx: int) -> ExpertProjections:
+    def _get_expert_weights(self, expert_idx: int) -> ExpertLayerWeights:
         assert self.expert_loader is not None
         assert self.expert_cache is not None
         assert self.model_fingerprint is not None
@@ -155,42 +131,39 @@ class InstrumentedQwen3_xMoE(nn.Module):
         )
         self.expert_loader.load((key,))
         tensors = self.expert_cache.tensors(key)
-        projections = {
+
+        return {
             name: self._projection_from_tensors(tensors, name)
             for name in SWIGLU_PROJECTION_NAMES
         }
-        return ExpertProjections(projections=projections)
 
     def _projection_from_tensors(
         self,
         tensors: Mapping[str, mx.array],
         name: str,
-    ) -> QuantizedProjection | UnquantizedProjection:
-        if not self._is_quantized or self.quantization is None:
-            return UnquantizedProjection(
+    ) -> WeightsTensor | QuantizedWeightsTensor:
+        if self.is_quantized:
+            return QuantizedWeightsTensor(
                 weight=tensors[f"{name}.weight"],
+                scales=tensors[f"{name}.scales"],
+                biases=tensors.get(f"{name}.biases"),
+                **asdict(self._quants[name]),  # type: ignore
             )
-        quant = self.quantization.params[name]
-        return QuantizedProjection(
+        return WeightsTensor(
             weight=tensors[f"{name}.weight"],
-            scales=tensors[f"{name}.scales"],
-            biases=tensors.get(f"{name}.biases"),
-            group_size=quant.group_size,
-            bits=quant.bits,
-            mode=quant.mode,
         )
 
     def __call__(self, x: mx.array) -> mx.array:
         if self.inner.sharding_group is not None:
-            x = sum_gradients(self.inner.sharding_group)(x)  # type: ignore
+            x = nn.layers.distributed.sum_gradients(self.inner.sharding_group)(x)  # type: ignore
 
         logits = self.inner.gate(x)
         inds, scores = _compute_topk_routing(
             logits, self.inner.top_k, self.inner.norm_topk_prob
         )
         # * Lazy record state
-        if self.recorder is not None:
-            self.recorder.capture(
+        if self.is_traced:
+            self.recorder.capture(  # type: ignore
                 layer_path=self.layer_path,
                 layer_class=self.inner.__class__.__name__,
                 block_idx=self.block_idx,
@@ -198,53 +171,53 @@ class InstrumentedQwen3_xMoE(nn.Module):
                 expert_weights=scores,
                 gate_logits=logits if self.capture_gate_logits else None,
             )
-
-        if self.expert_loader is None:
-            y = self.inner.switch_mlp(x, inds)
-        else:
-            y = self._apply_experts_fn(x, inds)
-
-        # * Evaluate shared expert paths
+        # * Apply selected experts
+        y = (
+            self._apply_experts_fn(x, inds)
+            if self.expert_cache is not None
+            else self.inner.switch_mlp(x, inds)
+        )
+        # * Apply shared expert and combine y
         shared_y = self.inner.shared_expert(x)
         shared_gate = self.inner.shared_expert_gate(x)
-
         y = _combine_and_apply_experts(y, scores, shared_y, shared_gate)
 
         if self.inner.sharding_group is not None:
             y = mx.distributed.all_sum(y, group=self.inner.sharding_group)
+
         return y
 
+    @staticmethod
+    def make_factory(
+        recorder: Optional[MoERecorder],
+        capture_gate_logits: bool = False,
+        expert_loader: Optional[IExpertLoader] = None,
+        expert_cache: Optional[MlxExpertCache] = None,
+        model_fingerprint: Optional[str] = None,
+        expert_matmul: Literal["sequential", "fused"] = "fused",
+    ) -> ModuleWrapperFactory:
 
-# TODO make this a static method
-# TODO rename to meta_factory?
-def make_qwen3_x_moe_wrapper_factory(
-    recorder: MoERecorder | None,
-    *,
-    capture_gate_logits: bool = False,
-    expert_loader: IExpertLoader | None = None,  # TODO rename to 'loader'
-    expert_cache: MlxExpertCache | None = None,
-    model_fingerprint: str | None = None,
-) -> MlxWrapperFactory:
+        def factory(
+            module: Qwen3NextSparseMoeBlock,
+            candidate: LayerCandidate,
+        ) -> nn.Module:
+            if candidate.block_idx is None:
+                raise ValueError(
+                    f"Cannot instrument layer {candidate.layer_path!r} because "
+                    "the index of its parent transformer block could not be "
+                    "determined."
+                )
 
-    def factory(
-        module: Qwen3NextSparseMoeBlock,
-        candidate: LayerCandidate,
-    ) -> nn.Module:
-        if candidate.block_idx is None:
-            raise ValueError(
-                f"Cannot instrument layer '{candidate.layer_path!r}' because it has no "
-                "block index."
+            return InstrumentedQwen3_xMoE(
+                inner=module,
+                recorder=recorder,
+                capture_gate_logits=capture_gate_logits,
+                layer_path=candidate.layer_path,
+                block_idx=candidate.block_idx,
+                expert_loader=expert_loader,
+                expert_cache=expert_cache,
+                model_fingerprint=model_fingerprint,
+                expert_matmul=expert_matmul,
             )
 
-        return InstrumentedQwen3_xMoE(
-            inner=module,
-            recorder=recorder,
-            capture_gate_logits=capture_gate_logits,
-            layer_path=candidate.layer_path,
-            block_idx=candidate.block_idx,
-            expert_loader=expert_loader,
-            expert_cache=expert_cache,
-            model_fingerprint=model_fingerprint,
-        )
-
-    return factory
+        return factory

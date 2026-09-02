@@ -2,186 +2,41 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 
-import attrs
-from attrs import field
-
 from functools import partial
 
 import math
-
 import numpy as np
 
 import mlx.core as mx
 import mlx.nn as nn
 
 from mlx_lm.models.switch_layers import (
-    SwitchLinear,
-    QuantizedSwitchLinear,
-    SwitchGLU,
     _gather_sort,
     _scatter_unsort,
 )
 
-from preempt.core.exceptions import EngineCompatibilityError
+from .types import (
+    WeightsTensor,
+    QuantizedWeightsTensor,
+    ExpertLayerWeights,
+)
 
-from .constants import MLX_QUANT_PARAMS
-
-# TODO move dataclasses to separate module
 # TODO add support for expert layer bias terms in forward pass
-# TODO prepend attrs dataclass names with `Mlx` prefix
 # TODO fix hallucinated 'row' terminology, confusing
 
 
-# @attrs.define(kw_only=True, frozen=True)
-# class ProjectionQuantParams:
-#     """Quantization parameters for a single projection stored as scalars.
-
-#     Parameters are captured during instantiation of instrumented module
-#     wrappers, such as like `InstrumentedQwen3_xMoE`. This avoids having
-#     to dynamically inspect the inner layer's weights which may be stripped
-#     or offloaded from memory during the forward pass.
-#     """
-
-#     group_size: int = field()
-#     bits: int = field()
-#     mode: str = field()
-
-
-# TODO move to quantization/
-@attrs.define(kw_only=True, frozen=True)
-class SwitchQuantParams:
-    """Quantization parameters for all projections within a single expert layer.
-
-    Stored as a mapping keyed by projection name to maintain agnosticism across
-    different MoE architectures and future conversion utilities.
-
-    Attributes
-    ----------
-    params : Mapping[str, ProjectionQuantParams]
-        Mapping of projection names to their respective quantization parameters
-    """
-
-    params: Mapping[str, ProjectionQuantParams] = field()
-
-
-@attrs.define(kw_only=True, frozen=True, eq=False)
-# TODO move to quantization/
-class QuantizedProjection:
-    """Quantized weight tensor for one of an expert's linear projections and
-    its quantization parameters
-
-    Attributes
-    ----------
-    weight : mx.array
-        The expert's quantized projection weights
-    scales : mx.array
-        The expert's per-group scales
-    biases : mx.array | None
-        Per-group affine quantization biases, if applicable
-    group_size : int
-        Quantization group size
-    bits : int
-        Quantization bit width
-    mode : str
-        Quantization mode
-    """
-
-    weight: mx.array = field()
-    scales: mx.array = field()
-    biases: mx.array | None = field()
-    group_size: int = field()
-    bits: int = field()
-    mode: str = field()
-
-
-@attrs.define(kw_only=True, frozen=True, eq=False)
-class UnquantizedProjection:
-    weight: mx.array = field()
-
-
-@attrs.define(kw_only=True, frozen=True, eq=False)
-class ExpertProjections:
-    """All quantized linear projection weights for one expert.
-
-    Keyed by projection name to abstract away MoE architecture.
-    Supports tensors in memory or read from disk.
-
-    Attributes
-    ----------
-    projections : Mapping[str, QuantizedProjection]
-        Mapping of projection names to weights arrays
-    """
-
-    projections: Mapping[str, QuantizedProjection | UnquantizedProjection] = field()
-
-
-def describe_switch_quantization(  # TODO rename
-    switch_mlp: SwitchGLU,
-    projection_names: Sequence[str],
-) -> SwitchQuantParams | None:
-    """Reads quantization parameters for the linear projection layer weights
-    in `switch_mlp`.
-
-    Parameters
-    ----------
-    switch_mlp : SwitchGLU
-        A fused multi-expert module containing the stacked weights for all
-        expert layers in an MoE block
-    projection_names : Sequence[str]
-        Projection names to read (e.g. from `architecture.projection_names`)
-
-    Returns
-    -------
-    SwitchQuantParams
-        Per-projection quantization parameters keyed by name.
-
-    Raises
-    ------
-    TypeError
-        If a layer in `switch_mlp` is not an instance of `QuantizedSwitchLinear`
-    EngineCompatibilityError
-        If a layer in `switch_mlp` has a bias (currently unsupported in the
-        forward pass)
-    """
-    params: dict[str, ProjectionQuantParams] = {}
-
-    for name in projection_names:
-        module = getattr(switch_mlp, name)
-
-        if not isinstance(module, (SwitchLinear, QuantizedSwitchLinear)):
-            raise TypeError(
-                f"`{name}` is of unsupported type `{type(module).__name__}`. Only "
-                "`SwitchLinear` or `QuantizedSwitchLinear` currently supported."
-            )
-        # TODO add support for bias
-        if "bias" in module:
-            raise EngineCompatibilityError(
-                f"`{name}` layer (in `{type(module).__name__}`) has an additive `bias`. "
-                "This is currently unsupported in the per-expert forward pass. "
-            )
-
-        if all(hasattr(module, attr) for attr in MLX_QUANT_PARAMS):
-            params[name] = ProjectionQuantParams(
-                group_size=int(module.group_size),  # type: ignore
-                bits=int(module.bits),  # type: ignore
-                mode=str(module.mode),  # type: ignore
-            )
-    if params:
-        return SwitchQuantParams(params=params)
-
-
 # TODO docstring, 'input_dims' confusing
-def expert_proj_mm(
-    x: mx.array, projection: QuantizedProjection | UnquantizedProjection
+def _linear_proj_matmul(
+    x: mx.array, projection: WeightsTensor | QuantizedWeightsTensor
 ) -> mx.array:
-    """Applies an expert's projection to its routed token assignments.
+    """Applies an expert's linear projection to its routed token assignments.
 
     Parameters
     ----------
     x : mx.array
         Flattened token activations of shape `(n_assignments, input_dims)`
         routed to the expert
-    projection : QuantizedProjection
+    projection : WeightsTensor | QuantizedWeightsTensor
         The projection's quantized weights and parameters for the projection
 
     Returns
@@ -190,19 +45,18 @@ def expert_proj_mm(
         Projected output tensor, shape `(n_assignments, d_model)`, where
         `d_model` is the feature dimension of the projection
     """
-    if isinstance(projection, UnquantizedProjection):
-        return mx.matmul(x, projection.weight.T)
-
-    return mx.quantized_matmul(
-        x,
-        projection.weight,
-        projection.scales,
-        projection.biases,
-        transpose=True,
-        group_size=projection.group_size,
-        bits=projection.bits,
-        mode=projection.mode,
-    )
+    if isinstance(projection, QuantizedWeightsTensor):
+        return mx.quantized_matmul(
+            x,
+            projection.weight,
+            projection.scales,
+            projection.biases,
+            transpose=True,
+            group_size=projection.group_size,
+            bits=projection.bits,
+            mode=projection.mode,
+        )
+    return mx.matmul(x, projection.weight.T)
 
 
 def _group_token_assignments_by_expert(
@@ -287,14 +141,14 @@ def _reassemble(
     return grouped[mx.array(inverse)].reshape(*leading_shape, top_k, -1)
 
 
-def sequential_run_selected_experts(
+def sequential_expert_matmul(
     x: mx.array,
     expert_idxs: mx.array,
     *,
     expert_forward_fn: Callable[
-        [mx.array, Mapping[str, QuantizedProjection | UnquantizedProjection]], mx.array
+        [mx.array, Mapping[str, QuantizedWeightsTensor | WeightsTensor]], mx.array
     ],
-    load_expert_fn: Callable[[int], ExpertProjections],
+    load_expert_fn: Callable[[int], ExpertLayerWeights],
 ) -> mx.array:
     """Sequentially runs the `top_k` selected experts for an MoE block.
 
@@ -308,9 +162,9 @@ def sequential_run_selected_experts(
         Array of hidden states, shape `(batch, tokens, d_model)`
     expert_idxs : Sequence[int]
         The router's selections, flattened in `(batch, tokens, top_k)` order
-    expert_forward_fn : Callable[[mx.array, Mapping[str, QuantizedProjection]], mx.array]
+    expert_forward_fn : Callable[[mx.array, Mapping[str, QuantizedWeightsTensor]], mx.array]
         Callback applying one expert's projections to its assigned activations
-    load_expert_fn : Callable[[int], ExpertProjections]
+    load_expert_fn : Callable[[int], ExpertLayerWeights]
         Callable that loads one expert's parameters (from disk if not already in memory)
 
     Returns
@@ -328,13 +182,14 @@ def sequential_run_selected_experts(
     _, _, top_k = expert_idxs.shape
 
     flat_idxs = [int(expert) for expert in expert_idxs.flatten().tolist()]  # type: ignore
-    n_rows = len(flat_idxs)
+    num_token_assignments = len(flat_idxs)
     n_tokens = math.prod(x.shape[:-1])
 
-    if n_rows != n_tokens * top_k:
+    if num_token_assignments != n_tokens * top_k:
         raise ValueError(
-            f"Number of router assignments ({n_rows}) does not match expected "
-            f"count of {n_tokens * top_k} for {n_tokens} token(s) at `{top_k=}`."
+            f"Number of token assignments ({num_token_assignments}) does not match "
+            f"expected count of {n_tokens * top_k!r} for {n_tokens!r} token(s) at "
+            f"{top_k=!r}."
         )
 
     x_flat = x.reshape(-1, x.shape[-1])
@@ -345,7 +200,7 @@ def sequential_run_selected_experts(
         x_flat, flat_idxs, top_k
     ):
         expert_proj = load_expert_fn(expert_idx)
-        y_rows = expert_forward_fn(x_rows, expert_proj.projections)
+        y_rows = expert_forward_fn(x_rows, expert_proj)
         # mx.async_eval(y_rows)
         outputs.append(y_rows)
         perm.append(row_array)
@@ -360,23 +215,24 @@ def apply_swiglu_activation(x_up: mx.array, x_gate: mx.array) -> mx.array:
 
 def swiglu_forward_fn(
     x: mx.array,
-    projections: Mapping[str, QuantizedProjection | UnquantizedProjection],
+    projections: Mapping[str, QuantizedWeightsTensor | WeightsTensor],
 ) -> mx.array:
-    x_up = expert_proj_mm(x, projections["up_proj"])
-    x_gate = expert_proj_mm(x, projections["gate_proj"])
+    x_up = _linear_proj_matmul(x, projections["up_proj"])
+    x_gate = _linear_proj_matmul(x, projections["gate_proj"])
 
-    return expert_proj_mm(
+    return _linear_proj_matmul(
         apply_swiglu_activation(x_up, x_gate), projections["down_proj"]
     )
 
 
-def stacked_proj_mm(
+def stacked_proj_matmul(
     x_2d: mx.array,
     indices_2d: mx.array,
-    projections: Sequence[QuantizedProjection | UnquantizedProjection],
+    projections: Sequence[QuantizedWeightsTensor | WeightsTensor],
     is_quantized: bool,
 ) -> mx.array:
-    """Applies a stack of routed expert projection weights to 2D activations.
+    """Performs matrix multiplication on 2D inputs and a stack of linear projection
+    weights for multiple expert layers.
 
     Parameters
     ----------
@@ -384,7 +240,7 @@ def stacked_proj_mm(
         2-dimensional input activations of shape `(batch * tokens, d_model)`
     indices_2d : mx.array
         Expert indices, shape `(batch * tokens, K)` (K=top_k for up/gate, K=1 for down)
-    projections : Sequence[QuantizedProjection | UnquantizedProjection]
+    projections : Sequence[QuantizedWeightsTensor | WeightsTensor]
         Expert projection weights and optional quantization parameters
     is_quantized: bool
         Whether the projections are quantized
@@ -397,10 +253,10 @@ def stacked_proj_mm(
     xs = mx.expand_dims(x_2d, (-2, -3))
     idx = indices_2d
 
-    do_sort = idx.size >= 64
-    inv_order = None
-    if do_sort:
+    if do_sort := idx.size >= 64:
         xs, idx, inv_order = _gather_sort(xs, idx)
+    else:
+        inv_order = None
 
     if is_quantized:
         quant_proj = projections  # type: ignore
@@ -439,10 +295,10 @@ def stacked_proj_mm(
     return y.squeeze(-2)  # shape = (B * S, K, d_out)
 
 
-def fused_run_selected_experts(
+def fused_expert_matmul(
     x: mx.array,
     expert_idxs: mx.array,
-    load_expert_fn: Callable[[int], ExpertProjections],
+    load_expert_fn: Callable[[int], ExpertLayerWeights],
     is_quantized: bool,
 ) -> mx.array:
     """Fuses weights for router-selected experts and applies them in parallel.
@@ -453,7 +309,7 @@ def fused_run_selected_experts(
         Hidden states, shape `(B, S, d_model)`
     expert_idxs : mx.array
         Router top-k selections, shape `(B, S, top_k)`
-    load_expert_fn : Callable[[int], ExpertProjections]
+    load_expert_fn : Callable[[int], ExpertLayerWeights]
         Callback retrieving projections for each unique expert
     is_quantized: bool
         Whether the model is quantized
@@ -476,13 +332,15 @@ def fused_run_selected_experts(
     # * Load projection weights for each unique expert
     expert_projs = [load_expert_fn(int(e)) for e in unique_experts]
 
-    up_projs = [ep.projections["up_proj"] for ep in expert_projs]
-    gate_projs = [ep.projections["gate_proj"] for ep in expert_projs]
-    down_projs = [ep.projections["down_proj"] for ep in expert_projs]
+    up_projs = [ep["up_proj"] for ep in expert_projs]
+    gate_projs = [ep["gate_proj"] for ep in expert_projs]
+    down_projs = [ep["down_proj"] for ep in expert_projs]
 
     # * Up and gate projections, shape: (B * S, d_model) -> (B * S, top_k, d_hidden)
-    x_up = stacked_proj_mm(x_2d, local_indices_2d, up_projs, is_quantized=is_quantized)
-    x_gate = stacked_proj_mm(
+    x_up = stacked_proj_matmul(
+        x_2d, local_indices_2d, up_projs, is_quantized=is_quantized
+    )
+    x_gate = stacked_proj_matmul(
         x_2d, local_indices_2d, gate_projs, is_quantized=is_quantized
     )
 
@@ -495,7 +353,7 @@ def fused_run_selected_experts(
     down_indices_2d = local_indices_2d.reshape(B * S * top_k, 1)
 
     # * Down projection, shape: (B*S*top_k, 1, d_model) -> reshape to (B, S, top_k, d_model)
-    x_down = stacked_proj_mm(
+    x_down = stacked_proj_matmul(
         swiglu_2d, down_indices_2d, down_projs, is_quantized=is_quantized
     )
     return x_down.reshape(B, S, top_k, d_model)

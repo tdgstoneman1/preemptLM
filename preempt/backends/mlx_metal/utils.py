@@ -1,5 +1,5 @@
 from typing import Any, cast
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from pathlib import Path
 
@@ -12,19 +12,27 @@ import numpy as np
 import mlx.core as mx
 
 from mlx_lm.utils import _get_classes
+from mlx_lm.models.switch_layers import (
+    SwitchLinear,
+    QuantizedSwitchLinear,
+    SwitchGLU,
+)
 from mlx_lm import load
 
 from safetensors import safe_open
 
 from preempt.core.protocols import ITokenizer
+from preempt.core.exceptions import EngineCompatibilityError
 
-from preempt.backends.mlx_metal.types import MlxLoadedModel
-from preempt.backends.mlx_metal.quantization import QuantSettings
-from preempt.backends.mlx_metal.constants import (
+from .types import MlxLoadedModel, ExpertLayerQuants
+from .quantization import QuantSettings
+from .constants import (
     MLX_DTYPE_TAGS,
     MLX_QUANTIZED_ENCODING_TEMPLATE,
     MLX_UNQUANTIZED_ENCODING_TEMPLATE,
+    MLX_QUANT_PARAMS,
 )
+from .quantization import QuantSettings
 
 
 def sanitize_fn_for(
@@ -209,3 +217,55 @@ def make_encoding_tag(quant: QuantSettings | None, dtype_tag: str) -> str:
         group_size=quant.group_size,
         dtype=dtype_tag,
     )
+
+
+def get_expert_quants(
+    switch_mlp: SwitchGLU,
+    projection_names: Sequence[str],
+) -> ExpertLayerQuants | None:
+    """Reads quantization parameters for the linear projection layer weights
+    in `switch_mlp`.
+
+    Parameters
+    ----------
+    switch_mlp : SwitchGLU
+        A fused multi-expert module containing the stacked weights for all
+        expert layers in an MoE block
+    projection_names : Sequence[str]
+        Projection names to read (e.g. from `architecture.projection_names`)
+
+    Returns
+    -------
+    ExpertLayerQuants
+        Per-projection quantization parameters keyed by name.
+
+    Raises
+    ------
+    TypeError
+        If a layer in `switch_mlp` is not an instance of `QuantizedSwitchLinear`
+    EngineCompatibilityError
+        If a layer in `switch_mlp` has a bias (currently unsupported in the
+        forward pass)
+    """
+    params: dict[str, QuantSettings] = {}
+    for name in projection_names:
+        module = getattr(switch_mlp, name)
+
+        if not isinstance(module, (SwitchLinear, QuantizedSwitchLinear)):
+            raise TypeError(
+                f"`{name}` is of unsupported type `{type(module).__name__}`. Only "
+                "`SwitchLinear` and `QuantizedSwitchLinear` are currently supported."
+            )
+        if "bias" in module:  # TODO add support for bias
+            raise EngineCompatibilityError(
+                f"Experts layer {name!r} (in {type(module).__name__!r}) has an additive 'bias' "
+                "which is currently unsupported in forward pass. "
+            )
+        if all(hasattr(module, attr) for attr in MLX_QUANT_PARAMS):
+            params[name] = QuantSettings(
+                group_size=int(module.group_size),  # type: ignore
+                bits=int(module.bits),  # type: ignore
+                mode=str(module.mode),  # type: ignore
+            )
+
+    return params or None

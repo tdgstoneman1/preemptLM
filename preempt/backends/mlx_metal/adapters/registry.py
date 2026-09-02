@@ -1,100 +1,227 @@
 from __future__ import annotations
 
-from typing import Final, Never
+from typing import NamedTuple, overload, Literal, Never
 
-from ..types import MlxArchAdapterFactory
+import copy
+import inspect
 
-from .moe_arch_adapter import MoEArchAdapter
+from mlx_lm.models.qwen3_5_moe import Model as Qwen3_5
+from mlx_lm.models.qwen3_next import Model as Qwen3Next
+import mlx.nn as nn
+
+from preempt.backends.mlx_metal.instrumented.module_wrapper import BaseMoEWrapper
+from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import InstrumentedQwen3_xMoE
+
+from .moe_arch_adapter import BaseMoEArchAdapter
 from .qwen3_x import Qwen3_xArchAdapter
 
-# TODO make `register`, `get`, and `available` classmethods
+
+class _Entry(NamedTuple):
+    arch_adapter_cls: type[BaseMoEArchAdapter]
+    moe_wrapper_cls: type[BaseMoEWrapper]
+    mlx_lm_model_cls: type[nn.Module]
 
 
-class MoEArchAdapterRegistry:
-    """Mutable registry mapping MoE architecture names to `MoEArchAdapter`
-    factories.
+class ArchClassRegistry:
+    """Registry mapping MoE architecture names to compatible architecture adapter
+    classes (`BaseMoEArchAdapter`), MoE wrapper classes (`BaseMoEWrapper`), and mlx-lm
+    model classes (`nn.Module`)
 
-    :Note: For tamper-proof defaults, use the `DefaultMoEArchAdapterRegistry` subclass.
+    :Note: For built-in defaults, use the `DefaultArchClassRegistry` subclass.
     """
 
-    _factories: dict[str, MlxArchAdapterFactory]
+    _registered: dict[str, _Entry] = {}
+    _aliases: dict[str, str] = {}
 
-    def __init__(self) -> None:
-        self._factories = dict()
+    def __init_subclass__(cls, **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
 
-    def register(self, name: str, factory: MlxArchAdapterFactory) -> None:
-        """Registers or overwrites a callable architecture factory under `name`
+        cls._registered = copy.deepcopy(cls._registered)
+        cls._aliases = copy.deepcopy(cls._aliases)
+
+    @classmethod
+    def register(
+        cls,
+        name: str,
+        arch_adapter_cls: type[BaseMoEArchAdapter],
+        moe_wrapper_cls: type[BaseMoEWrapper],
+        mlx_lm_model_cls: type[nn.Module],
+    ) -> None:
+        """Registers architecture adapter-MoE wrapper pair under `name`.
 
         Parameters
         ----------
         name : str
-            MoE architecture name, e.g. `"qwen3-next"`
-        factory : Callable[[], MoEArchAdapter]
-            No-arg callable that builds and returns a new `MoEArchAdapter`
-            instance
+            MoE architecture name used as a key in the registry, e.g. `'qwen3.x'`
+        arch_adapter_cls : type[BaseMoEArchAdapter]
+            An architecture adapter class
+        moe_wrapper_cls : type[BaseMoEWrapper]
+            An MoE wrapper class
+        mlx_lm_model_cls: type[nn.Module]
+            An mlx-lm model class
         """
-        self._factories[name] = factory
+        cls._registered[name] = _Entry(
+            arch_adapter_cls=arch_adapter_cls,
+            moe_wrapper_cls=moe_wrapper_cls,
+            mlx_lm_model_cls=mlx_lm_model_cls,
+        )
 
-    def get(self, name: str) -> MoEArchAdapter:
-        """Returns new instance of the `MoEArchAdapter` keyed under `name`
+    @classmethod
+    def register_alias(cls, name: str, alias_for: str):
+        """Updates registry with new name alias to link to an already-registered
+        key.
 
         Parameters
         ----------
         name : str
-            Architecture name as registered
+            The new name alias
+        alias_for: Optional[str]
+            An existing key in the registry
+
+        Raises
+        ------
+        ValueError
+            If `alias_for` is not a known key in the registry.
+        """
+        if alias_for not in cls._registered:
+            raise ValueError()  # TODO error msg
+
+        cls._aliases.update({name: alias_for})
+
+    @classmethod
+    def _resolve_alias(cls, key: str) -> str:
+        for k, alias_for in cls._aliases.items():
+            if k == key:
+                return alias_for
+
+        return k
+
+    @classmethod
+    def _validate_entry(cls, key: str) -> _Entry:
+        if (entry := cls._registered.get(key)) is None:
+            raise KeyError(
+                f"Unknown architecture {key!r}. Registered names: "
+                f"{sorted(cls._registered.keys())!r}"
+            )
+        return entry
+
+    @classmethod
+    def get(
+        cls, key: str
+    ) -> tuple[type[BaseMoEArchAdapter], type[BaseMoEWrapper], type[nn.Module]]:
+        entry = cls._validate_entry(key)
+        return entry.arch_adapter_cls, entry.moe_wrapper_cls, entry.mlx_lm_model_cls
+
+    @classmethod
+    @overload
+    def get_arch_adapter(
+        cls, key: str, instantiate: Literal[True]
+    ) -> BaseMoEArchAdapter: ...
+
+    @classmethod
+    @overload
+    def get_arch_adapter(
+        cls, key: str, instantiate: Literal[False]
+    ) -> type[BaseMoEArchAdapter]: ...
+
+    @classmethod
+    def get_arch_adapter(
+        cls, key: str, instantiate: bool = True
+    ) -> BaseMoEArchAdapter | type[BaseMoEArchAdapter]:
+        """Returns the architecture adapter class registered under `key`,
+        or a new instance of it if `instantiate=True`
+
+        Parameters
+        ----------
+        key : str
+            Architecture adapter key as registered
+        instantiate : bool
+            Whether to return a new instance of the registered class,
+            by default True
 
         Returns
         -------
-        MoEArchAdapter
-            New instance created with the registered factory
+        BaseMoEArchAdapter | type[BaseMoEArchAdapter]
+            `BaseMoEArchAdapter` instance or class
 
         Raises
         ------
         KeyError
-            If `name` is not registered
+            If `key` does not exist in the registry.
         """
-        try:
-            factory = self._factories[name]
+        key = cls._resolve_alias(key)
+        entry = cls._validate_entry(key)
+        cls_ = entry.arch_adapter_cls
 
-        except KeyError:
-            raise KeyError(
-                f"Unknown architecture {name!r}. Registered MoE architectures: "
-                f"{sorted(self._factories.keys())}"
-            ) from None
+        if instantiate:
+            return cls_()
+        return cls_
 
-        return factory()
+    @classmethod
+    def get_moe_wrapper(
+        cls, key: str | nn.Module | type[nn.Module]
+    ) -> type[BaseMoEWrapper]:
+        """Returns the MoE module wrapper class registered under `key`.
 
-    def available(self) -> tuple[str, ...]:  # TODO rename to `registered`
-        """Returns the sorted names of all registered architectures"""
-        return tuple(sorted(self._factories))
+        Parameters
+        ----------
+        key : str
+            MoE module wrapper key as registered.
+
+        Raises
+        ------
+        KeyError
+            If `key` is not registered
+        """
+        if isinstance(key, str):
+            key = cls._resolve_alias(key)
+            entry = cls._validate_entry(key)
+            return entry.moe_wrapper_cls
+
+        for v in cls._registered.values():
+            if inspect.isclass(key):
+                if key == v.mlx_lm_model_cls or issubclass(key, v.mlx_lm_model_cls):
+                    return v.moe_wrapper_cls
+
+            elif isinstance(key, v.mlx_lm_model_cls):
+                return v.moe_wrapper_cls
+
+        raise KeyError()  # TODO error msg
+
+    @classmethod
+    def architectures(cls) -> tuple[str, ...]:
+        names = set(list(cls._registered) + list(cls._aliases))
+        return tuple(sorted(names))
 
 
-V1_MOE_ARCH_ADAPTER_FACTORIES: Final[dict[str, MlxArchAdapterFactory]] = {
-    "qwen3-next": Qwen3_xArchAdapter,
-    "qwen3_x": Qwen3_xArchAdapter,
-}
+class DefaultArchClassRegistry(ArchClassRegistry):
+    """Frozen registry for architectures supported by preemptLM.
 
-
-# TODO rename to v1MoEArchAdapterRegistry
-class DefaultMoEArchAdapterRegistry(MoEArchAdapterRegistry):
-    """Frozen registry with preemptLM's built-in MoE factories registered.
-
-    Use for built-in defaults, otherwise use or subclass `MoEArchAdapterRegistry` for
+    Use for built-in defaults, otherwise use or subclass `ArchClassRegistry` for
     user-extensibility. The public `register` method is overridden to prevent
     registry mutation.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    _registered: dict[str, _Entry] = {
+        "qwen3.x": _Entry(
+            arch_adapter_cls=Qwen3_xArchAdapter,
+            moe_wrapper_cls=InstrumentedQwen3_xMoE,
+            mlx_lm_model_cls=Qwen3_5,
+        ),
+        "qwen3-next": _Entry(
+            arch_adapter_cls=Qwen3_xArchAdapter,
+            moe_wrapper_cls=InstrumentedQwen3_xMoE,
+            mlx_lm_model_cls=Qwen3Next,
+        ),
+    }
+    _aliases: dict[str, str] = {"qwen3.5": "qwen3.x", "qwen3.6": "qwen3.x"}
 
-        self._factories = V1_MOE_ARCH_ADAPTER_FACTORIES
+    @classmethod
+    def register(cls, **kwargs) -> Never:
+        """Automatically throws to prevent mutating built-in defaults."""
 
-    def register(self, name: str, factory: MlxArchAdapterFactory) -> Never:
-        """Automatically raises `AttributeError` when called to prevent mutating
-        built-in defaults.
-        """
-        raise AttributeError(
-            "`DefaultMoEArchAdapterRegistry` is frozen and cannot be extended. "
-            "For extensible registries, use or subclass `MoEArchAdapterRegistry`,"
+        raise TypeError(
+            "`DefaultArchClassRegistry` is frozen and cannot be extended. "
+            "For extensible registries, use or subclass `ArchClassRegistry`,"
             "instead."
         )

@@ -12,7 +12,7 @@ from mlx.utils import tree_unflatten
 
 from preempt.engine.layer_resolution import LayerCandidate
 
-from .types import MlxWrapperFactory
+from .types import ModuleWrapperFactory
 
 # Attribute names for wrapped MoE block and its expert MLP submodule
 # TODO move to dedicated constants module
@@ -23,7 +23,7 @@ _SWITCH_MLP_ATTR = "switch_mlp"  # TODO make sure 'switch_mlp' Qwen specific
 def mlx_instrument_model(
     model: nn.Module,
     candidates: Iterable[LayerCandidate],
-    wrapper_factory: MlxWrapperFactory,  # TODO rename
+    wrapper_factory: ModuleWrapperFactory,  # TODO rename
 ) -> None:
     """Replaces target layers of an MLX model in place with instrumented
     wrapper modules.
@@ -34,7 +34,7 @@ def mlx_instrument_model(
         MLX model to instrument
     candidates : Iterable[LayerCandidate]
         Target layers to replace, specifying module paths and block indices
-    wrapper_factory : MlxWrapperFactory
+    wrapper_factory : ModuleWrapperFactory
         Factory function that takes the original submodule and its candidate
         metadata, and returns an instrumented wrapper module to replace it
         with.

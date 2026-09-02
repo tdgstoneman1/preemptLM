@@ -43,9 +43,7 @@ from preempt.backends.mlx_metal.instrument import (
     mlx_instrument_model,
     mlx_strip_instrumented_expert_weights,
 )
-from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import (
-    make_qwen3_x_moe_wrapper_factory,
-)
+from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import InstrumentedQwen3_xMoE
 from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
 from preempt.backends.mlx_metal.utils import load_mlx_model
 
@@ -145,7 +143,7 @@ def main() -> None:
     mlx_instrument_model(
         loaded.model,
         layers,
-        make_qwen3_x_moe_wrapper_factory(recorder=None),
+        InstrumentedQwen3_xMoE.make_factory(recorder=None),
     )
     print(f"Instrumented {len(layers)} MoE block(s).")
 
