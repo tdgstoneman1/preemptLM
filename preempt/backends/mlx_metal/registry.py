@@ -9,11 +9,11 @@ from mlx_lm.models.qwen3_5_moe import Model as Qwen3_5
 from mlx_lm.models.qwen3_next import Model as Qwen3Next
 import mlx.nn as nn
 
-from preempt.backends.mlx_metal.instrumented.module_wrapper import BaseMoEWrapper
-from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import InstrumentedQwen3_xMoE
+from .instrumentation.base_moe_wrapper import BaseMoEWrapper
+from .instrumentation.qwen3_x_moe import InstrumentedQwen3_xMoE
 
-from .moe_arch_adapter import BaseMoEArchAdapter
-from .qwen3_x import Qwen3_xArchAdapter
+from .expert_bank.base_adapter import BaseMoEArchAdapter
+from .expert_bank.qwen3_x import Qwen3_xArchAdapter
 
 
 class _Entry(NamedTuple):

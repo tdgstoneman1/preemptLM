@@ -77,6 +77,7 @@ class MlxModelRunner:
 
     def _step(self, input_tokens: mx.array) -> NoReturn:  # ! CURRENTLY NOT WORKING
         raise NotImplementedError()
+
         with mx.stream(generation_stream):
             logits = self.model(input_tokens[None], cache=self.kv_cache)[:, -1, :]
             logprobs = logits - mx.logsumexp(logits, keepdims=True)
@@ -85,6 +86,7 @@ class MlxModelRunner:
 
     def prefill(self, prompt_tokens: mx.array) -> NoReturn:  # ! CURRENTLY NOT WORKING
         raise NotImplementedError()
+
         with mx.stream(generation_stream):
             total_prompt_tokens = len(prompt_tokens)
             prompt_processed_tokens = 0
@@ -108,6 +110,7 @@ class MlxModelRunner:
 
     def generate(self, tokens: list[int]) -> NoReturn:  # ! CURRENTLY NOT WORKING
         raise NotImplementedError()
+
         input_ids = mx.array(tokens, dtype=mx.int32)
         y = self.prefill(input_ids)
         mx.async_eval(y)  # schedule y computation

@@ -38,8 +38,8 @@ import numpy as np
 
 import mlx.core as mx
 
-from preempt.backends.mlx_metal.adapters.qwen3_x import Qwen3_xArchAdapter
-from preempt.backends.mlx_metal.expert_bank_conversion import (
+from preempt.backends.mlx_metal.expert_bank.qwen3_x import Qwen3_xArchAdapter
+from preempt.backends.mlx_metal.expert_bank.serialization import (
     ShardTensorCache,
     build_tensor_shard_index,
     group_expert_tensors_by_layer,

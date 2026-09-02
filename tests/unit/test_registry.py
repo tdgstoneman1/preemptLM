@@ -4,10 +4,12 @@ import pytest
 
 from types import new_class
 
-from preempt.backends.mlx_metal.adapters.moe_arch_adapter import BaseMoEArchAdapter
-from preempt.backends.mlx_metal.adapters.qwen3_x import Qwen3_xArchAdapter
-from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import InstrumentedQwen3_xMoE
-from preempt.backends.mlx_metal.adapters.registry import (
+from preempt.backends.mlx_metal.expert_bank.base_adapter import BaseMoEArchAdapter
+from preempt.backends.mlx_metal.expert_bank.qwen3_x import Qwen3_xArchAdapter
+from preempt.backends.mlx_metal.instrumentation.qwen3_x_moe import (
+    InstrumentedQwen3_xMoE,
+)
+from preempt.backends.mlx_metal.registry import (
     ArchClassRegistry,
     DefaultArchClassRegistry,
 )

@@ -34,17 +34,18 @@ from preempt.utils.pipeline_utils import (
     get_parquet_sink,
     target_layers_for_model,
 )
-from ..instrument import (
+from ..instrumentation.instrument import (
     mlx_instrument_model,
     mlx_strip_instrumented_expert_weights,
 )
-from ..adapters.registry import DefaultArchClassRegistry
+from ..registry import DefaultArchClassRegistry
 from ..layer_discovery import resolve_mlx_target_layers
 from ..recorder import MoERecorder
 from ..expert_cache import MlxExpertCache
-from ..runner import MlxModelRunner
 from ..types import MlxLoadedModel
 from ..utils import load_mlx_model
+
+from .runner import MlxModelRunner
 
 
 def _get_streaming_deps(

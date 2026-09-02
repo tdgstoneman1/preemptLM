@@ -12,7 +12,7 @@ from mlx_lm import load
 import mlx.core as mx
 
 from preempt.backends.mlx_metal.layer_discovery import iter_layer_candidates
-from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import (
+from preempt.backends.mlx_metal.instrumentation.qwen3_x_moe import (
     InstrumentedQwen3_xMoE,
 )
 from preempt.backends.mlx_metal.recorder import MoERecorder

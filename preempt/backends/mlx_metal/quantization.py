@@ -8,20 +8,19 @@ serialization boundaries.
 
 from __future__ import annotations
 
-from typing import Literal
-from collections.abc import Mapping
+from enum import StrEnum
 
 import attrs
 from attrs import field
 
 import mlx.core as mx
 
-from .constants import (
-    MLX_DTYPE_TAGS,
-    MLX_QUANTIZED_ENCODING_TEMPLATE,
-    MLX_UNQUANTIZED_ENCODING_TEMPLATE,
-)
-from .enums import MlxQuantMode
+
+class MlxQuantMode(StrEnum):
+    AFFINE = "affine"
+    MXFP4 = "mxfp4"
+    MXFP8 = "mxfp8"
+    NVFP4 = "nvfp4"
 
 
 @attrs.define(frozen=True, kw_only=True)

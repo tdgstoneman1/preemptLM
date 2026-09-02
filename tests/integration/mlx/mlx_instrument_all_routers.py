@@ -50,11 +50,13 @@ import pyarrow.parquet as pq
 import mlx.core as mx
 import mlx.nn as nn
 
-from preempt.backends.mlx_metal.instrument import mlx_instrument_model
-from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import InstrumentedQwen3_xMoE
+from preempt.backends.mlx_metal.instrumentation.instrument import mlx_instrument_model
+from preempt.backends.mlx_metal.instrumentation.qwen3_x_moe import (
+    InstrumentedQwen3_xMoE,
+)
 from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
 from preempt.backends.mlx_metal.recorder import MoERecorder
-from preempt.backends.mlx_metal.runner import MlxModelRunner
+from preempt.backends.mlx_metal.pipeline.runner import MlxModelRunner
 from preempt.backends.mlx_metal.utils import load_mlx_model
 
 from preempt.config.pipeline import PipelineConfig

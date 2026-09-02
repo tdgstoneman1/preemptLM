@@ -32,7 +32,7 @@ from ..recorder import MoERecorder
 from ..constants import SWIGLU_PROJECTION_NAMES
 from ..utils import get_expert_quants
 
-from .module_wrapper import BaseMoEWrapper
+from .base_moe_wrapper import BaseMoEWrapper
 
 # TODO make module wrapper hold experts in memory, external cache manager handles eviction decisions
 

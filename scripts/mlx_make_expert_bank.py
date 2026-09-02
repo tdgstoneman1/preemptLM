@@ -13,7 +13,7 @@ project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from preempt.backends.mlx_metal.expert_bank_conversion import model_to_expert_bank
+from preempt.backends.mlx_metal.expert_bank.serialization import model_to_expert_bank
 
 from preempt.utils.hf_utils import resolve_model_dir
 
@@ -59,7 +59,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    from preempt.backends.mlx_metal.adapters.registry import (
+    from preempt.backends.mlx_metal.registry import (
         DefaultArchClassRegistry,
     )
 

@@ -12,7 +12,7 @@ from mlx.utils import tree_unflatten
 
 from preempt.engine.layer_resolution import LayerCandidate
 
-from .types import ModuleWrapperFactory
+from ..types import ModuleWrapperFactory
 
 # Attribute names for wrapped MoE block and its expert MLP submodule
 # TODO move to dedicated constants module

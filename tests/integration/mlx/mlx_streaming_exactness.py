@@ -167,7 +167,7 @@ async def _run(
 def _make_corrupting_decoder(
     original,
 ) -> tuple[object, dict[ExpertKey, int], list[int]]:
-    """Wrap `decode_expert_tensors` to corrupt an expert's *reinstall*.
+    """Wrap `decode_serialized_weights` to corrupt an expert's *reinstall*.
 
     The first decode of any key is left clean; the second and later decodes —
     which only happen after the cache evicted the key and demanded it again —
@@ -312,9 +312,9 @@ async def _main(args: argparse.Namespace) -> None:
 
     # --- Check 2: the gate has teeth ---------------------------------------
     print("=== Deliberate-failure run (corrupted reinstall) ===", flush=True)
-    original_decode = residency_module.decode_expert_tensors
+    original_decode = residency_module.decode_serialized_weights
     corrupt_decode, _, fires = _make_corrupting_decoder(original_decode)
-    residency_module.decode_expert_tensors = corrupt_decode  # type: ignore[assignment]
+    residency_module.decode_serialized_weights = corrupt_decode  # type: ignore[assignment]
     try:
         corrupt_ids, corrupt_metrics, _, _ = await _run(
             _streaming_config(
@@ -325,7 +325,7 @@ async def _main(args: argparse.Namespace) -> None:
             args.max_tokens,
         )
     finally:
-        residency_module.decode_expert_tensors = original_decode  # type: ignore[assignment]
+        residency_module.decode_serialized_weights = original_decode  # type: ignore[assignment]
 
     print(f"Corrupted {fires[0]} expert reinstall(s) (scales x2 on second decode).")
     print(f"Corrupted tokens: {corrupt_ids!r}")

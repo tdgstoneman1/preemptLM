@@ -15,7 +15,7 @@ import mlx.core as mx
 
 from preempt.expert_bank.manifest import ModelMoESpec
 
-from .moe_arch_adapter import BaseMoEArchAdapter
+from .base_adapter import BaseMoEArchAdapter
 
 from ..constants import (
     SWIGLU_PROJECTION_NAMES,
@@ -26,7 +26,8 @@ from ..utils import dtype_tag_from_arrays
 
 
 class Qwen3_xArchAdapter(BaseMoEArchAdapter):
-    """Architecture adapter for Qwen3.X and Qwen3-Next MoE checkpoints.
+    """Architecture adapter for Qwen3.X and Qwen3-Next MoE blocks expert bank
+    serialization
 
     Supports SwiGLU experts containing three linear projections (`'gate_proj'`,
     `'up_proj'`, `'down_proj'`) which may be quantized with MLX.

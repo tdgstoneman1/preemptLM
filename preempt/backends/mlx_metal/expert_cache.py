@@ -75,8 +75,7 @@ def _view_dtype_for(
     return view
 
 
-# TODO rename to decode_serialized_expert
-def decode_expert_tensors(
+def decode_serialized_weights(
     payload: ExpertPayload, encoding: PayloadEncoding
 ) -> dict[str, mx.array]:
     """Decodes serialized expert payload into a dictionary of MLX arrays.
@@ -186,7 +185,7 @@ class MlxExpertCache:
                 f"Payload carries {payload.key!r} but was installed under {key!r}."
             )
 
-        tensors = decode_expert_tensors(payload, self._encoding)
+        tensors = decode_serialized_weights(payload, self._encoding)
         mx.eval(tuple(tensors.values()))
         num_bytes = len(payload.data)
 

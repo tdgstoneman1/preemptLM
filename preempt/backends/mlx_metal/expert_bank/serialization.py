@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+import attrs
+from attrs import field
+
 import hashlib
 import json
 from pathlib import Path
-
 import gc
-
-import attrs
-from attrs import field
 
 import numpy as np
 
@@ -19,8 +18,9 @@ from preempt.expert_bank.blob import assemble_expert_blob, derive_tensor_specs
 from preempt.expert_bank.manifest import ExpertBankManifest
 from preempt.expert_bank.writer import ExpertBankWriter
 
-from .utils import mlx_to_numpy, make_encoding_tag
-from .adapters.moe_arch_adapter import BaseMoEArchAdapter
+from ..utils import mlx_to_numpy, make_encoding_tag
+
+from .base_adapter import BaseMoEArchAdapter
 
 
 def hash_model_ckpt(ckpt_path: Path) -> str:

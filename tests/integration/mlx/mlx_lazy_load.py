@@ -39,11 +39,13 @@ from pathlib import Path
 
 import mlx.core as mx
 
-from preempt.backends.mlx_metal.instrument import (
+from preempt.backends.mlx_metal.instrumentation.instrument import (
     mlx_instrument_model,
     mlx_strip_instrumented_expert_weights,
 )
-from preempt.backends.mlx_metal.instrumented.qwen3_x_moe import InstrumentedQwen3_xMoE
+from preempt.backends.mlx_metal.instrumentation.qwen3_x_moe import (
+    InstrumentedQwen3_xMoE,
+)
 from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
 from preempt.backends.mlx_metal.utils import load_mlx_model
 

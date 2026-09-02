@@ -17,11 +17,9 @@ from ..quantization import QuantSettings
 class BaseMoEArchAdapter(ABC):
     """*Abstract; do not instantiate*
 
-    Defines architecture-specific parameters for MLX MoE checkpoint conversion
-    and runtime execution.
-
-    Subclasses encapsulate model-specific tensor naming patterns, projection
-    layouts, and quantization configurations for a specific MoE family.
+    Defines architecture-specific parameters for expert bank serialization with
+    MLX models. Subclasses encapsulate tensor naming patterns, projection layouts,
+    and quantization configurations for a specific MoE family.
     """
 
     @property
