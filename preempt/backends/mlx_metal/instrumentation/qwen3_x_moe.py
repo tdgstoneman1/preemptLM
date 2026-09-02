@@ -66,7 +66,7 @@ def _combine_and_apply_experts(
     return sum_routed_experts + (mx.sigmoid(shared_gate) * shared_y)
 
 
-class InstrumentedQwen3_xMoE(BaseMoEWrapper):
+class Qwen3_xMoEWrapper(BaseMoEWrapper):
     """Module wrapper for instrumenting Qwen3.x and Qwen3-Next MoE blocks.
 
     Forward pass currently computes one expert at a time when reading from disk.
@@ -194,7 +194,7 @@ class InstrumentedQwen3_xMoE(BaseMoEWrapper):
         expert_loader: Optional[IExpertLoader] = None,
         expert_cache: Optional[MlxExpertCache] = None,
         model_fingerprint: Optional[str] = None,
-        expert_matmul: Literal["sequential", "fused"] = "fused",
+        expert_matmul: Literal["sequential", "fused"] = "sequential",
     ) -> ModuleWrapperFactory:
 
         def factory(
@@ -208,7 +208,7 @@ class InstrumentedQwen3_xMoE(BaseMoEWrapper):
                     "determined."
                 )
 
-            return InstrumentedQwen3_xMoE(
+            return Qwen3_xMoEWrapper(
                 inner=module,
                 recorder=recorder,
                 capture_gate_logits=capture_gate_logits,

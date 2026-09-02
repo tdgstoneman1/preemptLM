@@ -3,7 +3,7 @@ from __future__ import annotations
 import attrs
 from attrs import field, validators
 
-from preempt.datamodel.identity import ExpertKey, TensorSpec
+from .identity import ExpertKey, TensorSpec
 
 
 @attrs.define(kw_only=True, frozen=True)

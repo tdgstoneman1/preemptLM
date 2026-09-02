@@ -46,8 +46,7 @@ from preempt.utils.pipeline_utils import (
     cache_metrics_log_msg,
 )
 
-# TODO use rich.Markdown to render generated text in markdown format
-# TODO EOS tokens
+# TODO pass 'expert_matmul' param from config
 # TODO separate panel for final generation stats
 
 

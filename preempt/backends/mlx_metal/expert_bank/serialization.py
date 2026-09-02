@@ -177,6 +177,7 @@ def expert_ndarrays(
     return {path: mlx_to_numpy(tensor[expert_idx]) for path, tensor in stacked.items()}
 
 
+# TODO remove 'architecture' arg and resolve from config.json or mlx-lm class via registry
 def model_to_expert_bank(
     ckpt_path: Path,
     expert_bank_dir: Path,

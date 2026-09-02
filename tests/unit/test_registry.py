@@ -7,7 +7,7 @@ from types import new_class
 from preempt.backends.mlx_metal.expert_bank.base_adapter import BaseMoEArchAdapter
 from preempt.backends.mlx_metal.expert_bank.qwen3_x import Qwen3_xArchAdapter
 from preempt.backends.mlx_metal.instrumentation.qwen3_x_moe import (
-    InstrumentedQwen3_xMoE,
+    Qwen3_xMoEWrapper,
 )
 from preempt.backends.mlx_metal.registry import (
     ArchClassRegistry,
@@ -19,7 +19,7 @@ from preempt.backends.mlx_metal.registry import (
 class TestArchitectureRegistry:
     def test_register_and_get(self) -> None:
         reg = new_class("mock_registry", (ArchClassRegistry,))
-        reg.register("qwen", Qwen3_xArchAdapter, InstrumentedQwen3_xMoE)
+        reg.register("qwen", Qwen3_xArchAdapter, Qwen3_xMoEWrapper)
         arch = reg.get_arch_adapter("qwen")
         assert isinstance(arch, Qwen3_xArchAdapter)
 
@@ -30,28 +30,28 @@ class TestArchitectureRegistry:
 
     def test_available(self) -> None:
         reg = new_class("mock_registry2", (ArchClassRegistry,))
-        reg.register("qwen", Qwen3_xArchAdapter, InstrumentedQwen3_xMoE)
+        reg.register("qwen", Qwen3_xArchAdapter, Qwen3_xMoEWrapper)
         assert "qwen" in reg.architectures()
 
     def test_register_duplicate_overwrites(self) -> None:
         reg = new_class("mock_registry3", (ArchClassRegistry,))
-        reg.register("qwen", Qwen3_xArchAdapter, InstrumentedQwen3_xMoE)
+        reg.register("qwen", Qwen3_xArchAdapter, Qwen3_xMoEWrapper)
         reg.register(
-            "qwen", Qwen3_xArchAdapter, InstrumentedQwen3_xMoE
+            "qwen", Qwen3_xArchAdapter, Qwen3_xMoEWrapper
         )  # no error, overwrites
         assert "qwen" in reg.architectures()
 
     def test_each_get_returns_fresh_instance(self) -> None:
         reg = new_class("mock_registry4", (ArchClassRegistry,))
-        reg.register("qwen", Qwen3_xArchAdapter, InstrumentedQwen3_xMoE)
+        reg.register("qwen", Qwen3_xArchAdapter, Qwen3_xMoEWrapper)
         a = reg.get_arch_adapter("qwen")
         b = reg.get_arch_adapter("qwen")
         assert a is not b
 
     def test_get_returns_moearchitecture(self) -> None:
         reg = new_class("mock_registry5", (ArchClassRegistry,))
-        reg.register("qwen", Qwen3_xArchAdapter, InstrumentedQwen3_xMoE)
-        reg.register("dummy", Qwen3_xArchAdapter, InstrumentedQwen3_xMoE)
+        reg.register("qwen", Qwen3_xArchAdapter, Qwen3_xMoEWrapper)
+        reg.register("dummy", Qwen3_xArchAdapter, Qwen3_xMoEWrapper)
         arch = reg.get_arch_adapter("qwen")
         assert isinstance(arch, BaseMoEArchAdapter)
 
@@ -61,7 +61,7 @@ class TestArchitectureRegistry:
 
     def test_error_message_lists_available(self) -> None:
         reg = new_class("mock_registry7", (ArchClassRegistry,))
-        reg.register("qwen", Qwen3_xArchAdapter, InstrumentedQwen3_xMoE)
+        reg.register("qwen", Qwen3_xArchAdapter, Qwen3_xMoEWrapper)
         with pytest.raises(KeyError, match=r"\['qwen'\]"):
             reg.get_arch_adapter("nonexistent")
 

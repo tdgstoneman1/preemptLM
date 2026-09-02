@@ -50,11 +50,13 @@ import pyarrow.parquet as pq
 import mlx.core as mx
 import mlx.nn as nn
 
-from preempt.backends.mlx_metal.instrumentation.instrument import mlx_instrument_model
-from preempt.backends.mlx_metal.instrumentation.qwen3_x_moe import (
-    InstrumentedQwen3_xMoE,
+from preempt.backends.mlx_metal.instrumentation.instrument import (
+    mlx_instrument_model,
+    resolve_mlx_target_layers,
 )
-from preempt.backends.mlx_metal.layer_discovery import resolve_mlx_target_layers
+from preempt.backends.mlx_metal.instrumentation.qwen3_x_moe import (
+    Qwen3_xMoEWrapper,
+)
 from preempt.backends.mlx_metal.recorder import MoERecorder
 from preempt.backends.mlx_metal.pipeline.runner import MlxModelRunner
 from preempt.backends.mlx_metal.utils import load_mlx_model
@@ -255,7 +257,7 @@ def instrument_router_layers(
     mlx_instrument_model(
         model,
         layers,
-        InstrumentedQwen3_xMoE.make_factory(
+        Qwen3_xMoEWrapper.make_factory(
             recorder,
             capture_gate_logits=capture_gate_logits,
         ),
@@ -265,7 +267,7 @@ def instrument_router_layers(
     not_wrapped = [
         path
         for path, module in installed.items()
-        if not isinstance(module, InstrumentedQwen3_xMoE)
+        if not isinstance(module, Qwen3_xMoEWrapper)
     ]
 
     if not_wrapped:

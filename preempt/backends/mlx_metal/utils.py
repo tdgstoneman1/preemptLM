@@ -5,6 +5,7 @@ from pathlib import Path
 
 import gc
 
+import ml_dtypes
 from rich import print
 
 import numpy as np
@@ -20,6 +21,7 @@ from mlx_lm.models.switch_layers import (
 from mlx_lm import load
 
 from safetensors import safe_open
+
 
 from preempt.core.protocols import ITokenizer
 from preempt.core.exceptions import EngineCompatibilityError
@@ -91,7 +93,6 @@ def convert_and_save_shard(
     return shard_name, tensor_names
 
 
-# TODO use ml_dtypes to preserve bfloat16
 def mlx_to_numpy(array: mx.array, copy: bool = False) -> np.ndarray:
     """Converts an MLX array to NumPy with zero mutation.
 
@@ -111,8 +112,9 @@ def mlx_to_numpy(array: mx.array, copy: bool = False) -> np.ndarray:
         The converted array
     """
     if array.dtype == mx.bfloat16:
-        return np.array(array.view(mx.uint16), copy=copy)
-
+        return np.frombuffer(memoryview(array), dtype=ml_dtypes.bfloat16).reshape(
+            array.shape
+        )
     return np.array(array, copy=copy)
 
 

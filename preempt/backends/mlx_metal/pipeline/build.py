@@ -37,15 +37,17 @@ from preempt.utils.pipeline_utils import (
 from ..instrumentation.instrument import (
     mlx_instrument_model,
     mlx_strip_instrumented_expert_weights,
+    resolve_mlx_target_layers,
 )
 from ..registry import DefaultArchClassRegistry
-from ..layer_discovery import resolve_mlx_target_layers
 from ..recorder import MoERecorder
 from ..expert_cache import MlxExpertCache
 from ..types import MlxLoadedModel
 from ..utils import load_mlx_model
 
 from .runner import MlxModelRunner
+
+# TODO pass 'expert_matmul' param from config
 
 
 def _get_streaming_deps(

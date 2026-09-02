@@ -11,9 +11,9 @@ from mlx_lm import load
 
 import mlx.core as mx
 
-from preempt.backends.mlx_metal.layer_discovery import iter_layer_candidates
+from preempt.backends.mlx_metal.instrumentation.instrument import iter_layer_candidates
 from preempt.backends.mlx_metal.instrumentation.qwen3_x_moe import (
-    InstrumentedQwen3_xMoE,
+    Qwen3_xMoEWrapper,
 )
 from preempt.backends.mlx_metal.recorder import MoERecorder
 from preempt.config.target_layers import TargetLayers
@@ -89,12 +89,16 @@ def replace_single_router_layer(
 ) -> None:
     inner = get_module_by_path(model, path)
 
-    wrapper = InstrumentedQwen3_xMoE(
+    wrapper = Qwen3_xMoEWrapper(
         inner=inner,
         recorder=recorder,
         capture_gate_logits=True,
         layer_path=path,
         block_idx=block_idx,
+        expert_cache=None,
+        expert_loader=None,
+        expert_matmul="sequential",
+        model_fingerprint=None,
     )
 
     # MLX module trees expose this common Qwen location as:
@@ -106,7 +110,7 @@ def replace_single_router_layer(
 
     installed = get_module_by_path(model, path)
 
-    if not isinstance(installed, InstrumentedQwen3_xMoE):
+    if not isinstance(installed, Qwen3_xMoEWrapper):
         raise RuntimeError(
             f"Wrapper installation failed at {path!r}; "
             f"got {type(installed).__name__}."

@@ -10,7 +10,7 @@ from mlx_lm.models.qwen3_next import Model as Qwen3Next
 import mlx.nn as nn
 
 from .instrumentation.base_moe_wrapper import BaseMoEWrapper
-from .instrumentation.qwen3_x_moe import InstrumentedQwen3_xMoE
+from .instrumentation.qwen3_x_moe import Qwen3_xMoEWrapper
 
 from .expert_bank.base_adapter import BaseMoEArchAdapter
 from .expert_bank.qwen3_x import Qwen3_xArchAdapter
@@ -100,8 +100,8 @@ class ArchClassRegistry:
     def _validate_entry(cls, key: str) -> _Entry:
         if (entry := cls._registered.get(key)) is None:
             raise KeyError(
-                f"Unknown architecture {key!r}. Registered names: "
-                f"{sorted(cls._registered.keys())!r}"
+                f"Unknown architecture {key!r}. Registered architectures: "
+                f"{cls.architectures()!r}"
             )
         return entry
 
@@ -205,12 +205,12 @@ class DefaultArchClassRegistry(ArchClassRegistry):
     _registered: dict[str, _Entry] = {
         "qwen3.x": _Entry(
             arch_adapter_cls=Qwen3_xArchAdapter,
-            moe_wrapper_cls=InstrumentedQwen3_xMoE,
+            moe_wrapper_cls=Qwen3_xMoEWrapper,
             mlx_lm_model_cls=Qwen3_5,
         ),
         "qwen3-next": _Entry(
             arch_adapter_cls=Qwen3_xArchAdapter,
-            moe_wrapper_cls=InstrumentedQwen3_xMoE,
+            moe_wrapper_cls=Qwen3_xMoEWrapper,
             mlx_lm_model_cls=Qwen3Next,
         ),
     }

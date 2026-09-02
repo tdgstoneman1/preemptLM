@@ -13,20 +13,18 @@ import mlx.core as mx
 
 from preempt.expert_bank.encoding import ExpertBankEncoding, parse_encoding_tag
 
-from preempt.datamodel.identity import ExpertKey, TensorSpec
+from preempt.datamodel.identity import ExpertKey
 from preempt.datamodel.experts import SerializedExpert
-
-from .constants import BIT_VIEWED_STORAGE_DTYPE, BIT_VIEWED_SCALARS
 
 
 @attrs.define(kw_only=True, frozen=True, eq=False)
-class _CachedExpert:
-    """In-memory MLX tensors and byte count for a serialized expert.
+class CachedExpert:
+    """An cached expert's weight tensors and size in bytes.
 
     Attributes
     ----------
     tensors : Mapping[str, mx.array]
-        Mapping of tensor names to in-memory MLX arrays.
+        Mapping of tensor names to MLX arrays.
     num_bytes : int
         Total size of the expert in bytes.
     """
@@ -35,46 +33,7 @@ class _CachedExpert:
     num_bytes: int = field()
 
 
-def _view_dtype_for(  # TODO get rid of this
-    spec: TensorSpec, encoding: ExpertBankEncoding
-) -> mx.Dtype | None:
-    """Determines target MLX dtype when reinterpreting bit-viewed tensor storage.
-
-    Parameters
-    ----------
-    spec : TensorSpec
-        Specification of the stored tensor
-    encoding : ExpertBankEncoding
-        Encoding metadata for the expert bank
-
-    Returns
-    -------
-    mx.Dtype | None
-        Target MLX dtype for array reinterpretation, or None if no bit-view
-        reinterpretation is required.
-
-    Raises
-    ------
-    ValueError
-        If bit-viewed storage dtype does not map to a recognized target dtype in
-        the encoding.
-    """
-    if spec.dtype != BIT_VIEWED_STORAGE_DTYPE:
-        return None
-
-    view = BIT_VIEWED_SCALARS.get(encoding.scalar)  # TODO use ml_dtypes bfloat16
-    if view is None:
-        # TODO rewrite slop message
-        raise ValueError(
-            f"Tensor {spec.name!r} is stored as {BIT_VIEWED_STORAGE_DTYPE!r}, "
-            f"but the encoding names scalar {encoding.scalar!r}, which "
-            "is representable in numpy and would not have been bit-viewed. "
-            "Refusing to guess the real dtype."
-        )
-
-    return view
-
-
+# TODO read weights concurrently
 def decode_serialized_expert(
     expert: SerializedExpert, encoding: ExpertBankEncoding
 ) -> dict[str, mx.array]:
@@ -114,31 +73,17 @@ def decode_serialized_expert(
 
     for spec in expert.tensor_specs:
         count = math.prod(spec.shape)
-        itemsize = np.dtype(spec.dtype).itemsize
-
-        if count * itemsize != spec.num_bytes:
-            raise ValueError(
-                f"Size mismatch for tensor spec {spec.name!r}: tensor shape "
-                f"{spec.shape} requires {count * itemsize} bytes, but its tensor "
-                f"spec records {spec.num_bytes} bytes."
-            )
-
-        # Tensor data contiguous within expert blob
-        raw = np.frombuffer(
-            expert.data, dtype=spec.dtype, count=count, offset=offset
+        # itemsize = np.dtype(spec.dtype).itemsize
+        # assert spec.num_bytes == count * itemsize
+        tensors[spec.name] = mx.asarray(
+            np.frombuffer(expert.data, dtype=spec.dtype, count=count, offset=offset)
         ).reshape(spec.shape)
-        dtype = _view_dtype_for(spec, encoding)
-
-        tensor = mx.array(raw)
-        tensor = tensor.view(dtype) if dtype is not None else tensor
-
-        tensors[spec.name] = tensor
-        offset += spec.num_bytes
+        offset += tensors[spec.name].nbytes
 
     if offset != len(expert.data):
         raise ValueError(
             f"Blob for {expert.key!r} is {len(expert.data)} bytes, but its "
-            f"tensor specs account for {offset}."
+            f"tensor spec accounts for {offset} bytes."
         )
 
     return tensors
@@ -155,7 +100,7 @@ class MlxExpertCache:
     """
 
     _encoding: ExpertBankEncoding = field()
-    _entries: dict[ExpertKey, _CachedExpert] = field(factory=dict, init=False)
+    _entries: dict[ExpertKey, CachedExpert] = field(factory=dict, init=False)
     _bytes_size: int = field(default=0, init=False)
 
     def add(self, expert: SerializedExpert) -> None:
@@ -180,7 +125,7 @@ class MlxExpertCache:
         if (previous := self._entries.get(expert.key)) is not None:
             self._bytes_size -= previous.num_bytes
 
-        self._entries[expert.key] = _CachedExpert(tensors=tensors, num_bytes=num_bytes)
+        self._entries[expert.key] = CachedExpert(tensors=tensors, num_bytes=num_bytes)
         self._bytes_size += num_bytes
 
     def evict(self, key: ExpertKey) -> None:
