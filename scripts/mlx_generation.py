@@ -1,12 +1,12 @@
 """
-Example usage (macOS host)::
+Example usage (macOS)::
 
     uv run scripts/mlx_generation.py\
         --config configs/mlx/unsloth-qwen3.6-35b-4bit.toml\
         --stream-experts\
-        --trace\
         --max-tokens 1024\
         --prompt "Fire and fury like "
+        --profile\
 """
 
 from __future__ import annotations
