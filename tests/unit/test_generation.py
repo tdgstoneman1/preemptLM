@@ -5,11 +5,11 @@ import pytest
 
 import asyncio
 
-from preempt.engine.sinks import BaseEventSink
+from preempt.engine.sinks import BaseTraceSink
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
 from preempt.engine.generation import generate_greedy
 from preempt.engine.metrics import StepMetrics
-from preempt.engine.recorder import BaseEventRecorder
+from preempt.engine.recorder import BaseTraceRecorder
 
 
 class ScriptedRunner:
@@ -43,7 +43,7 @@ class ContextRunner:
         return (sum(self.context) + len(self.context)) % 50
 
 
-class SpyRecorder(BaseEventRecorder):
+class SpyRecorder(BaseTraceRecorder):
     """Buffers one fake capture per step; counts flushes."""
 
     def __init__(self) -> None:
@@ -58,12 +58,12 @@ class SpyRecorder(BaseEventRecorder):
 
     def capture(self, **kwargs: Any) -> None: ...
 
-    async def flush(self, sink: BaseEventSink) -> int:
+    async def flush(self, sink: BaseTraceSink) -> int:
         self.stop_trace()
         return 3  # pretend 3 records per step
 
 
-class NullSink(BaseEventSink):
+class NullSink(BaseTraceSink):
     async def write(self, event: Mapping[str, Any]) -> None: ...
     async def flush(self) -> None: ...
     async def aclose(self) -> None: ...

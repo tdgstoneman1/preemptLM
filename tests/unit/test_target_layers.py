@@ -23,7 +23,6 @@ def test_config_rejects_duplicate_target_names() -> None:
 def test_config_round_trips_from_toml_shaped_dict() -> None:
     config = TargetLayers.model_validate(
         {
-            "version": 1,
             "target_layers": [
                 {"name": "r", "search_params": {"layer_class": "Blk", "count": 40}}
             ],

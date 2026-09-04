@@ -3,10 +3,10 @@ from collections.abc import Mapping, Sequence
 
 import pytest
 
-from preempt.engine.sinks import BaseEventSink
+from preempt.engine.sinks import BaseTraceSink
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
 from preempt.engine.pipeline import GenerationPipeline
-from preempt.engine.recorder import BaseEventRecorder
+from preempt.engine.recorder import BaseTraceRecorder
 
 
 class ScriptedRunner:
@@ -35,7 +35,7 @@ class StubCodec:
         return "".join(chr(t) for t in tokens)
 
 
-class SpyRecorder(BaseEventRecorder):
+class SpyRecorder(BaseTraceRecorder):
     def __init__(self) -> None:
         super().__init__(
             TraceRunContext(run_id="r", model_id="m", model_architecture="a")
@@ -43,12 +43,12 @@ class SpyRecorder(BaseEventRecorder):
 
     def capture(self, **kwargs: Any) -> None: ...
 
-    async def flush(self, sink: BaseEventSink) -> int:
+    async def flush(self, sink: BaseTraceSink) -> int:
         self.stop_trace()
         return 1
 
 
-class SpySink(BaseEventSink):
+class SpySink(BaseTraceSink):
     def __init__(self) -> None:
         self.closed = False
 

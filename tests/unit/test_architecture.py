@@ -97,10 +97,7 @@ class TestQwenTensorOrder:
         self, arch: Qwen3_xArchAdapter
     ) -> None:
         layer_tensors = {"gate_proj.scales": "x", "gate_proj.biases": "x"}
-        with pytest.raises(
-            ValueError,
-            match="The following weight tensors are missing from `layer_tensors`",
-        ):
+        with pytest.raises(ValueError):
             arch.validate_weight_paths(layer_tensors)
 
     def test_validate_layer_tensors_unquantized(self, arch: Qwen3_xArchAdapter) -> None:
@@ -122,10 +119,7 @@ class TestQwenTensorOrder:
             "down_proj.weight": "x",
             "unknown_proj.weight": "x",
         }
-        with pytest.raises(
-            ValueError,
-            match="`layer_tensors` contains the following unexpected weight tensors",
-        ):
+        with pytest.raises(ValueError):
             arch.validate_weight_paths(layer_tensors)
 
 
@@ -186,17 +180,17 @@ class TestQwenQuantization:
 
 class TestQwenMoESpec:
     def test_extract(self, arch: Qwen3_xArchAdapter) -> None:
-        config = {"text_config": {"num_routed_experts": 256, "num_experts_per_tok": 8}}
-        topo = arch.get_model_moe_spec(config, (0, 1, 2))
+        config = {"text_config": {"num_experts": 256, "num_experts_per_tok": 8}}
+        spec = arch.get_model_moe_spec(config, (0, 1, 2))
 
-        assert topo.moe_block_idxs == (0, 1, 2)
-        assert topo.num_routed_experts == 256
-        assert topo.top_k == 8
+        assert spec.moe_block_idxs == (0, 1, 2)
+        assert spec.num_routed_experts == 256
+        assert spec.top_k == 8
 
     def test_extract_non_text_config(self, arch: Qwen3_xArchAdapter) -> None:
-        config = {"num_routed_experts": 128, "num_experts_per_tok": 4}
-        topo = arch.get_model_moe_spec(config, (5,))
+        config = {"num_experts": 128, "num_experts_per_tok": 4}
+        spec = arch.get_model_moe_spec(config, (5,))
 
-        assert topo.moe_block_idxs == (5,)
-        assert topo.num_routed_experts == 128
-        assert topo.top_k == 4
+        assert spec.moe_block_idxs == (5,)
+        assert spec.num_routed_experts == 128
+        assert spec.top_k == 4

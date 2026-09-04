@@ -32,24 +32,24 @@ class TestQuantizedTensorParts:
 class TestPayloadEncodingFor:
     def test_quantized(self) -> None:
         q = QuantSettings(mode="affine", bits=4, group_size=64)  # type: ignore
-        assert make_encoding_tag(q, "bf16") == "mlx-affine-q4-g64-bf16"
+        assert make_encoding_tag(q, "bfloat16") == "mlx-affine-q4-g64-bfloat16"
 
     def test_unquantized(self) -> None:
-        assert make_encoding_tag(None, "bf16") == "mlx-unquantized-bf16"
+        assert make_encoding_tag(None, "bfloat16") == "mlx-unquantized-bfloat16"
 
     def test_f16(self) -> None:
         q = QuantSettings(mode="affine", bits=4, group_size=64)  # type: ignore
-        assert make_encoding_tag(q, "f16") == "mlx-affine-q4-g64-f16"
+        assert make_encoding_tag(q, "float16") == "mlx-affine-q4-g64-float16"
 
 
 class TestScalarDtypeTag:
     def test_bf16(self) -> None:
         stacked = {"gate_proj.scales": mx.array([1.0], dtype=mx.bfloat16)}
-        assert dtype_tag_from_arrays(stacked, quantized=True) == "bf16"
+        assert dtype_tag_from_arrays(stacked, quantized=True) == "bfloat16"
 
     def test_f16(self) -> None:
         stacked = {"gate_proj.scales": mx.array([1.0], dtype=mx.float16)}
-        assert dtype_tag_from_arrays(stacked, quantized=True) == "f16"
+        assert dtype_tag_from_arrays(stacked, quantized=True) == "float16"
 
     def test_disagreement_raises(self) -> None:
         stacked = {
@@ -61,7 +61,7 @@ class TestScalarDtypeTag:
 
     def test_unquantized_reads_weight_dtype(self) -> None:
         stacked = {"gate_proj.weight": mx.array([1.0], dtype=mx.float32)}
-        assert dtype_tag_from_arrays(stacked, quantized=False) == "f32"
+        assert dtype_tag_from_arrays(stacked, quantized=False) == "float32"
 
     def test_unsupported_dtype_raises(self) -> None:
         stacked = {"gate_proj.weight": mx.array([1.0], dtype=mx.float64)}
