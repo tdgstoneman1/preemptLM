@@ -98,7 +98,7 @@ class ArchClassRegistry:
             if k == key:
                 return alias_for
 
-        return k
+        return key
 
     @classmethod
     def _validate_entry(cls, key: str) -> _Entry:
