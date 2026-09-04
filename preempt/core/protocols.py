@@ -26,7 +26,7 @@ class IExpertCache(Protocol):
         """Cache's memory footprint in bytes."""
         ...
 
-    def get(self, key: Hashable) -> Mapping[str, Any]:
+    def get(self, key: ExpertKey) -> Mapping[str, Any]:
         """Returns cached weights for `key`"""
         ...
 
