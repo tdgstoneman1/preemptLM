@@ -1,5 +1,3 @@
-"""Pydantic models for an expert bank's `manifest.json`"""
-
 from __future__ import annotations
 
 from typing import Self
@@ -11,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from preempt.datamodel.identity import ExpertKey, TensorSpec
 from preempt.core.constants import (
     MANIFEST_FILENAME,
-    EXPERT_BANK_SCHEMA,
+    EXPERT_BANK_SCHEMA_VERSION,
 )
 
 
@@ -36,12 +34,12 @@ class ExpertBlobRecord(BaseModel):
 class ExpertBankManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: int = Field(default=EXPERT_BANK_SCHEMA, ge=1)
+    schema_version: int = Field(default=EXPERT_BANK_SCHEMA_VERSION, ge=1)
 
     model_id: str = Field(min_length=1)
     model_fingerprint: str = Field(min_length=1)
 
-    encoding: str = Field(min_length=1)  # TODO rename
+    encoding: str = Field(min_length=1)
     tensor_specs: tuple[TensorSpec, ...] = Field(min_length=1)
     model_moe_spec: ModelMoESpec
 
@@ -65,7 +63,7 @@ class ExpertBankManifest(BaseModel):
 
         return self
 
-    def expert_num_bytes(self) -> int:  # TODO rename
+    def expert_num_bytes(self) -> int:
         return sum(spec.num_bytes for spec in self.tensor_specs)
 
     def blob_index(self) -> dict[ExpertKey, ExpertBlobRecord]:
@@ -87,6 +85,6 @@ class ExpertBankManifest(BaseModel):
         return path
 
     @classmethod
-    def load(cls, expert_bank_dir: Path) -> ExpertBankManifest:  # TODO rename
+    def load(cls, expert_bank_dir: Path) -> ExpertBankManifest:
         raw = (expert_bank_dir / MANIFEST_FILENAME).read_text(encoding="utf-8")
         return cls.model_validate_json(raw)

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from typing import Any, Optional, NoReturn
-from collections.abc import Callable, Sequence, Generator
+from collections.abc import Callable, Sequence
 
 import mlx.core as mx
 import mlx.nn as nn
-from mlx.utils import tree_flatten
 
 from mlx_lm.generate import generation_stream
 from mlx_lm.models.cache import make_prompt_cache
@@ -20,11 +19,9 @@ class MlxModelRunner:
 
     Runs forward pass on a dedicated MLX stream to avoid interference with
     other MLX ops. Each generation step explicitly evaluates the sampled token
-    and KV cache state to prevent computation graph buildup, then clears MLX
-    memory cache.
+    and KV cache state to prevent computation graph buildup.
 
-    **Note:** Unlike `mlx_lm`, this uses synchronous `mx.eval` (not `mx.async_eval`)
-    and manually flattens cache state to handle optional `None` slots.
+    :Note: Unlike `mlx_lm`, this uses synchronous `mx.eval` (vs. `mx.async_eval`).
     """
 
     model: nn.Module
@@ -58,21 +55,14 @@ class MlxModelRunner:
 
     def step(self, tokens: Sequence[int]) -> int:
         with mx.stream(generation_stream):
-            input_ids = mx.array([list(tokens)], dtype=mx.int32)
-            logits = self.model(input_ids, cache=self.kv_cache)
-            next_token = mx.argmax(logits[:, -1, :], axis=-1)
+            input_ids = mx.asarray(list(tokens), dtype=mx.int32)
+            logits = self.model(input_ids[None], cache=self.kv_cache)[:, -1, :]
+            logprobs = logits - mx.logsumexp(logits, keepdims=True)
+            next_token = self.sampler(logprobs)
 
-            # `state` is a list per cache entry and may hold `None` slots, flatten
-            #  and only keep real arrays rather than pass tree directly to `mx.eval`
-            state_arrs = [
-                value
-                for _, value in tree_flatten([entry.state for entry in self.kv_cache])
-                if isinstance(value, mx.array)
-            ]
-            if state_arrs:
-                mx.eval(state_arrs)
+            mx.eval([c.state for c in self.kv_cache])
 
-        # mx.clear_cache()  # TODO optimize
+        mx.clear_cache()  # TODO optimize
         return int(next_token.item())  # type: ignore
 
     def _step(self, input_tokens: mx.array) -> NoReturn:  # ! CURRENTLY NOT WORKING
@@ -111,7 +101,7 @@ class MlxModelRunner:
     def generate(self, tokens: list[int]) -> NoReturn:  # ! CURRENTLY NOT WORKING
         raise NotImplementedError()
 
-        input_ids = mx.array(tokens, dtype=mx.int32)
+        input_ids = mx.asarray(tokens, dtype=mx.int32)
         y = self.prefill(input_ids)
         mx.async_eval(y)  # schedule y computation
 

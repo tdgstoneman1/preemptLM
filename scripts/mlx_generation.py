@@ -4,7 +4,7 @@ Example usage (macOS host)::
     uv run scripts/mlx_generation.py\
         --config configs/mlx/unsloth-qwen3.6-35b-4bit.toml\
         --stream-experts\
-        --save-traces\
+        --trace\
         --max-tokens 1024\
         --prompt "Fire and fury like "
 """
@@ -60,7 +60,7 @@ async def run(
         event_loop=asyncio.get_running_loop(),
         metrics=metrics,
         stream_experts=args.stream_experts,
-        save_traces=args.save_traces,
+        profile=args.profile,
         console=console,
     )
     prompt = (
@@ -163,8 +163,13 @@ def main() -> None:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--prompt", type=str, default=None)
     parser.add_argument("--stream-experts", default=False, action="store_true")
-    parser.add_argument("--save-traces", default=False, action="store_true")
     parser.add_argument("--max-tokens", type=int, default=None)
+    parser.add_argument(
+        "--profile",
+        default=False,
+        action="store_true",
+        help="Whether to save traces to parquet file.",
+    )
 
     args = parser.parse_args()
     config = read_and_validate_toml(args.config, PipelineConfig)

@@ -19,7 +19,7 @@ import pyarrow.parquet as pq
 from preempt.core.enums import ParquetCompressionCodecs
 
 
-class BaseEventSink(ABC):
+class BaseTraceSink(ABC):
     """*Abstract, do not instantiate.*
 
     Destination for recorded trace events. Use as an async context manager.
@@ -49,15 +49,15 @@ class BaseEventSink(ABC):
         await self.aclose()
 
 
-class ParquetEventSink(BaseEventSink):
+class ParquetTraceSink(BaseTraceSink):
     """Buffers recorded trace events and persists them as a Parquet file."""
 
     path: Path
     batch_size: int
     row_group_size: int | None
 
-    _overwrite: bool
-    _compression: ParquetCompressionCodecs
+    overwrite: bool
+    compression: ParquetCompressionCodecs
 
     _buffer: list[dict[str, Any]]
     _writer: pq.ParquetWriter | None
@@ -85,8 +85,8 @@ class ParquetEventSink(BaseEventSink):
         self.schema = schema
         self.batch_size = batch_size
         self.row_group_size = row_group_size
-        self._overwrite = overwrite
-        self._compression = compression
+        self.overwrite = overwrite
+        self.compression = compression
 
         self._buffer = []
         self._writer = None
@@ -154,14 +154,6 @@ class ParquetEventSink(BaseEventSink):
                 self.row_group_size,
             )
         except Exception as e:
-            # TODO: a failed write_batch can leave PyArrow's underlying file stream
-            # closed/poisoned. We restore the buffer for retry here but keep reusing
-            # `self._writer` as-is, so a subsequent flush()/aclose() retries against
-            # the same broken writer and raises a confusing secondary
-            # "Operation on closed file" error that masks the real one. Consider
-            # discarding/closing `self._writer` (forcing recreation) whenever this
-            # except branch fires. Found 2025-XX-XX debugging a schema mismatch in
-            # ExpertRoutingEvent.as_arrow_record(); not fixed, low priority.
             self._buffer += records
             raise e
 
@@ -178,27 +170,27 @@ class ParquetEventSink(BaseEventSink):
             parents=True,
             exist_ok=True,
         )
-        if self.path.exists() and not self._overwrite:
+        if self.path.exists() and not self.overwrite:
             raise FileExistsError(
-                f"File already exists at `{self.path.as_posix()}`. "
-                f"Either initialize `{self.__class__.__name__}` with a "
-                "different file path or pass `overwrite=True`."
+                f"File already exists at {self.path.as_posix()!r}. "
+                f"Either initialize {self.__class__.__name__!r} with a "
+                "different file path or 'overwrite=True'."
             )
         self._writer = await asyncio.to_thread(
             pq.ParquetWriter,
             self.path,
             self.schema,
-            compression=self._compression,
+            compression=self.compression,
         )
 
         return self._writer
 
     def _raise_if_closed(self) -> None:
         if self._closed:
-            raise RuntimeError(f"`{self.__class__.__name__}` sink is closed.")
+            raise RuntimeError(f"{self.__class__.__name__!r} is closed.")
 
 
-class JsonlEventSink(BaseEventSink):
+class JsonlEventSink(BaseTraceSink):
     path: Path
 
     _append: bool
@@ -285,9 +277,6 @@ class JsonlEventSink(BaseEventSink):
 
     @staticmethod
     def _json_default(value: Any) -> Any:
-        """Converts common scalar-like values and rejects non-JSON serializable
-        ones loudly.
-        """
         if hasattr(value, "item"):
             # TODO remove this check and handle serialization elsewhere earlier
             return value.item()

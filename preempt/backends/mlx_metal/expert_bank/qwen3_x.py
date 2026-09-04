@@ -1,9 +1,3 @@
-"""Qwen3/Qwen3-Next MoE architecture definitions and conventions.
-
-Centralizes SwiGLU expert layer definitions, tensor naming conventions, and
-quantization patterns specific to Qwen3/Qwen3-Next models.
-"""
-
 from __future__ import annotations
 
 from typing import ClassVar, Any
@@ -18,7 +12,7 @@ from preempt.expert_bank.manifest import ModelMoESpec
 from .base_adapter import BaseMoEArchAdapter
 
 from ..constants import (
-    SWIGLU_PROJECTION_NAMES,
+    SWITCHGLU_LINEAR_PROJ_NAMES,
     MLX_QUANTIZED_TENSOR_PARTS,
 )
 from ..quantization import QuantSettings
@@ -26,14 +20,8 @@ from ..utils import dtype_tag_from_arrays
 
 
 class Qwen3_xArchAdapter(BaseMoEArchAdapter):
-    """Architecture adapter for Qwen3.X and Qwen3-Next MoE blocks expert bank
-    serialization
-
-    Supports SwiGLU experts containing three linear projections (`'gate_proj'`,
-    `'up_proj'`, `'down_proj'`) which may be quantized with MLX.
-
-    Module paths follow the pattern
-    `'language_model.model.layers.<layer idx>.mlp.switch_mlp.<projection>'`
+    """Architecture adapter for expert bank serialization with Qwen3.X and
+    Qwen3-Next.
     """
 
     _model_arch: ClassVar[str] = "Qwen3_5MoeForConditionalGeneration"
@@ -53,12 +41,12 @@ class Qwen3_xArchAdapter(BaseMoEArchAdapter):
 
     @property
     def linear_projection_names(self) -> tuple[str, ...]:
-        """The names SwiGLU's three projections in blob order."""
-        return SWIGLU_PROJECTION_NAMES
+        """The three `SwitchGLU` linear projection names in serialization order."""
+        return SWITCHGLU_LINEAR_PROJ_NAMES
 
     @property
     def expert_layer_path_regex(self) -> re.Pattern[str]:
-        """Regex matching base expert module paths in dot notation.
+        """Regex matching expert module paths (in dot notation).
 
         Excludes parameter component suffixes (e.g. `.weight`, `.scales`).
         """
@@ -66,7 +54,7 @@ class Qwen3_xArchAdapter(BaseMoEArchAdapter):
 
     @property
     def expert_weight_path_regex(self) -> re.Pattern[str]:
-        """Regex matching absolute paths to expert tensors in dot notation.
+        """Regex matching absolute paths to expert weights (in dot notation).
 
         Captures the constituent component type (`weight`, `scales`, or `biases`)
         under the `<part>` group.
@@ -76,10 +64,11 @@ class Qwen3_xArchAdapter(BaseMoEArchAdapter):
     # TODO make quant params optional
     @property
     def weight_order(self) -> tuple[str, ...]:
-        """Serialization and evaluation order for expert weights.
+        """Defines how weights should be ordered during serialization.
 
-        Yields permutations of all linear projection names paired with each quantized
-        tensor part.
+        Determines how tensor parts for a layer's linear projections are
+        concatenated, for example: `("gate_proj.weight", "gate_proj.scales",
+        "gate_proj.biases", "up_proj.weight", ...)`
         """
         return tuple(
             f"{proj}.{part}"
@@ -88,26 +77,26 @@ class Qwen3_xArchAdapter(BaseMoEArchAdapter):
         )
 
     def validate_weight_paths(self, weight_paths: Mapping[str, str]) -> tuple[str, ...]:
-        """Validates an MoE block's expert weight paths against expected path
-        names for the architecture and returns them in order.
+        """Validates an MoE block's expert weight paths against those expected
+        for the architecture and returns them in serialization order.
 
         Parameters
         ----------
         weight_paths : Mapping[str, str]
-            Weight tensor paths relative to the layer mapped to their
-            full paths within the model (both in dot notation)
+            Mapping of weight paths relative to parent layers to absolute paths
+            within the model (all in dot notation)
 
         Returns
         -------
         tuple[str, ...]
-            Validated expert layer weight paths (relative to parent MoE block)
+            Validated relative weight paths (relative to parent layer)
 
         Raises
         ------
         ValueError
             If expected paths are missing from `weight_paths`.
         ValueError
-            If `weight_paths` contains unexpected paths.
+            If `weight_paths` contains unexpected items.
         """
         present = tuple(filter(lambda x: x in weight_paths, self.weight_order))
         missing = list(
@@ -128,34 +117,28 @@ class Qwen3_xArchAdapter(BaseMoEArchAdapter):
 
         return present
 
-    # TODO verify block_idxs = transformer blocks
     def resolve_quantization(
         self, config: Mapping[str, Any], block_idxs: Sequence[int]
     ) -> QuantSettings | None:
         """Determines the effective quantization parameters used by routed experts.
 
-        Handles dynamically quantized checkpoints (e.g. Unsloth UD format) which
-        may define per-module `bits` and `group_size` overrides that take
-        precedence over global/default configuration.
-
         Parameters
         ----------
         config : Mapping[str, Any]
-            Parsed contents of the source checkpoint's `config.json`
+            Parsed contents of Hugging Face-style checkpoint's `config.json`
         block_idxs : Sequence[int]
             Indices of the resolved expert layers' parent MoE blocks
 
         Returns
         -------
         QuantSettings | None
-            The quantization parameters shared by experts in the checkpoint,
-            or `None` if experts are unquantized.
+            The quantization parameters shared by expert layers in the checkpoint,
+            or `None` if unquantized.
 
         Raises
         ------
         ValueError
-            If quantization parameters are not uniform across resolved expert
-            layers
+            If quantization parameters are not uniform layers.
         """
         if (quantization := self._quantization_section(config)) is None:
             return None
@@ -199,16 +182,16 @@ class Qwen3_xArchAdapter(BaseMoEArchAdapter):
 
         if len(resolved) != 1:
             raise ValueError(
-                f"Expert layer weights in checkpoint are not uniformly quantized: "
+                f"Expert layers in checkpoint are not uniformly quantized: "
                 f"{sorted(repr(p) for p in resolved)!r}"
             )
 
         return resolved.pop()
 
-    def dtype_tag_for(self, weights: Mapping[str, mx.array], *, quantized: bool) -> str:
+    def dtype_tag_for(self, weights: Mapping[str, mx.array], quantized: bool) -> str:
         """Returns a dtype tag for a layer's weights.
 
-        Inspects `'weights'` for unquantized models, and `'scales'` and `'biases'`
+        Inspects `'weights'` for unquantized models and `'scales'` and `'biases'`
         for quantized ones.
 
         Parameters
@@ -221,7 +204,7 @@ class Qwen3_xArchAdapter(BaseMoEArchAdapter):
         Returns
         -------
         str
-            A short dtype tag, e.g., `"bf16"`, `"f16"`, or `"f32"`
+            A short dtype tag, e.g., 'bfloat16'
         """
         return dtype_tag_from_arrays(weights, quantized=quantized)
 
@@ -230,7 +213,7 @@ class Qwen3_xArchAdapter(BaseMoEArchAdapter):
         config: Mapping[str, Any],
         block_idxs: Sequence[int],
     ) -> ModelMoESpec:
-        """Returns MoE configuration from a model checkpoint.
+        """Returns a model's MoE specification.
 
         Parses `config` to create a `ModelMoESpec` object, which includes the
         number of experts, top-k routing, and the indices of the transformer
@@ -239,9 +222,9 @@ class Qwen3_xArchAdapter(BaseMoEArchAdapter):
         Parameters
         ----------
         config : Mapping[str, Any]
-            The model's parsed `config.json`
+            Parsed contents of a Hugging Face-style checkpoint's `config.json`
         block_idxs : Sequence[int]
-            Indices of the transformer blocks containing MoE layers.
+            Indices of the model's transformer blocks containing MoE layers.
 
         Returns
         -------

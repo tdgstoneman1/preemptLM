@@ -14,13 +14,13 @@ import os
 import sys
 import mmap
 
-from preempt.core.protocols import SerializedExpert
 from preempt.core.enums import ReadPriority
 from preempt.core.exceptions import ExpertBankCompatibilityError
 from preempt.core.constants import EXPERTS_FILENAME, F_NOCACHE
 
 from preempt.datamodel.identity import ExpertKey, TensorSpec
 
+from .blob import SerializedExpert
 from .manifest import (
     ExpertBlobRecord,
     ExpertBankManifest,

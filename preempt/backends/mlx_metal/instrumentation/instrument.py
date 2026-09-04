@@ -1,6 +1,7 @@
-"""Instrumentation for MLX MoE layers. MLX doesn't have PyTorch-style forward hooks,
-so instrumentation requires in-place replacement of target layers with instrumented
-wrapper modules.
+"""Instrumentation for MLX MoE blocks.
+
+MLX doesn't have PyTorch-style forward hooks, so the workaround to access hidden
+states is to wrap layers with outer instrumentation `nn.Module`s.
 """
 
 from __future__ import annotations
@@ -17,10 +18,10 @@ from preempt.engine.layer_resolution import (
 )
 
 from ..types import ModuleWrapperFactory
+from ..utils import transformer_block_idx_from_path
 
-# TODO move to dedicated constants module
+_SWITCH_MLP_ATTR = "switch_mlp"  # TODO make dynamic and architecture-agnostic
 _INNER_ATTR = "inner"
-_SWITCH_MLP_ATTR = "switch_mlp"  # TODO make sure 'switch_mlp' isn't Qwen specific
 
 
 def mlx_instrument_model(
@@ -34,21 +35,18 @@ def mlx_instrument_model(
     Parameters
     ----------
     model : nn.Module
-        MLX model to instrument
+        The MLX model to instrument
     candidates : Iterable[LayerCandidate]
-        Target layers to replace, specifying module paths and block indices
+        Target layers to replace
     wrapper_factory : ModuleWrapperFactory
-        Factory function that takes the original submodule and its candidate
-        metadata, and returns an instrumented wrapper module to replace it
-        with.
+        Factory function that takes layers from `LayerCandidates` and returns them
+        wrapped in an outer instrumentation module.
 
     Raises
     ------
     RuntimeError
-        If any candidate layer is not successfully replaced with a wrapper in
-        the model's module tree.
+        If instrumentation failed
     """
-
     replacements = []
     wrappers: dict[str, nn.Module] = {}
 
@@ -74,76 +72,54 @@ def mlx_instrument_model(
 
 def mlx_strip_instrumented_expert_weights(
     model: nn.Module,
-    candidates: Iterable[LayerCandidate],
+    moe_blocks: Iterable[LayerCandidate],
 ) -> None:
-    """Strips expert weights from instrumented layers prior to evaluation, and
-    replaces each instrumented layer's `switch_mlp` module with an empty module.
+    """Strips weights from instrumented expert layers and replaces `switch_mlp`s
+    with an empty module prior to MLX evaluation.
 
-    When a model is loaded with `lazy=True`, this removes expert weights from the
-    model's module tree before evaluation. A subsequent `mx.eval(model.parameters())`
-    then materializes only the dense backbone (attention, embeddings, routers, and
-    shared experts) in memory, and routed expert weights are loaded as needed from
-    disk during generation.
+    When an instrumented model is loaded lazily, calling this removes expert weights
+    from the model's parameter tree. Subsequent `mx.eval(model.parameters())` calls only
+    load the dense backbone weights in memory (attention, embeddings, routers, shared
+    experts, etc.), and routed expert weights are then loaded as needed during inference
+    from disk.
 
-    :Note: Must be called after `mlx_instrument_model(...)` and before evaluating model
-    weights.
+    :Note: Must be called *after* `mlx_instrument_model()` and *before* `mx.eval()`
 
     Parameters
     ----------
     model : nn.Module
         Instrumented MLX model whose weights have not yet been evaluated.
-    candidates : Iterable[LayerCandidate]
-        Target layers containing instrumented wrappers whose expert weights will
-        be stripped.
+    moe_blocks : Iterable[LayerCandidate]
+        Target MoE blocks whose expert layer weights are to be stripped from the model
 
     Raises
     ------
     RuntimeError
-        If a candidate layer is missing the expected inner wrapper and `switch_mlp`
-        submodule
+        If a target MoE block is missing the expected instrumentation and `switch_mlp`
+        submodule.
     RuntimeError
-        If parameter groups remain in `switch_mlp` after stripping
+        If experts weights still remain in the model's tree after stripping.
     """
     modules = dict(model.named_modules())
 
-    for candidate in candidates:
-        wrapper = modules.get(candidate.layer_path)
+    for block in moe_blocks:
+        wrapper = modules.get(block.layer_path)
         inner = getattr(wrapper, _INNER_ATTR, None)
         switch_mlp = getattr(inner, _SWITCH_MLP_ATTR, None)
 
         if not isinstance(inner, nn.Module) or not isinstance(switch_mlp, nn.Module):
             raise RuntimeError(
-                f"Cannot strip expert weights from {candidate.layer_path!r} because "
-                f"it lacks the expected {_INNER_ATTR}.{_SWITCH_MLP_ATTR} module."
+                f"Cannot strip expert weights from {block.layer_path!r} because "
+                f"it lacks the expected '{_INNER_ATTR}.{_SWITCH_MLP_ATTR}' module "
+                "for routed experts."
             )
-
-        # Replace switch_mlp with param-free module so subsequent mx.eval() calls
-        # only materialize dense backbone weights.
+        # Replace switch_mlp with a dummy placeholder module
         inner.update_modules(tree_unflatten([(_SWITCH_MLP_ATTR, nn.Module())]))
-
-        residual = dict(getattr(inner, _SWITCH_MLP_ATTR).parameters())
-        if residual:
+        if remaining := dict(getattr(inner, _SWITCH_MLP_ATTR).parameters()):
             raise RuntimeError(
-                f"Layer {candidate.layer_path!r} still contains {len(residual)} parameter "
-                f"groups after stripping ({sorted(residual)!r})."
+                f"Layer {block.layer_path!r} still contains {len(remaining)} routed "
+                f"expert parameter groups after stripping: {sorted(remaining)!r}."
             )
-
-
-# TODO verify this is architecture agnostic
-def transformer_block_idx_from_path(module_path: str) -> int | None:
-    """Parses `module_path` (in dot notation) and returns the index of the
-    module's parent transformer block or `None` if the path doesn't follow
-    the expected pattern.
-
-    Example: `'language_model.model.layers.22.mlp'` → `22`
-    """
-    parts = module_path.split(".")
-
-    for i, part in enumerate(parts[:-1]):
-        if part == "layers" and parts[i + 1].isdigit():
-            return int(parts[i + 1])
-
-    return None
 
 
 def iter_layer_candidates(model: nn.Module) -> Iterator[LayerCandidate]:

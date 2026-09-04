@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 from collections.abc import Iterable
 
 import attrs
@@ -7,7 +8,13 @@ from attrs import field
 
 from fnmatch import fnmatchcase
 
-from preempt.config.target_layers import TargetLayers, TargetLayerSearchParams
+from preempt.config.pipeline import PipelineConfig
+from preempt.config.target_layers import (
+    TargetLayers,
+    TargetLayerSpec,
+    TargetLayerSearchParams,
+)
+from preempt.expert_bank.banks import BaseExpertBank
 
 
 @attrs.define(frozen=True, kw_only=True)
@@ -102,7 +109,6 @@ def resolve_target_layers(
     config: TargetLayers,
 ) -> dict[str, tuple[LayerCandidate, ...]]:
     candidates = tuple(candidates)
-
     return {
         spec.name: match_target_layers(candidates, spec.search_params)
         for spec in config.target_layers
@@ -130,3 +136,34 @@ def ensure_no_target_layer_overlap(
                     f"Layer {layer.layer_path!r} matches both "
                     f"'{previous_name!r}' and '{target_name!r}'."
                 )
+
+
+def _target_layers_for_architecture(
+    target_layer_class: str, target_layer_count: int | None
+) -> TargetLayers:
+    search_params = TargetLayerSearchParams(
+        layer_class=target_layer_class, count=target_layer_count
+    )
+    return TargetLayers(
+        target_layers=(
+            TargetLayerSpec(
+                name="instrumented-moe-block",  # TODO figure this out
+                search_params=search_params,
+            ),
+        ),
+    )
+
+
+def target_layers_for_model(
+    config: PipelineConfig,
+    expert_bank: Optional[BaseExpertBank],
+    target_layer_class: str,
+) -> TargetLayers | None:
+    if config.trace_settings is not None:
+        return config.trace_settings.to_target_layer_config()
+
+    elif expert_bank is not None:
+        return _target_layers_for_architecture(
+            target_layer_class,
+            len(expert_bank.manifest.model_moe_spec.moe_block_idxs),
+        )

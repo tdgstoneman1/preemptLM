@@ -8,7 +8,6 @@ from abc import ABC, abstractmethod
 import re
 
 import mlx.core as mx
-import mlx.nn as nn
 
 from preempt.expert_bank.manifest import ModelMoESpec
 
@@ -18,9 +17,9 @@ from ..quantization import QuantSettings
 class BaseMoEArchAdapter(ABC):
     """*Abstract; do not instantiate*
 
-    Defines MoE architecture-specific parameters for expert bank serialization with
-    MLX models. Subclasses encapsulate a model family's parameter name patterns/layouts
-    and quantization configurations.
+    Defines MoE architecture-specific parameters for expert bank serialization
+    with MLX models. Subclasses encapsulate a model backend's parameter name
+    patterns/layouts and quantization configurations.
     """
 
     @property
@@ -30,10 +29,11 @@ class BaseMoEArchAdapter(ABC):
     @property
     @abstractmethod
     def moe_class_name(self) -> str:
-        """Name of the `nn.Module` class used for MoE blocks in mlx-lm's implemtation
-        of the model, e.g. "Qwen3NextSparseMoeBlock" for Qwen3-Next and Qwen3.x models.
+        """Name of the `nn.Module` class used for MoE blocks in mlx-lm's
+        implemtation of the model, e.g. "Qwen3NextSparseMoeBlock" for Qwen3-Next
+        and Qwen3.x models.
 
-        Used for filtering a loaded model's MoE blocks.
+        Used for identifying a loaded model's MoE blocks.
 
         Returns
         -------
@@ -45,7 +45,8 @@ class BaseMoEArchAdapter(ABC):
     @property
     @abstractmethod
     def linear_projection_names(self) -> tuple[str, ...]:
-        """Ordered names of expert projection layers stored in the expert blob.
+        """Ordered names of the linear projection layers stored in an expert weight
+        blob.
 
         Returns
         -------
@@ -57,73 +58,51 @@ class BaseMoEArchAdapter(ABC):
 
     @property
     @abstractmethod
-    def expert_weight_path_regex(self) -> re.Pattern[str]:
-        """Regex for matching expert tensor names
+    def expert_layer_path_regex(self) -> re.Pattern[str]:
+        """Regex matching expert module paths (in dot notation).
 
-        The pattern must include named capture groups for `"prefix"`, `"layer"`,
-        `"projection"`, and `"part"` to deconstruct tensor names from a checkpoint.
-
-        Returns
-        -------
-        re.Pattern[str]
-            A compiled regex pattern
+        Excludes parameter component suffixes (e.g. `.weight`, `.scales`).
         """
         ...
 
     @property
     @abstractmethod
-    def expert_layer_path_regex(self) -> re.Pattern[str]:
-        """Regex for matching expert module paths.
+    def expert_weight_path_regex(self) -> re.Pattern[str]:
+        """Regex matching absolute paths to expert weights (in dot notation).
 
-        The pattern must include named capture groups for `"prefix"`, `"layer"`,
-        and `"projection"` to deconstruct module paths from a checkpoint. This
-        pattern should not match the final tensor part (e.g., `".weight"`).
-
-        Returns
-        -------
-        re.Pattern[str]
-            A compiled regex pattern.
+        Captures the constituent component type (`weight`, `scales`, or `biases`)
+        under the `<part>` group.
         """
         ...
 
     @property
     @abstractmethod
     def weight_order(self) -> tuple[str, ...]:
-        """Defines how weight tensors should be ordered during serialization.
-
-        Determines how tensor parts for an MoE block's linear projections are
-        concatenated, for example: `("gate_proj.weight", "gate_proj.scales",
-        "gate_proj.biases", "up_proj.weight", ...)`
-
-        Returns
-        -------
-        tuple[str, ...]
-            The ordered tensor suffixes.
-        """
+        """Defines how weight tensors should be ordered during serialization."""
         ...
 
     @abstractmethod
     def validate_weight_paths(self, weight_paths: Mapping[str, str]) -> tuple[str, ...]:
-        """Validates an MoE block's expert weight paths against expected path
-        names for the architecture and returns them in order.
+        """Validates an MoE block's expert weight paths against those expected
+        for the architecture and returns them in serialization order.
 
         Parameters
         ----------
         weight_paths : Mapping[str, str]
-            Weight tensor paths relative to the layer mapped to their
-            full paths within the model (both in dot notation)
+            Mapping of weight paths relative to parent layers to absolute paths
+            within the model (all in dot notation)
 
         Returns
         -------
         tuple[str, ...]
-            Validated expert layer weight paths (relative to parent MoE block)
+            Validated relative weight paths (relative to parent layer)
 
         Raises
         ------
         ValueError
             If expected paths are missing from `weight_paths`.
         ValueError
-            If `weight_paths` contains unexpected paths.
+            If `weight_paths` contains unexpected items.
         """
         ...
 
@@ -131,30 +110,30 @@ class BaseMoEArchAdapter(ABC):
     def resolve_quantization(
         self, config: Mapping[str, Any], block_idxs: Sequence[int]
     ) -> QuantSettings | None:
-        """Resolves quantization parameters from the model's `config.json`.
+        """Determines the effective quantization parameters used by routed experts.
 
         Parameters
         ----------
         config : Mapping[str, Any]
-            Parsed `config.json` from a Hugging Face-style model checkpoint.
+            Parsed contents of Hugging Face-style checkpoint's `config.json`
         block_idxs : Sequence[int]
-            Indices of the transformer blocks containing the target MoE blocks
-            being serialized
+            Indices of the resolved expert layers' parent MoE blocks
 
         Returns
         -------
         QuantSettings | None
-            The resolved quantization parameters, or `None` if unquantized
+            The quantization parameters shared by expert layers in the checkpoint,
+            or `None` if unquantized.
 
         Raises
         ------
         ValueError
-            If experts are not uniformly quantized across the specified layers
+            If quantization parameters are not uniform layers.
         """
         ...
 
     @abstractmethod
-    def dtype_tag_for(self, weights: Mapping[str, mx.array], *, quantized: bool) -> str:
+    def dtype_tag_for(self, weights: Mapping[str, mx.array], quantized: bool) -> str:
         """Returns a dtype tag for a layer's weights.
 
         Inspects `'weights'` for unquantized models and `'scales'` and `'biases'`
@@ -170,7 +149,7 @@ class BaseMoEArchAdapter(ABC):
         Returns
         -------
         str
-            A short dtype tag, e.g., `"bf16"`, `"f16"`, or `"f32"`
+            A short dtype tag, e.g., 'bfloat16'
         """
         ...
 
@@ -180,7 +159,7 @@ class BaseMoEArchAdapter(ABC):
         config: Mapping[str, Any],
         block_idxs: Sequence[int],
     ) -> ModelMoESpec:
-        """Returns MoE configuration from a model checkpoint.
+        """Returns a model's MoE specification.
 
         Parses `config` to create a `ModelMoESpec` object, which includes the
         number of experts, top-k routing, and the indices of the transformer
@@ -189,9 +168,9 @@ class BaseMoEArchAdapter(ABC):
         Parameters
         ----------
         config : Mapping[str, Any]
-            The model's parsed `config.json`
+            Parsed contents of a Hugging Face-style checkpoint's `config.json`
         block_idxs : Sequence[int]
-            Indices of the transformer blocks containing MoE layers.
+            Indices of the model's transformer blocks containing MoE layers.
 
         Returns
         -------

@@ -1,44 +1,46 @@
 from typing import Final
 
 import re
+from string import Template
 
-# Payload encoding
+# Versioning
+EXPERT_BANK_SCHEMA_VERSION: Final[int] = 1
+EXPERT_SELECTION_TRACE_SCHEMA_VERSION: Final[int] = 1
 
-TAG_GRAMMAR: Final[str] = (
-    "'<family>-<mode>-q<bits>-g<group_size>-<scalar>' or "
-    "'<family>-unquantized-<scalar>'"
-)  # TODO make this a string template
-
-KNOWN_FAMILIES: Final[frozenset[str]] = frozenset({"mlx"})  # TODO rename
-KNOWN_SCALARS: Final[frozenset[str]] = frozenset(
-    {"bf16", "f16", "f32"}
-)  # TODO add other dtypes, e.g. int8; rename ('scalars' too ambiguous)
-
-QUANTIZED_RE: Final[re.Pattern[str]] = re.compile(
-    r"^(?P<family>[a-z0-9]+)-(?P<mode>[a-z0-9_]+)-q(?P<bits>\d+)"
-    r"-g(?P<group_size>\d+)-(?P<scalar>[a-z0-9]+)$"
-)
-UNQUANTIZED_RE: Final[re.Pattern[str]] = re.compile(
-    r"^(?P<family>[a-z0-9]+)-unquantized-(?P<scalar>[a-z0-9]+)$"
-)
-
-# Expert bank
-
-MANIFEST_FILENAME: Final[str] = "manifest.json"
-EXPERTS_FILENAME: Final[str] = "experts.bin"
-EXPERT_BANK_SCHEMA: Final[int] = 1  # TODO rename to 'EXPERT_BANK_SCHEMA_VERSION'?
-
-# TODO rewrite this comment slop
-# macOS `<sys/fcntl.h>` value of `F_NOCACHE`; absent from Python's `fcntl`
-# module, so it is spelled out here. Turns off page caching for reads/writes
-# on the fd, so blobs come off the SSD rather than the kernel's file cache.
-F_NOCACHE = 48
+# Global defaults
+DEFAULT_MAX_SAFETENSOR_SHARD_MB: Final[int] = 9 * 1024  # 9 GB
 
 # Tracing
+TIMESTAMP_FMT = "%Y%m%dT%H%M%SZ"
+RUN_ID_TEMPLATE: Final[Template] = Template("${prefix}-${timestamp}-${hex}")
 
-RUN_ID_TIMESTAMP_FMT = "%Y%m%dT%H%M%SZ"
+# Expert bank
+MANIFEST_FILENAME: Final[str] = "manifest.json"
+EXPERTS_FILENAME: Final[str] = "experts.bin"
 
+# Darwin F_NOCACHE (<sys/fcntl.h>) to bypass OS
+# page cache since it's omitted from Python's `fcntl`
+F_NOCACHE = 48
 
-# Defaults
-
-DEFAULT_MAX_SAFETENSOR_SHARD_MB: Final[int] = 9 * 1024  # 9 GB * 1024
+# Encoding
+BACKENDS: Final[frozenset[str]] = frozenset({"mlx"})
+KNOWN_DTYPES: Final[frozenset[str]] = frozenset(
+    {
+        "int8",
+        "int16",
+        "int32",
+        "uint8",
+        "uint16",
+        "uint32",
+        "bfloat16",
+        "float16",
+        "float32",
+    }
+)
+QUANTIZED_REGEX: Final[re.Pattern[str]] = re.compile(
+    r"^(?P<backend>[a-z0-9]+)-(?P<mode>[a-z0-9_]+)-q(?P<bits>\d+)"
+    r"-g(?P<group_size>\d+)-(?P<dtype>[a-z0-9]+)$"
+)
+UNQUANTIZED_REGEX: Final[re.Pattern[str]] = re.compile(
+    r"^(?P<backend>[a-z0-9]+)-unquantized-(?P<dtype>[a-z0-9]+)$"
+)

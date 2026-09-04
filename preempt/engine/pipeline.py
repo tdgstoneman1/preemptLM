@@ -9,14 +9,13 @@ from attrs import field
 from functools import partial
 
 from preempt.core.protocols import IModelRunner, ITokenizer
-from preempt.engine.sinks import BaseEventSink
+from preempt.engine.sinks import BaseTraceSink
 
 from preempt.engine.generation import generate_greedy
 from preempt.engine.metrics import GenerationMetrics, StepMetrics
-from preempt.engine.recorder import BaseEventRecorder
+from preempt.engine.recorder import BaseTraceRecorder
 
 
-# TODO move to datamodel/
 @attrs.define(kw_only=True)
 class GenerationResult:
     """Token ids, decoded text, and metrics for a completed generation"""
@@ -27,10 +26,7 @@ class GenerationResult:
 
 
 class GenerationPipeline:
-    """Encodes a prompt, runs greedy generation, and decodes the result.
-
-    Wraps a model runner, tokenizer, and optional tracing sink into a single
-    `generate(...)` call.
+    """Configures and runs text generation loop with aggregated metrics.
 
     :Note: If a recorder and sink are provided, the pipeline
     can only be used once since the sink writes one output file and closes upon
@@ -41,8 +37,8 @@ class GenerationPipeline:
     tokenizer: ITokenizer
     max_tokens: int
     prefill_chunk_size: int
-    recorder: BaseEventRecorder | None
-    sink: BaseEventSink | None
+    recorder: BaseTraceRecorder | None
+    sink: BaseTraceSink | None
     on_step: Callable[[StepMetrics], None] | None
 
     _sink_consumed: bool
@@ -53,29 +49,29 @@ class GenerationPipeline:
         tokenizer: ITokenizer,
         max_tokens: int,
         prefill_chunk_size: int = 512,
-        recorder: Optional[BaseEventRecorder] = None,
-        sink: Optional[BaseEventSink] = None,
+        recorder: Optional[BaseTraceRecorder] = None,
+        sink: Optional[BaseTraceSink] = None,
         on_step: Optional[Callable[[StepMetrics], None]] = None,
     ) -> None:
         """
         Parameters
         ----------
         runner : IModelRunner
-            Model runner implementing the `IModelRunner` interface
+            Concrete implementation of the `IModelRunner` interface
         tokenizer : ITokenizer
             Tokenizer implementing the `ITokenizer` interface
         max_tokens : int
-            Max total tokens to generate including the first prefill output (can be
-            overridden per call). Must be >= 1
+            Max total tokens to generate. can be overridden per call). Must be
+            >= 1
         prefill_chunk_size : int, optional
             Max tokens per prefill chunk. Controls activation memory and enables
             chunk-local expert reuse (no effect on correctness), by default 512
-        recorder : Optional[BaseEventRecorder], optional
+        recorder : Optional[BaseTraceRecorder], optional
             Optional recorder for tracing. If provided, `sink` must also be given,
             by default None
-        sink : Optional[BaseEventSink], optional
-            Optional sink for writing traced events. If provided, `recorder` must
-            also be given, by default None
+        sink : Optional[BaseTraceSink], optional
+            Optional sink for persisting expert selection traces. If provided, `recorder`
+            must also be given, by default None
         on_step : Optional[Callable[[StepMetrics], None]], optional
             Optional callback invoked after each forward pass with per-step metrics,
             by default None

@@ -12,16 +12,15 @@ import numpy as np
 
 import mlx.core as mx
 
+from mlx_lm import load
 from mlx_lm.utils import _get_classes
 from mlx_lm.models.switch_layers import (
     SwitchLinear,
     QuantizedSwitchLinear,
     SwitchGLU,
 )
-from mlx_lm import load
 
 from safetensors import safe_open
-
 
 from preempt.core.protocols import ITokenizer
 from preempt.core.exceptions import EngineCompatibilityError
@@ -37,18 +36,21 @@ from .constants import (
 from .quantization import QuantSettings
 
 
+# TODO docstring
 def sanitize_fn_for(
     config: dict[str, Any],
 ) -> Callable[[dict[str, mx.array]], dict[str, mx.array]]:
-
     model_class, model_args_class = _get_classes(config)
     model = model_class(model_args_class.from_dict(config))  # lazy loaded
+
     if hasattr(model, "sanitize"):
         return model.sanitize
     else:
         return lambda x: x
 
 
+# TODO docstring
+# TODO logging
 def convert_and_save_shard(
     ckpt_path: Path,
     dst_path: Path,
@@ -57,7 +59,6 @@ def convert_and_save_shard(
     shard_idx: int,
     num_total_shards: int,
 ) -> tuple[str, list[str]]:
-
     log_prefix = f"Shard {shard_idx}/{num_total_shards}"
     print(f"{log_prefix}: Converting pt tensors to MLX...")
 
@@ -94,7 +95,7 @@ def convert_and_save_shard(
 
 
 def mlx_to_numpy(array: mx.array, copy: bool = False) -> np.ndarray:
-    """Converts an MLX array to NumPy with zero mutation.
+    """Converts an MLX array to NumPy.
 
     :Note: MLX arrays of dtype `bfloat16` reinterpreted as `uint16`
     to account for NumPy's lack of native `bfloat16` support.
@@ -119,19 +120,18 @@ def mlx_to_numpy(array: mx.array, copy: bool = False) -> np.ndarray:
 
 
 def load_mlx_model(model_id: str, *, lazy: bool = False) -> MlxLoadedModel:
-    """Loads an MLX model and tokenizer via `mlx_lm`.
+    """Loads an MLX model-tokenizer pair.
 
     Parameters
     ----------
     model_id : str
-        Hugging Face repo id or local path accepted by `mlx_lm.load(...)`
+        Hugging Face repo id or a local path accepted by `mlx_lm.load()`
     lazy : bool
-        If False, model weights are evaluated eagerly at load time. If True, `mlx_lm`
-        skips its internal weight evaluation, and all weights remain unevaluated
-        mmap-backed arrays. This is required for model instrumentation when streaming
-        expert weights from disk as it defers weight materialization, allowing expert
-        weights to be stripped so only the dense backbone materializes in memory.
-        by default False.
+        If True, evaluation and loading of model weights is deferred, otherwise
+        all weights are evaluated eagerly and immediately loaded.
+
+        :Note: `lazy=True` is required for model instrumentation when streaming
+        expert weights from disk.
 
     Returns
     -------
@@ -143,20 +143,20 @@ def load_mlx_model(model_id: str, *, lazy: bool = False) -> MlxLoadedModel:
 
 
 def dtype_tag_from_arrays(arrays: Mapping[str, mx.array], quantized: bool) -> str:
-    """Returns a the scalar dtype of the arrays in `stacked` as a string tag.
+    """Returns a dtype tag for `arrays`.
 
     Parameters
     ----------
     arrays : Mapping[str, mx.array]
-        A mapping of names to `mx.array`s
+        A mapping of names to arrays
     quantized : bool
-        Whether arrays are quantized and should be scanned for quantization
-        parameters
+        Whether arrays are quantized (and should be scanned for quantization
+        parameters)
 
     Returns
     -------
     str
-        Scalar dtype tag, e.g. 'bf16', 'f16', or 'f32'
+        Scalar dtype tag, e.g. 'bfloat16'
 
     Raises
     ------
@@ -188,27 +188,23 @@ def dtype_tag_from_arrays(arrays: Mapping[str, mx.array], quantized: bool) -> st
 
 
 def make_encoding_tag(quant: QuantSettings | None, dtype_tag: str) -> str:
-    """Generates the encoding tag for the expert bank.
+    """Returns an encoding tag for use with expert banks.
 
-    Produces a formatted string identifying the quantization state and
-    exact scalar dtype of the tensor. This tag must be kept in sync with
-    the parsing logic in `preempt.core.encoding.parse_encoding_tag()`
-    to ensure bit-exact decoding.
+    This is a formatted string containing quantization and dtype information
+    used to decode serialized expert weight blobs.
+    \nExamples: `'mlx-affine-q4-g64-bfloat16'`, `'mlx-unquantized-bfloat16'`
 
     Parameters
     ----------
     quant : QuantSettings | None
-        The quantization parameters used for the experts, or `None` if
-        unquantized
+        Weight quantization parameters, or `None` if unquantized
     dtype_tag : str
-        The short tag representing the scalar dtype (e.g. `"bf16"`) as
-        derived from `dtype_tag_from_arrays()`
+        A tag representing the weights' dtype. e.g. 'bfloat16'
 
     Returns
     -------
     str
-        The formatted encoding tag (e.g., `"mlx-affine-q4-g64-bf16"` or
-        `"mlx-unquantized-bf16"`)
+        A formatted encoding tag
     """
     if quant is None:
         return MLX_UNQUANTIZED_ENCODING_TEMPLATE.substitute(dtype=dtype_tag)
@@ -221,20 +217,21 @@ def make_encoding_tag(quant: QuantSettings | None, dtype_tag: str) -> str:
     )
 
 
+# TODO add support for bias
 def get_expert_quants(
     switch_mlp: SwitchGLU,
     linear_projection_names: Sequence[str],
 ) -> ExpertLayerQuants | None:
-    """Reads quantization parameters for the linear projection layer weights
-    in `switch_mlp`.
+    """Returns the quantization parameters for a switch layer's linear
+    projection weights, or None if unquantized.
 
     Parameters
     ----------
     switch_mlp : SwitchGLU
         A fused multi-expert module containing the stacked weights for all
-        expert layers in an MoE block
+        routed experts in an MoE block
     linear_projection_names : Sequence[str]
-        Projection names to read (e.g. from `architecture.linear_projection_names`)
+        The layer's linear projection weight names
 
     Returns
     -------
@@ -244,10 +241,11 @@ def get_expert_quants(
     Raises
     ------
     TypeError
-        If a layer in `switch_mlp` is not an instance of `QuantizedSwitchLinear`
+        If a layer in `switch_mlp` is not an instance of `SwitchLinear` or
+        `QuantizedSwitchLinear`
     EngineCompatibilityError
-        If a layer in `switch_mlp` has a bias (currently unsupported in the
-        forward pass)
+        If a layer in `switch_mlp` has a bias term (currently unsupported
+        in the forward pass)
     """
     params: dict[str, QuantSettings] = {}
     for name in linear_projection_names:
@@ -255,13 +253,14 @@ def get_expert_quants(
 
         if not isinstance(module, (SwitchLinear, QuantizedSwitchLinear)):
             raise TypeError(
-                f"`{name}` is of unsupported type `{type(module).__name__}`. Only "
-                "`SwitchLinear` and `QuantizedSwitchLinear` are currently supported."
+                f"`{name}` is of unsupported type `{type(module).__name__}`. "
+                "Only `SwitchLinear` and `QuantizedSwitchLinear` are currently "
+                "supported."
             )
-        if "bias" in module:  # TODO add support for bias
+        if "bias" in module:
             raise EngineCompatibilityError(
-                f"Experts layer {name!r} (in {type(module).__name__!r}) has an additive 'bias' "
-                "which is currently unsupported in forward pass. "
+                f"Layer {name!r} (in {type(module).__name__!r}) has a 'bias' "
+                "term, which is currently unsupported."
             )
         if all(hasattr(module, attr) for attr in MLX_QUANT_PARAMS):
             params[name] = QuantSettings(
@@ -271,3 +270,20 @@ def get_expert_quants(
             )
 
     return params or None
+
+
+# TODO make architecture agnostic
+def transformer_block_idx_from_path(module_path: str) -> int | None:
+    """Parses `module_path` and returns the index of the module's parent
+    transformer block, or `None` if the path doesn't follow the expected
+    pattern.
+
+    Example: `'language_model.model.layers.22.mlp'` → `22`
+    """
+    parts = module_path.split(".")
+
+    for i, part in enumerate(parts[:-1]):
+        if part == "layers" and parts[i + 1].isdigit():
+            return int(parts[i + 1])
+
+    return None

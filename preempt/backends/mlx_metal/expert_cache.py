@@ -12,24 +12,24 @@ import numpy as np
 import mlx.core as mx
 
 from preempt.expert_bank.encoding import ExpertBankEncoding, parse_encoding_tag
+from preempt.expert_bank.blob import SerializedExpert
 
 from preempt.datamodel.identity import ExpertKey
-from preempt.datamodel.experts import SerializedExpert
 
 
 @attrs.define(kw_only=True, frozen=True, eq=False)
 class CachedExpert:
-    """An cached expert's weight tensors and size in bytes.
+    """A cached expert's weights and size in bytes.
 
     Attributes
     ----------
-    tensors : Mapping[str, mx.array]
-        Mapping of tensor names to MLX arrays.
+    weight_map : Mapping[str, mx.array]
+        Mapping of weight names to MLX arrays
     num_bytes : int
-        Total size of the expert in bytes.
+        Total size of the expert's weights in bytes
     """
 
-    tensors: Mapping[str, mx.array] = field()
+    weight_map: Mapping[str, mx.array] = field()
     num_bytes: int = field()
 
 
@@ -42,14 +42,14 @@ def decode_serialized_expert(
     Parameters
     ----------
     expert : SerializedExpert
-        An expert layer's weights raw bytes, tensor specifications, and encoding tag
+        An expert layer's weight bytes, tensor specifications, and encoding tag
     encoding : ExpertBankEncoding
         Expected expert encoding
 
     Returns
     -------
     dict[str, mx.array]
-        Decoded MLX arrays mapped to tensor spec names, e.g. "gate_proj.weight"
+        Decoded MLX arrays mapped to tensor spec names, e.g. 'gate_proj.weight'
 
     Raises
     ------
@@ -73,8 +73,6 @@ def decode_serialized_expert(
 
     for spec in expert.tensor_specs:
         count = math.prod(spec.shape)
-        # itemsize = np.dtype(spec.dtype).itemsize
-        # assert spec.num_bytes == count * itemsize
         tensors[spec.name] = mx.asarray(
             np.frombuffer(expert.data, dtype=spec.dtype, count=count, offset=offset)
         ).reshape(spec.shape)
@@ -96,10 +94,10 @@ class MlxExpertCache:
     Attributes
     ----------
     encoding : ExpertBankEncoding
-        Metadata for validating and decoding serialized experts
+        Encoding information for validating and decoding serialized experts
     """
 
-    _encoding: ExpertBankEncoding = field()
+    encoding: ExpertBankEncoding = field()
     _entries: dict[ExpertKey, CachedExpert] = field(factory=dict, init=False)
     _bytes_size: int = field(default=0, init=False)
 
@@ -107,71 +105,69 @@ class MlxExpertCache:
         """Decodes serialized expert weights as MLX arrays and maps them to `key`
         in the cache.
 
-        If `key` already exists in the cache, it is replaced and byte accounting
-        is updated accordingly.
+        If the cache already contains an entry for `key`, it is replaced and byte
+        accounting is updated accordingly.
 
         Parameters
         ----------
         key : ExpertKey
-            Identifier to map the expert weights to. Must match `expert.key`.
+            Expert udentifier to key its weights to
         expert : SerializedExpert
-            Serialized expert containing byte data, layout specs, and
-            encoding info.
+            An expert layer's byte data, layout specs, and encoding info
         """
         num_bytes = len(expert.data)
-        tensors = decode_serialized_expert(expert, self._encoding)
-        mx.eval(tuple(tensors.values()))
+        weight_map = decode_serialized_expert(
+            expert, self.encoding
+        )  # ! Use expert.encoding instead?
+        mx.eval(tuple(weight_map.values()))
 
         if (previous := self._entries.get(expert.key)) is not None:
             self._bytes_size -= previous.num_bytes
 
-        self._entries[expert.key] = CachedExpert(tensors=tensors, num_bytes=num_bytes)
+        self._entries[expert.key] = CachedExpert(
+            weight_map=weight_map, num_bytes=num_bytes
+        )
         self._bytes_size += num_bytes
 
     def evict(self, key: ExpertKey) -> None:
-        """Drops an expert from the cache.
-
-        Dropping the internal reference allows MLX reference counting to reclaim
-        underlying array memory once active graph evaluations complete.
+        """Drops an expert's weights from the cache.
 
         Parameters
         ----------
         key : ExpertKey
-            Identifier for the expert to remove from memory
+            Identifier for the expert to remove
 
         Raises
         ------
         KeyError
-            If `key` is not currently held in memory
+            If `key` does not exist in the cache.
         """
         entry = self._entries.pop(key)
         self._bytes_size -= entry.num_bytes
 
     def size(self) -> int:
-        """Returns the total size of the cache in bytes."""
+        """Returns the cache's memory footprint in bytes."""
         return self._bytes_size
 
-    def get(
-        self, key: ExpertKey
-    ) -> Mapping[str, mx.array]:  # TODO rename to weights_for
+    def get(self, key: ExpertKey) -> Mapping[str, mx.array]:
         """Returns cached expert mapped to `key`.
 
         Parameters
         ----------
         key : ExpertKey
-            Identifier for the expert whose weights to retrieve
+            Identifier for the cached expert
 
         Returns
         -------
         Mapping[str, mx.array]
-            Mapping of tensor names to MLX arrays
+            Mapping of weight names to MLX arrays
 
         Raises
         ------
         KeyError
-            If `key` is not currently held in memory
+            If `key` does not exist in the cache.
         """
-        return self._entries[key].tensors
+        return self._entries[key].weight_map
 
     def __contains__(self, item) -> bool:
         return item in self._entries

@@ -14,16 +14,17 @@ from .manifest import (
     ModelMoESpec,
 )
 
+# TODO support heterogenous weight sizes between MoE blocks
+
 
 class ExpertBankWriter:
-    _store_dir: Path
+    path: Path
+    model_id: str
+    model_fingerprint: str
 
-    _model_id: str
-    _model_fingerprint: str
-
-    _encoding: str
-    _tensor_specs: tuple[TensorSpec, ...]
-    _model_moe_spec: ModelMoESpec
+    encoding: str
+    tensor_specs: tuple[TensorSpec, ...]
+    model_moe_spec: ModelMoESpec
 
     _file: BinaryIO
     _alignment: int
@@ -45,27 +46,26 @@ class ExpertBankWriter:
         alignment: int = 4096,
         overwrite: bool = False,
     ) -> None:
-        self._store_dir = Path(expert_bank_path)
-        self._model_id = model_id
-        self._model_fingerprint = model_fingerprint
-        self._encoding = encoding
-        self._tensor_specs = tensor_specs
-        self._model_moe_spec = model_moe_spec
+        self.path = Path(expert_bank_path)
+        self.model_id = model_id
+        self.model_fingerprint = model_fingerprint
+        self.encoding = encoding
+        self.tensor_specs = tensor_specs
+        self.model_moe_spec = model_moe_spec
+
         self._alignment = alignment
         self._expected_num_bytes = sum(spec.num_bytes for spec in tensor_specs)
-
         self._offset = 0
         self._blobs = []
         self._identities = set()
         self._is_closed = False
 
-        # TODO dedicated method for i/o stuff
-        bin_path = self._store_dir / EXPERTS_FILENAME
+        bin_path = self.path / EXPERTS_FILENAME
         if bin_path.exists() and not overwrite:
-            raise FileExistsError(f"expert bank already exists at `{self._store_dir}`.")
+            raise FileExistsError(f"expert bank already exists at `{self.path}`.")
 
-        self._store_dir.mkdir(parents=True, exist_ok=True)
-        (self._store_dir / MANIFEST_FILENAME).unlink(missing_ok=True)
+        self.path.mkdir(parents=True, exist_ok=True)
+        (self.path / MANIFEST_FILENAME).unlink(missing_ok=True)
 
         self._file = bin_path.open("wb")
 
@@ -108,15 +108,15 @@ class ExpertBankWriter:
         self._is_closed = True
 
         manifest = ExpertBankManifest(
-            model_id=self._model_id,
-            model_fingerprint=self._model_fingerprint,
-            encoding=self._encoding,
+            model_id=self.model_id,
+            model_fingerprint=self.model_fingerprint,
+            encoding=self.encoding,
             alignment=self._alignment,
-            tensor_specs=self._tensor_specs,
-            model_moe_spec=self._model_moe_spec,
+            tensor_specs=self.tensor_specs,
+            model_moe_spec=self.model_moe_spec,
             blobs=tuple(self._blobs),
         )
-        manifest.save(self._store_dir)
+        manifest.save(self.path)
 
         return manifest
 

@@ -4,23 +4,26 @@ import attrs
 from attrs import field, validators
 
 from preempt.core.constants import (
-    TAG_GRAMMAR,
-    KNOWN_FAMILIES,
-    KNOWN_SCALARS,
-    QUANTIZED_RE,
-    UNQUANTIZED_RE,
+    BACKENDS,
+    KNOWN_DTYPES,
+    QUANTIZED_REGEX,
+    UNQUANTIZED_REGEX,
+)
+
+_TAG_GRAMMAR: tuple[str, str] = (
+    "<backend>-<mode>-q<bits>-g<group_size>-<scalar>",
+    "<backend>-unquantized-<scalar>",
 )
 
 
-# TODO add support for more scalar dtypes e.g. int8
 @attrs.define(kw_only=True, frozen=True)
 class ExpertBankEncoding:
     """An expert bank's model encoding information corresponding to the `encoding`
-    tag in its manifest, for example `'mlx-affine-q8-g64-bf16'`
+    tag in its manifest, for example `'mlx-affine-q8-g64-bfloat16'`
 
     Attributes
     ----------
-    family : str
+    backend : str
         The backend used to run the model, e.g. 'mlx'. Defines binary layout/
         quantization conventions for handling weights.
     mode : str | None
@@ -31,16 +34,16 @@ class ExpertBankEncoding:
         Number of bits per quantized weight, or `None` if unquantized
     group_size : int | None
         Number of weights sharing one scale/bias pair, or `None` if unquantized
-    scalar : str
-        Scalar dtype of `scales`/`biases` (`bf16`, `f16`, or `f32`) or the weights
+    dtype : str
+        Scalar dtype of `scales`/`biases` (e.g. `bfloat16`) or the weights
         themselves if unquantized
     """
 
-    family: str = field(validator=validators.min_len(1))  # TODO rename to `backend`
+    backend: str = field(validator=validators.min_len(1))
     mode: str | None = field(validator=validators.optional(validators.min_len(1)))
     bits: int | None = field(validator=validators.optional(validators.ge(1)))
     group_size: int | None = field(validator=validators.optional(validators.ge(1)))
-    scalar: str = field(validator=validators.min_len(1))  # TODO rename
+    dtype: str = field(validator=validators.min_len(1))
 
     @property
     def is_quantized(self) -> bool:
@@ -58,7 +61,7 @@ def parse_encoding_tag(tag: str) -> ExpertBankEncoding:
     ----------
     tag : str
         Encoding tag from an expert bank manifest or `SerializedExpert`, e.g.
-        `mlx-affine-q4-g64-bf16` or `mlx-unquantized-bf16`
+        `mlx-affine-q4-g64-bfloat16` or `mlx-unquantized-bfloat16`
 
     Returns
     -------
@@ -70,46 +73,48 @@ def parse_encoding_tag(tag: str) -> ExpertBankEncoding:
     ValueError
         If `tag` does not match a recognized regex pattern
     ValueError
-        If `tag` names an unknown family
+        If `tag` names an unknown backend
     ValueError
-        If `tag` names an unknown scalar dtype
+        If `tag` names an unknown dtype
     """
-    match = UNQUANTIZED_RE.match(tag) or QUANTIZED_RE.match(tag)
+    match = UNQUANTIZED_REGEX.match(tag) or QUANTIZED_REGEX.match(tag)
     if match is None:
-        raise ValueError(f"Malformed encoding tag '{tag!r}'; expected '{TAG_GRAMMAR}'.")
-
-    family = match["family"]
-    if family not in KNOWN_FAMILIES:
         raise ValueError(
-            f"Unknown encoding family '{family!r}' in tag '{tag!r}'; "
-            f"known families: {sorted(KNOWN_FAMILIES)}."
+            f"Malformed encoding tag {tag!r}. Valid formats: {', '.join(_TAG_GRAMMAR)!r}"
         )
 
-    scalar = match["scalar"]
-    if scalar not in KNOWN_SCALARS:
+    backend = match["backend"]
+    if backend not in BACKENDS:
         raise ValueError(
-            f"Unknown encoding scalar '{scalar!r}' in tag '{tag!r}'; "
-            f"known scalars: {sorted(KNOWN_SCALARS)}."
+            f"Unknown encoding backend {backend!r} in tag {tag!r}; "
+            f"known families: {sorted(BACKENDS)!r}."
+        )
+
+    scalar = match["dtype"]
+    if scalar not in KNOWN_DTYPES:
+        raise ValueError(
+            f"Unknown encoding scalar {scalar!r} in tag {tag!r}; "
+            f"known scalars: {sorted(KNOWN_DTYPES)!r}."
         )
 
     groups = match.groupdict()
     if "bits" not in groups:
         return ExpertBankEncoding(
-            family=family, mode=None, bits=None, group_size=None, scalar=scalar
+            backend=backend, mode=None, bits=None, group_size=None, dtype=scalar
         )
 
     bits = int(groups["bits"])
     group_size = int(groups["group_size"])
     if bits < 1 or group_size < 1:
         raise ValueError(
-            f"Malformed encoding tag '{tag!r}': bits and group size must "
-            f"be positive, but got `{bits=}` and `{group_size=}`."
+            f"Malformed encoding tag {tag!r}: bits and group size must "
+            f"be positive, but got {bits=!r} and {group_size=!r}."
         )
 
     return ExpertBankEncoding(
-        family=family,
+        backend=backend,
         mode=groups["mode"],
         bits=bits,
         group_size=group_size,
-        scalar=scalar,
+        dtype=scalar,
     )

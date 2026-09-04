@@ -43,13 +43,12 @@ class TargetLayerSpec(BaseModel):
     search_params: TargetLayerSearchParams
 
 
-# TODO use attrs
+# TODO use attrs, refactor
 class TargetLayers(BaseModel):
     """A set of unique named target layers"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: int = Field(default=1, ge=1)  # TODO move default value to constants module
     target_layers: tuple[TargetLayerSpec, ...] = Field(min_length=1)
 
     @model_validator(mode="after")

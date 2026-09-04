@@ -28,13 +28,14 @@ from ..ops import (
     fused_expert_matmul,
 )
 from ..expert_cache import MlxExpertCache
-from ..recorder import MoERecorder
-from ..constants import SWIGLU_PROJECTION_NAMES
+from ..recorder import MlxTraceRecorder
+from ..constants import SWITCHGLU_LINEAR_PROJ_NAMES
 from ..utils import get_expert_quants
 
 from .base_moe_wrapper import BaseMoEWrapper
 
-# TODO make module wrapper hold experts in memory, external cache manager handles eviction decisions
+# TODO load and hold experts in module wrapper rather than external cache,
+# keep external cache manager responsible for eviction decisions
 
 
 @mx.compile
@@ -67,16 +68,11 @@ def _combine_and_apply_experts(
 
 
 class Qwen3_xMoEWrapper(BaseMoEWrapper):
-    """Module wrapper for instrumenting Qwen3.x and Qwen3-Next MoE blocks.
+    """Instrumentation wrapper module for Qwen3.x and Qwen3-Next MoE blocks.
 
-    Forward pass currently computes one expert at a time when reading from disk.
-
-    `__call__` forked from `mlx_lm.models.qwen3_next.Qwen3NextSparseMoeBlock` (see
-    https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/models/qwen3_next.py#L308).
-
-    :Note: The `mlx_lm` implementations of Qwen3.5 and Qwen3-Next both use the same
-    `Qwen3NextSparseMoeBlock`. This wrapper can thus be used for all Qwen3.x and
-    Qwen3-Next MoE architectures.
+    :Note: `__call__` forked from `mlx_lm.models.qwen3_next.Qwen3NextSparseMoeBlock`, see
+    https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/models/qwen3_next.py#L308
+    for more details.
     """
 
     inner: Qwen3NextSparseMoeBlock
@@ -85,7 +81,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
     def __init__(
         self,
         inner: Qwen3NextSparseMoeBlock,
-        recorder: Optional[MoERecorder],
+        recorder: Optional[MlxTraceRecorder],
         capture_gate_logits: bool,
         layer_path: str,
         block_idx: int,
@@ -104,7 +100,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
             expert_cache=expert_cache,
             model_fingerprint=model_fingerprint,
         )
-        self._quants = get_expert_quants(inner.switch_mlp, SWIGLU_PROJECTION_NAMES)
+        self._quants = get_expert_quants(inner.switch_mlp, SWITCHGLU_LINEAR_PROJ_NAMES)
 
         if expert_matmul == "sequential":
             self._apply_experts_fn = partial(
@@ -134,7 +130,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
 
         return {
             name: self._projection_from_tensors(tensors, name)
-            for name in SWIGLU_PROJECTION_NAMES
+            for name in SWITCHGLU_LINEAR_PROJ_NAMES
         }
 
     def _projection_from_tensors(
@@ -168,7 +164,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
                 layer_class=self.inner.__class__.__name__,
                 block_idx=self.block_idx,
                 expert_ids=inds,
-                expert_weights=scores,
+                softmax_weights=scores,
                 gate_logits=logits if self.capture_gate_logits else None,
             )
         # * Apply selected experts
@@ -188,8 +184,8 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
         return y
 
     @staticmethod
-    def make_factory(
-        recorder: Optional[MoERecorder],
+    def make_wrapper_factory(
+        recorder: Optional[MlxTraceRecorder],
         capture_gate_logits: bool = False,
         expert_loader: Optional[IExpertLoader] = None,
         expert_cache: Optional[MlxExpertCache] = None,

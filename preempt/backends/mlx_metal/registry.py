@@ -6,7 +6,7 @@ import copy
 import inspect
 
 from mlx_lm.models.qwen3_5_moe import Model as Qwen3_5
-from mlx_lm.models.qwen3_next import Model as Qwen3Next
+from mlx_lm.models.qwen3_next import Model as Qwen3Next, Qwen3NextSparseMoeBlock
 import mlx.nn as nn
 
 from .instrumentation.base_moe_wrapper import BaseMoEWrapper
@@ -20,12 +20,13 @@ class _Entry(NamedTuple):
     arch_adapter_cls: type[BaseMoEArchAdapter]
     moe_wrapper_cls: type[BaseMoEWrapper]
     mlx_lm_model_cls: type[nn.Module]
+    mlx_lm_moe_cls: type[nn.Module]
 
 
 class ArchClassRegistry:
     """Registry mapping MoE architecture names to compatible architecture adapter
-    classes (`BaseMoEArchAdapter`), MoE wrapper classes (`BaseMoEWrapper`), and mlx-lm
-    model classes (`nn.Module`)
+    classes (`BaseMoEArchAdapter`), MoE wrapper classes (`BaseMoEWrapper`), mlx-lm
+    model classes (`nn.Module`), and mlx-lm MoE block classes (`nn.Module`).
 
     :Note: For built-in defaults, use the `DefaultArchClassRegistry` subclass.
     """
@@ -46,6 +47,7 @@ class ArchClassRegistry:
         arch_adapter_cls: type[BaseMoEArchAdapter],
         moe_wrapper_cls: type[BaseMoEWrapper],
         mlx_lm_model_cls: type[nn.Module],
+        mlx_lm_moe_cls: type[nn.Module],
     ) -> None:
         """Registers architecture adapter-MoE wrapper pair under `name`.
 
@@ -59,24 +61,26 @@ class ArchClassRegistry:
             An MoE wrapper class
         mlx_lm_model_cls: type[nn.Module]
             An mlx-lm model class
+        mlx_lm_moe_cls: type[nn.Module]
+            An mlx-lm MoE block class
         """
         cls._registered[name] = _Entry(
             arch_adapter_cls=arch_adapter_cls,
             moe_wrapper_cls=moe_wrapper_cls,
             mlx_lm_model_cls=mlx_lm_model_cls,
+            mlx_lm_moe_cls=mlx_lm_moe_cls,
         )
 
     @classmethod
-    def register_alias(cls, name: str, alias_for: str):
-        """Updates registry with new name alias to link to an already-registered
-        key.
+    def register_alias(cls, name: str, alias_for: str) -> None:
+        """Links new alias a registered key.
 
         Parameters
         ----------
         name : str
             The new name alias
         alias_for: Optional[str]
-            An existing key in the registry
+            A key in the registry
 
         Raises
         ------
@@ -108,9 +112,16 @@ class ArchClassRegistry:
     @classmethod
     def get(
         cls, key: str
-    ) -> tuple[type[BaseMoEArchAdapter], type[BaseMoEWrapper], type[nn.Module]]:
+    ) -> tuple[
+        type[BaseMoEArchAdapter], type[BaseMoEWrapper], type[nn.Module], type[nn.Module]
+    ]:
         entry = cls._validate_entry(key)
-        return entry.arch_adapter_cls, entry.moe_wrapper_cls, entry.mlx_lm_model_cls
+        return (
+            entry.arch_adapter_cls,
+            entry.moe_wrapper_cls,
+            entry.mlx_lm_model_cls,
+            entry.mlx_lm_moe_cls,
+        )
 
     @classmethod
     @overload
@@ -128,13 +139,13 @@ class ArchClassRegistry:
     def get_arch_adapter(
         cls, key: str, instantiate: bool = True
     ) -> BaseMoEArchAdapter | type[BaseMoEArchAdapter]:
-        """Returns the architecture adapter class registered under `key`,
+        """Returns the architecture adapter class registered for `key`,
         or a new instance of it if `instantiate=True`
 
         Parameters
         ----------
         key : str
-            Architecture adapter key as registered
+            Registered architecture name or alias
         instantiate : bool
             Whether to return a new instance of the registered class,
             by default True
@@ -147,7 +158,7 @@ class ArchClassRegistry:
         Raises
         ------
         KeyError
-            If `key` does not exist in the registry.
+            If `key` not in the registry.
         """
         key = cls._resolve_alias(key)
         entry = cls._validate_entry(key)
@@ -166,12 +177,13 @@ class ArchClassRegistry:
         Parameters
         ----------
         key : str
-            MoE module wrapper key as registered.
+            Registered architecture name or alias, model instance, or model
+            class.
 
         Raises
         ------
         KeyError
-            If `key` is not registered
+            If `key` not in the registry.
         """
         if isinstance(key, str):
             key = cls._resolve_alias(key)
@@ -185,6 +197,38 @@ class ArchClassRegistry:
 
             elif isinstance(key, v.mlx_lm_model_cls):
                 return v.moe_wrapper_cls
+
+        raise KeyError()  # TODO error msg
+
+    @classmethod
+    def get_moe_module_cls(
+        cls, key: str | nn.Module | type[nn.Module]
+    ) -> type[nn.Module]:
+        """Returns the mlx-lm MoE block class registered for `key`.
+
+        Parameters
+        ----------
+        key : str
+            Registered architecture name or alias, model instance, or model
+            class.
+
+        Raises
+        ------
+        KeyError
+            If `key` not in the registry.
+        """
+        if isinstance(key, str):
+            key = cls._resolve_alias(key)
+            entry = cls._validate_entry(key)
+            return entry.moe_wrapper_cls
+
+        for v in cls._registered.values():
+            if inspect.isclass(key):
+                if key == v.mlx_lm_model_cls or issubclass(key, v.mlx_lm_model_cls):
+                    return v.mlx_lm_moe_cls
+
+            elif isinstance(key, v.mlx_lm_model_cls):
+                return v.mlx_lm_moe_cls
 
         raise KeyError()  # TODO error msg
 
@@ -207,11 +251,13 @@ class DefaultArchClassRegistry(ArchClassRegistry):
             arch_adapter_cls=Qwen3_xArchAdapter,
             moe_wrapper_cls=Qwen3_xMoEWrapper,
             mlx_lm_model_cls=Qwen3_5,
+            mlx_lm_moe_cls=Qwen3NextSparseMoeBlock,
         ),
         "qwen3-next": _Entry(
             arch_adapter_cls=Qwen3_xArchAdapter,
             moe_wrapper_cls=Qwen3_xMoEWrapper,
             mlx_lm_model_cls=Qwen3Next,
+            mlx_lm_moe_cls=Qwen3NextSparseMoeBlock,
         ),
     }
     _aliases: dict[str, str] = {"qwen3.5": "qwen3.x", "qwen3.6": "qwen3.x"}

@@ -21,6 +21,7 @@ from preempt.engine.expert_cache import ExpertCacheManager
 from preempt.engine.layer_resolution import (
     LayerCandidate,
     ensure_no_target_layer_overlap,
+    target_layers_for_model,
 )
 from preempt.engine.expert_loaders import DiskBackedExpertLoader
 
@@ -32,7 +33,6 @@ from preempt.datamodel.tracing.context import TraceRunContext
 from preempt.utils.pipeline_utils import (
     validate_output_path,
     get_parquet_sink,
-    target_layers_for_model,
 )
 from ..instrumentation.instrument import (
     mlx_instrument_model,
@@ -40,14 +40,15 @@ from ..instrumentation.instrument import (
     resolve_mlx_target_layers,
 )
 from ..registry import DefaultArchClassRegistry
-from ..recorder import MoERecorder
+from ..recorder import MlxTraceRecorder
 from ..expert_cache import MlxExpertCache
 from ..types import MlxLoadedModel
 from ..utils import load_mlx_model
 
 from .runner import MlxModelRunner
 
-# TODO pass 'expert_matmul' param from config
+# TODO pass 'expert_matmul' mode for MoE wrapper module (from config)
+# TODO pass max_kv_size from config
 
 
 def _get_streaming_deps(
@@ -86,7 +87,7 @@ def _get_streaming_deps(
 
 def _get_recorder(
     config: PipelineConfig, output_path: Path | None
-) -> MoERecorder | None:
+) -> MlxTraceRecorder | None:
     if config.trace_settings is None or output_path is None:
         return
 
@@ -96,15 +97,15 @@ def _get_recorder(
         model_architecture=config.llm.architecture,
         model_revision=config.llm.revision,
     )
-    return MoERecorder(run_context=ctx)
+    return MlxTraceRecorder(run_context=ctx)
 
 
 def _moe_blocks_for_model(
-    loaded_model: MlxLoadedModel, target_layer_config: TargetLayers | None
+    loaded: MlxLoadedModel, target_layer_config: TargetLayers | None
 ) -> list[LayerCandidate]:
     blocks = []
     if target_layer_config is not None:
-        resolved = resolve_mlx_target_layers(loaded_model.model, target_layer_config)
+        resolved = resolve_mlx_target_layers(loaded.model, target_layer_config)
         ensure_no_target_layer_overlap(resolved)
         blocks.extend(
             [candidate for matches in resolved.values() for candidate in matches]
@@ -113,14 +114,14 @@ def _moe_blocks_for_model(
 
 
 def _instrument_model(
-    loaded_model: MlxLoadedModel,
+    loaded: MlxLoadedModel,
     *,
     moe_blocks: list[LayerCandidate],
     config: PipelineConfig,
     expert_bank: BaseExpertBank | None,
     expert_loader: IExpertLoader | None,
     expert_cache: MlxExpertCache | None,
-    recorder: MoERecorder | None,
+    recorder: MlxTraceRecorder | None,
 ) -> int:
     capture_gate_logits = (
         config.trace_settings.capture_gate_logits
@@ -130,8 +131,8 @@ def _instrument_model(
     model_fingerprint = (
         expert_bank.model_fingerprint if expert_bank is not None else None
     )
-    wrapper_cls = DefaultArchClassRegistry.get_moe_wrapper(loaded_model.model)
-    wrapper_factory = wrapper_cls.make_factory(
+    wrapper_cls = DefaultArchClassRegistry.get_moe_wrapper(loaded.model)
+    wrapper_factory = wrapper_cls.make_wrapper_factory(
         recorder=recorder,
         capture_gate_logits=capture_gate_logits,
         expert_loader=expert_loader,
@@ -139,7 +140,7 @@ def _instrument_model(
         expert_cache=expert_cache,
     )
     mlx_instrument_model(
-        loaded_model.model,
+        loaded.model,
         candidates=moe_blocks,
         wrapper_factory=wrapper_factory,
     )
@@ -173,7 +174,7 @@ def mlx_build_generation_pipeline(
     event_loop: asyncio.AbstractEventLoop | None = None,
     metrics: GenerationMetrics | None = None,
     stream_experts: bool,
-    save_traces: bool,
+    profile: bool,
     console: Console | None = None,
 ) -> GenerationPipeline:
 
@@ -223,10 +224,15 @@ def mlx_build_generation_pipeline(
         expert_bank, cache, loader = None, None, None
 
     # * Instrument the model
-    target_layer_config = target_layers_for_model(config, expert_bank)
+    moe_cls = DefaultArchClassRegistry.get_moe_module_cls(loaded.model).__name__
+    target_layer_config = target_layers_for_model(
+        config,
+        expert_bank=expert_bank,
+        target_layer_class=moe_cls,
+    )
     moe_blocks = _moe_blocks_for_model(loaded, target_layer_config)
 
-    if save_traces:
+    if profile:
         recorder = _get_recorder(config, output_path)
         sink = get_parquet_sink(config, output_path)
     else:
@@ -253,7 +259,7 @@ def mlx_build_generation_pipeline(
         loaded.model,
         # max_tokens=config.generation_settings.max_tokens,
         # prefill_chunk_size=config.generation_settings.prefill_chunk_size,
-    )  # TODO pass max_kv_size from config
+    )
 
     return GenerationPipeline(
         runner=runner,

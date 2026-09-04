@@ -1,36 +1,38 @@
-from typing import Self
-
-from datetime import datetime, UTC
-
-import secrets
+from typing import Optional, Self
 
 import attrs
 from attrs import field, validators
 
 import pyarrow as pa
 
-from preempt.core.constants import RUN_ID_TIMESTAMP_FMT
+from datetime import datetime, UTC
+
+import secrets
+
+from preempt.core.constants import TIMESTAMP_FMT, RUN_ID_TEMPLATE
 
 from .arrow import arrow_metadata
 
 
-def generate_run_id(prefix: str, *, timestamp_fn: datetime | None = None) -> str:
-    """Generates a unique `run_id` formatted as `<prefix>-<timestamp>-<8 hex chars>`."""
+def generate_run_id(prefix: str, *, timestamp: Optional[datetime] = None) -> str:
+    """Generates a unique run id formatted as `<prefix>-<timestamp>-<8 hex chars>`."""
     if not prefix:
         raise ValueError("`prefix` must be a non-empty string.")
 
-    timestamp = timestamp_fn if timestamp_fn is not None else datetime.now(UTC)
+    timestamp = timestamp or datetime.now(UTC)
+    return RUN_ID_TEMPLATE.substitute(
+        prefix=prefix,
+        timestamp=timestamp.strftime(TIMESTAMP_FMT),
+        hex=secrets.token_hex(4),
+    )
 
-    return f"{prefix}-{timestamp.strftime(RUN_ID_TIMESTAMP_FMT)}-{secrets.token_hex(4)}"
 
-
-# TODO docstring
 @attrs.define(kw_only=True, frozen=True)
 class TraceRunContext:
-    """Identifies one instrumentation run and the model it traced.
+    """Identifiers and metadata for a traced generation run.
 
-    Carries the run's unique identifier, HF-style model id, model architecture,
-    revision number, and instrumentation version.
+    Includes the run's unique id, instrumentation version, and the traced model
+    id, architecture, and revision number.
     """
 
     run_id: str = field(
@@ -64,9 +66,8 @@ class TraceRunContext:
         """Instantiates `TraceRunContext` with a unique `run_id` generated from
         `run_id_prefix`.
 
-        In general, this is the preferred way to create a new `TraceRunContext` as
-        it guarantees `run_id` will be a unique value (rather than instantiating
-        directly with `TraceRunContext(run_id=..., ...)`).
+        This is the preferred way to create a new `TraceRunContext` since it
+        guarantees `run_id` will be unique.
         """
         return cls(
             run_id=generate_run_id(run_id_prefix),
@@ -77,10 +78,10 @@ class TraceRunContext:
         )
 
 
-# TODO Expand later after adding batching/prompt-prefill tracing.
+# TODO Add batching/prompt-prefill tracing.
 @attrs.define(kw_only=True, frozen=True)
 class TraceStepContext:
-    """Position of one forward pass within a sequence."""
+    """Identifiers for one forward pass within a generation run."""
 
     sequence_id: int = field(
         metadata=arrow_metadata(pa.int32()), validator=validators.ge(0)

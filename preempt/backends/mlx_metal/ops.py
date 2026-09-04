@@ -21,30 +21,13 @@ from .types import (
     ExpertLayerWeights,
 )
 
+# TODO overhaul fragile token assignment grouping
 # TODO add support for expert layer bias terms in forward pass
-# TODO fix hallucinated 'row' terminology, confusing
 
 
-# TODO docstring, 'input_dims' confusing
 def _linear_proj_matmul(
     x: mx.array, projection: WeightsTensor | QuantizedWeightsTensor
 ) -> mx.array:
-    """Applies an expert's linear projection to its routed token assignments.
-
-    Parameters
-    ----------
-    x : mx.array
-        Flattened token activations of shape `(n_assignments, input_dims)`
-        routed to the expert
-    projection : WeightsTensor | QuantizedWeightsTensor
-        The projection's quantized weights and parameters for the projection
-
-    Returns
-    -------
-    mx.array
-        Projected output tensor, shape `(n_assignments, d_model)`, where
-        `d_model` is the feature dimension of the projection
-    """
     if isinstance(projection, QuantizedWeightsTensor):
         return mx.quantized_matmul(
             x,
@@ -59,86 +42,38 @@ def _linear_proj_matmul(
     return mx.matmul(x, projection.weight.T)
 
 
-def _group_token_assignments_by_expert(
-    row_experts: Sequence[int],
-) -> tuple[tuple[int, tuple[int, ...]], ...]:
+def _group_tok_routings_by_expert(
+    flat_idxs: Sequence[int],
+) -> dict[int, list[int]]:
     toks_by_expert: dict[int, list[int]] = {}
 
-    for i, expert in enumerate(row_experts):
-        if expert < 0:
-            raise ValueError()
-
+    for i, expert in enumerate(flat_idxs):
+        assert expert >= 0, f"Got negative routed expert index: {expert!r}."
         toks_by_expert.setdefault(expert, []).append(i)
 
-    return tuple((expert, tuple(rows)) for expert, rows in toks_by_expert.items())
+    return toks_by_expert
 
 
 def _iter_expert_routed_tokens(
     x_flat: mx.array,
-    row_experts: Sequence[int],  # TODO rename
+    flat_idxs: Sequence[int],
     top_k: int,
-) -> Iterator[tuple[int, mx.array, np.ndarray]]:
-    """Yields flattened token activations grouped by their assigned expert.
-
-    Guarantees output in ascending expert order, with each expert group in
-    ascending assignment index order (which dictates the execution order for
-    disk reads).
-
-    Parameters
-    ----------
-    x_flat : mx.array
-        Flattened input activations, shape `(batch * tokens, input_dims)`
-    row_experts : Sequence[int]
-        Sequence of expert indices corresponding to each routing assignment
-    top_k : int
-        Number of routing selections per token
-
-    Yields
-    ------
-    tuple[int, mx.array, np.ndarray]
-        A tuple containing the expert index, the subset of `x_flat` assigned
-        to that expert, and an array of the original assignment indices
-    """
-    for expert_idx, rows in _group_token_assignments_by_expert(row_experts):
-        row_array = np.asarray(rows, dtype=np.int32)
-
-        yield expert_idx, x_flat[mx.array(row_array // top_k)], row_array
+) -> Iterator[tuple[int, mx.array, mx.array]]:
+    for expert_idx, toks in _group_tok_routings_by_expert(flat_idxs).items():
+        assigned = mx.asarray(toks, dtype=mx.int32)
+        yield expert_idx, x_flat[mx.asarray(assigned // top_k)], assigned
 
 
 def _reassemble(
     outputs: Sequence[mx.array],
-    permutation: Sequence[np.ndarray],
-    leading_shape: Sequence[int],  # TODO rename
+    permutation: list[mx.array],
+    leading_dims: Sequence[int],
     top_k: int,
 ) -> mx.array:
-    """Restores the original shape and sequence ordering of routed expert
-    outputs.
-
-    Concatenates per-expert outputs and inverses the permutation used during
-    grouping.
-
-    Parameters
-    ----------
-    outputs : Sequence[mx.array]
-        Per-expert projected outputs
-    permutation : Sequence[np.ndarray]
-        The original activation assignment indices corresponding to each expert
-        group
-    leading_shape : Sequence[int]
-        The leading `batch` and `tokens` dimensions of the original input shape
-    top_k : int
-        Number of MoE router-selected experts per token
-
-    Returns
-    -------
-    mx.array
-        Reassembled output tensor, shape `(*leading_shape, top_k, d_model)`,
-        where `d_model` is the feature dimension of expert layer outputs
-    """
     grouped = mx.concatenate([*outputs], axis=0)
-    inverse = np.argsort(np.concatenate(permutation)).astype(np.int32)
+    inverse = mx.argsort(mx.concatenate(permutation)).astype(mx.int32)
 
-    return grouped[mx.array(inverse)].reshape(*leading_shape, top_k, -1)
+    return grouped[inverse].reshape(*leading_dims, top_k, -1)
 
 
 def sequential_expert_matmul(
@@ -160,7 +95,7 @@ def sequential_expert_matmul(
     ----------
     x : mx.array
         Array of hidden states, shape `(batch, tokens, d_model)`
-    expert_idxs : Sequence[int]
+    expert_idxs : mx.array
         The router's selections, flattened in `(batch, tokens, top_k)` order
     expert_forward_fn : Callable[[mx.array, Mapping[str, QuantizedWeightsTensor]], mx.array]
         Callback applying one expert's projections to its assigned activations
@@ -176,8 +111,8 @@ def sequential_expert_matmul(
     Raises
     ------
     ValueError
-        If the number of elements in `row_experts` does not equal the total
-        number of tokens multiplied by `top_k`
+        If the number of total token assignments does not equal the total number of
+        tokens * `top_k`
     """
     _, _, top_k = expert_idxs.shape
 
@@ -188,24 +123,23 @@ def sequential_expert_matmul(
     if num_token_assignments != n_tokens * top_k:
         raise ValueError(
             f"Number of token assignments ({num_token_assignments}) does not match "
-            f"expected count of {n_tokens * top_k!r} for {n_tokens!r} token(s) at "
+            f"expected count of {n_tokens * top_k!r} for {n_tokens!r} token(s) and "
             f"{top_k=!r}."
         )
 
     x_flat = x.reshape(-1, x.shape[-1])
     outputs: list[mx.array] = []
-    perm: list[np.ndarray] = []
+    perms: list[mx.array] = []
 
-    for expert_idx, x_rows, row_array in _iter_expert_routed_tokens(
+    for expert_idx, routed_toks, perm in _iter_expert_routed_tokens(
         x_flat, flat_idxs, top_k
     ):
         expert_proj = load_expert_fn(expert_idx)
-        y_rows = expert_forward_fn(x_rows, expert_proj)
-        # mx.async_eval(y_rows)
-        outputs.append(y_rows)
-        perm.append(row_array)
+        activations = expert_forward_fn(routed_toks, expert_proj)
+        outputs.append(activations)
+        perms.append(perm)
 
-    return _reassemble(outputs, perm, x.shape[:-1], top_k)
+    return _reassemble(outputs, perms, x.shape[:-1], top_k)
 
 
 @partial(mx.compile)
@@ -231,25 +165,6 @@ def stacked_proj_matmul(
     projections: Sequence[QuantizedWeightsTensor | WeightsTensor],
     is_quantized: bool,
 ) -> mx.array:
-    """Performs matrix multiplication on 2D inputs and a stack of linear projection
-    weights for multiple expert layers.
-
-    Parameters
-    ----------
-    x_2d : mx.array
-        2-dimensional input activations of shape `(batch * tokens, d_model)`
-    indices_2d : mx.array
-        Expert indices, shape `(batch * tokens, K)` (K=top_k for up/gate, K=1 for down)
-    projections : Sequence[QuantizedWeightsTensor | WeightsTensor]
-        Expert projection weights and optional quantization parameters
-    is_quantized: bool
-        Whether the projections are quantized
-
-    Returns
-    -------
-    mx.array
-        Output activations of shape `(batch * tokens, K, d_out)`
-    """
     xs = mx.expand_dims(x_2d, (-2, -3))
     idx = indices_2d
 
@@ -326,15 +241,15 @@ def fused_expert_matmul(
     flat_indices = np.asarray(expert_idxs).flatten()
     unique_experts, inverse_map = np.unique(flat_indices, return_inverse=True)
 
-    local_indices_2d = mx.array(inverse_map.reshape(B * S, top_k), dtype=mx.uint32)
+    local_indices_2d = mx.asarray(inverse_map.reshape(B * S, top_k), dtype=mx.uint32)
     x_2d = x.reshape(B * S, d_model)
 
     # * Load projection weights for each unique expert
     expert_projs = [load_expert_fn(int(e)) for e in unique_experts]
 
-    up_projs = [ep["up_proj"] for ep in expert_projs]
-    gate_projs = [ep["gate_proj"] for ep in expert_projs]
-    down_projs = [ep["down_proj"] for ep in expert_projs]
+    up_projs = [proj["up_proj"] for proj in expert_projs]
+    gate_projs = [proj["gate_proj"] for proj in expert_projs]
+    down_projs = [proj["down_proj"] for proj in expert_projs]
 
     # * Up and gate projections, shape: (B * S, d_model) -> (B * S, top_k, d_hidden)
     x_up = stacked_proj_matmul(
@@ -343,7 +258,6 @@ def fused_expert_matmul(
     x_gate = stacked_proj_matmul(
         x_2d, local_indices_2d, gate_projs, is_quantized=is_quantized
     )
-
     # * SwiGLU activation, shape: (B * S, top_k, d_hidden)
     x_swiglu = apply_swiglu_activation(x_up, x_gate)
     d_hidden = x_swiglu.shape[-1]

@@ -4,13 +4,15 @@ from typing import Any
 
 from abc import ABC, abstractmethod
 
-from preempt.engine.sinks import BaseEventSink
+from preempt.engine.sinks import BaseTraceSink
 
 from preempt.datamodel.tracing.context import TraceRunContext, TraceStepContext
 
 
-class BaseEventRecorder(ABC):
-    """*Abstract, do not instantiate.* Base event recorder.
+class BaseTraceRecorder(ABC):
+    """*Abstract; do not instantiate.*
+
+    Base class for MoE expert selection trace recorders.
 
     A forward pass starts tracing with `start_trace(...)`, and subsequent calls
     to `capture(...)` buffer traced events. `flush(...)` writes buffered events
@@ -23,21 +25,23 @@ class BaseEventRecorder(ABC):
     _run_context: TraceRunContext
     _step_context: TraceStepContext | None
     _buffer: list[Any]
-    _event_idx: int
+    _num_captures: int
+    _num_records: int
 
     def __init__(self, run_context: TraceRunContext) -> None:
         self._run_context = run_context
         self._step_context = None
         self._buffer = []
-        self._event_idx = 0
+        self._num_captures = 0
+        self._num_records = 0
 
     def start_trace(self, step_context: TraceStepContext) -> None:
         """Starts a new trace or raises `RuntimeError` if one is already active."""
 
         if self._step_context is not None:
             raise RuntimeError(
-                "Trace already active. Call `stop_trace()` or `flush()` to clear event "
-                "buffer prior to starting a new trace."
+                "Trace already active. Call `stop_trace()` or `flush()` to clear "
+                "the event buffer before starting a new trace."
             )
         self._step_context = step_context
 
@@ -53,6 +57,6 @@ class BaseEventRecorder(ABC):
         ...
 
     @abstractmethod
-    async def flush(self, sink: BaseEventSink) -> int:
-        """Writes event buffer to `sink` and returns the number of records written."""
+    async def flush(self, sink: BaseTraceSink) -> int:
+        """Writes the buffer to `sink` and returns the number of records written."""
         ...

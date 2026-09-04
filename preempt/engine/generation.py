@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 from collections.abc import Callable, Sequence
 
 import asyncio
@@ -11,11 +12,11 @@ from preempt.core.protocols import IModelRunner
 from preempt.datamodel.tracing.context import TraceStepContext
 
 from preempt.engine.metrics import GenerationMetrics, StepMetrics
-from preempt.engine.recorder import BaseEventRecorder
-from preempt.engine.sinks import BaseEventSink
+from preempt.engine.recorder import BaseTraceRecorder
+from preempt.engine.sinks import BaseTraceSink
 
 # TODO track total elapsed time during generation
-# TODO track bytes read
+# TODO track total bytes read
 
 
 async def generate_greedy(
@@ -25,20 +26,12 @@ async def generate_greedy(
     eos_token_ids: set[int] | int | None,
     max_tokens: int,
     prefill_chunk_size: int = 512,
-    recorder: BaseEventRecorder | None = None,
-    sink: BaseEventSink | None = None,
+    recorder: Optional[BaseTraceRecorder] = None,
+    sink: Optional[BaseTraceSink] = None,
     sequence_id: int = 0,
-    on_step: Callable[[StepMetrics], None] | None = None,
+    on_step: Optional[Callable[[StepMetrics], None]] = None,
 ) -> tuple[list[int], GenerationMetrics]:
-    """Greedily generates tokens from prompt using chunked prefill and single-token
-    decoding.
-
-    The prompt is processed in chunks of at most `prefill_chunk_size` tokens. Each
-    chunk runs one forward pass, and `runner`'s KV cache carries context across chunks
-    such that the results are identical to a single large prefill. The output of the
-    last prefill chunk becomes the first generated token.
-
-    Decode steps then run one token at a time up to `max_tokens`.
+    """Greedy token generation using chunked prefill and single-token decoding.
 
     Each forward pass runs in a thread pool via `asyncio.to_thread` to keep the
     event loop free for concurrent I/O (such as reading expert weights from disk).
@@ -52,19 +45,22 @@ async def generate_greedy(
     eos_token_ids: set[int] | int | None
         The tokenizer's EOS token ids
     max_tokens : int
-        Max total tokens to generate including the first prefill output, must be >= 1.
-    prefill_chunk_size : int, default 512
+        Max total tokens to generate including the first prefill output, must be
+        >= 1.
+    prefill_chunk_size : int
         Max tokens per prefill chunk. Controls activation memory and enables chunk-
-        local expert reuse (no effect on correctness).
-    recorder : BaseEventRecorder | None, default None
-        Optional recorder for tracing. If provided, `sink` must also be given.
-    sink : BaseEventSink | None, default None
-        Optional sink for writing traced events. If provided, `recorder` must also be
-        given.
-    sequence_id : int, default 0
-        Identifier for the generation sequence passed to the recorder
-    on_step : Callable[[StepMetrics], None] | None, default None
-        Optional callback invoked after each forward pass with per-step metrics
+        local expert reuse (no effect on correctness), by default default 512
+    recorder : Optional[BaseTraceRecorder]
+        Optional recorder for tracing. If provided, `sink` must also be given, by
+        default None
+    sink : Optional[BaseTraceSink]
+        Optional sink for writing traced events. If provided, `recorder` must also
+        be given, by default None
+    sequence_id : int
+        Identifier for the generation sequence passed to the recorder, by default 0
+    on_step : Optional[Callable[[StepMetrics], None]]
+        Optional callback invoked after each forward pass with per-step metrics,
+        by default None
 
     Returns
     -------
@@ -161,82 +157,3 @@ async def generate_greedy(
         tokens = [next_token]
 
     return generated, metrics
-
-
-# ! CURRENTLY NOT WORKING
-# async def generate_greedy(
-#     *,
-#     runner: IModelRunner,
-#     prompt_ids: Sequence[int],
-#     max_tokens: int,
-#     prefill_chunk_size: int = 512,
-#     recorder: BaseEventRecorder | None = None,
-#     sink: BaseEventSink | None = None,
-#     sequence_id: int = 0,
-#     on_step: Callable[[StepMetrics], None] | None = None,
-# ) -> tuple[list[int], GenerationMetrics]:
-#     if len(prompt_ids) == 0:
-#         raise ValueError("`prompt_ids` must be non-empty.")
-
-#     if max_tokens < 1:
-#         raise ValueError("`max_tokens` must be at least 1.")
-
-#     if prefill_chunk_size < 1:
-#         raise ValueError("`prefill_chunk_size` must be at least 1.")
-
-#     if (recorder is None) != (sink is None):
-#         raise ValueError(
-#             "`recorder` and `sink` must both be provided or both be `None`, "
-#             f"but got `{type(recorder)=}` and `{type(sink)=}`."
-#         )
-
-#     metrics = GenerationMetrics()
-#     prompt = list(prompt_ids)
-#     token_idx = 0
-#     step_idx = 0
-
-#     generator = runner.generate(prompt)
-#     generated: list[int] = []
-
-#     def generation_step_fn() -> int:
-#         nonlocal generator
-#         return next(generator)
-
-#     for i in range(max_tokens - 1):
-#         print(i)  # <- Only prints when i == 0 and i == 1
-#         start_time = time.perf_counter()
-
-#         # Initialize recorder
-#         if recorder is not None:
-#             recorder.start_trace(
-#                 TraceStepContext(
-#                     sequence_id=sequence_id,
-#                     token_idx=token_idx,
-#                     token_id=generated[0] if len(generated) == 1 else None,
-#                 )
-#             )
-#         print(i)  # <- Only prints when i == 0 and i == 1
-#         next_token = await asyncio.to_thread(generation_step_fn)
-#         print(next_token)  # <- Only prints on i == 0
-
-#         if recorder is not None and sink is not None:
-#             metrics.records_written += await recorder.flush(sink)
-
-#         step_metrics = StepMetrics(
-#             step_idx=step_idx,
-#             n_tokens=1,
-#             duration_s=time.perf_counter() - start_time,
-#             generated_token_id=next_token,
-#         )
-#         metrics.steps.append(step_metrics)
-
-#         if on_step is not None:
-#             on_step(step_metrics)
-
-#         # token_idx += len(tokens)
-#         step_idx += 1
-
-#         generated.append(next_token)
-
-#     ic(i)
-#     return generated, metrics

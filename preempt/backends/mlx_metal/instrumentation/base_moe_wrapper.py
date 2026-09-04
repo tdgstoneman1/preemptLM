@@ -6,7 +6,7 @@ import mlx.nn as nn
 
 from ..types import ExpertLayerQuants, ModuleWrapperFactory
 from ..expert_cache import MlxExpertCache
-from ..recorder import MoERecorder
+from ..recorder import MlxTraceRecorder
 
 from preempt.core.protocols import IExpertLoader
 
@@ -14,7 +14,7 @@ from preempt.core.protocols import IExpertLoader
 class BaseMoEWrapper(ABC, nn.Module):
     inner: nn.Module
 
-    recorder: MoERecorder | None
+    recorder: MlxTraceRecorder | None
     capture_gate_logits: bool
 
     layer_path: str
@@ -30,14 +30,14 @@ class BaseMoEWrapper(ABC, nn.Module):
         self,
         *,
         inner: nn.Module,
-        recorder: Optional[MoERecorder],
+        recorder: Optional[MlxTraceRecorder],
         capture_gate_logits: bool,
         layer_path: str,
         block_idx: int,
         expert_loader: Optional[IExpertLoader],
         expert_cache: Optional[MlxExpertCache],
         model_fingerprint: Optional[str],
-    ):
+    ) -> None:
         if expert_loader is not None and (
             model_fingerprint is None or expert_cache is None
         ):
@@ -72,4 +72,4 @@ class BaseMoEWrapper(ABC, nn.Module):
 
     @staticmethod
     @abstractmethod
-    def make_factory(**kwargs) -> ModuleWrapperFactory: ...
+    def make_wrapper_factory(**kwargs) -> ModuleWrapperFactory: ...

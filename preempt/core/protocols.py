@@ -4,7 +4,8 @@ from typing import Protocol, runtime_checkable, Any
 from collections.abc import Sequence, Mapping, Hashable
 
 from preempt.datamodel.identity import ExpertKey
-from preempt.datamodel.experts import SerializedExpert
+
+from preempt.expert_bank.blob import SerializedExpert
 
 
 @runtime_checkable
@@ -22,11 +23,11 @@ class IExpertCache(Protocol):
         ...
 
     def size(self) -> int:
-        """Total size of the cache in bytes."""
+        """Cache's memory footprint in bytes."""
         ...
 
     def get(self, key: Hashable) -> Mapping[str, Any]:
-        """Returns cache weight tensors for `key`"""
+        """Returns cached weights for `key`"""
         ...
 
 
@@ -60,9 +61,7 @@ class ITokenizer(Protocol):
 
 @runtime_checkable
 class IModelRunner(Protocol):
-    """Runs synchronous forward pass and returns the greedy-decoded
-    next token.
-    """
+    """Runs model text generation loop."""
 
     def step(self, tokens: Sequence[int]) -> int:
         """Runs forward pass over `tokens` and returns the greedy-

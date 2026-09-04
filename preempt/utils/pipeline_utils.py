@@ -3,19 +3,11 @@ from pathlib import Path
 import textwrap
 
 from preempt.config.pipeline import PipelineConfig
-from preempt.config.target_layers import (
-    TargetLayers,
-    TargetLayerSpec,
-    TargetLayerSearchParams,
-)
 
-from preempt.engine.sinks import ParquetEventSink
-
-from preempt.datamodel.tracing.expert_routing import ExpertRoutingEvent
-
-from preempt.expert_bank.banks import BaseExpertBank, PreadExpertBank
-
+from preempt.engine.sinks import ParquetTraceSink
 from preempt.engine.metrics import GenerationMetrics
+
+from preempt.datamodel.tracing.expert_selection import ExpertSelectionTrace
 
 
 def validate_output_path(
@@ -27,8 +19,8 @@ def validate_output_path(
         output_path = base_dir / config.trace_settings.output_path
         if output_path.exists() and not config.trace_settings.overwrite_output:
             raise FileExistsError(
-                f"File already exists at {output_path.as_posix()!r}. Configure pipeline "
-                "trace settings with a different path, or set `overwrite_output = true`)."
+                f"File already exists at {output_path.as_posix()!r}. Configure "
+                "trace settings with a different path or `overwrite_output=True`."
             )
         return base_dir, output_path
 
@@ -37,61 +29,21 @@ def validate_output_path(
 
 def get_parquet_sink(
     config: PipelineConfig, output_path: Path | None
-) -> ParquetEventSink | None:
+) -> ParquetTraceSink | None:
     if config.trace_settings is not None and output_path is not None:
-        return ParquetEventSink(
+        return ParquetTraceSink(
             path=output_path,
-            schema=ExpertRoutingEvent.arrow_schema(),
+            schema=ExpertSelectionTrace.arrow_schema(),
             batch_size=config.trace_settings.batch_size,
             overwrite=config.trace_settings.overwrite_output,
         )
 
 
-# TODO use a registry for this, this is a temporary placeholder
-_MOE_BLOCK_CLASS_BY_ARCHITECTURE: dict[str, str] = {
-    "qwen3-next": "Qwen3NextSparseMoeBlock",
-}
-
-
-# TODO pass registry as an arg
-def target_layers_for_architecture(
-    architecture: str, target_layer_count: int | None
-) -> TargetLayers:
-    block_class = _MOE_BLOCK_CLASS_BY_ARCHITECTURE.get(architecture)
-    if block_class is None:
-        raise ValueError(
-            f"No MoE block class known for architecture {architecture!r}; "
-            f"streaming supports {sorted(_MOE_BLOCK_CLASS_BY_ARCHITECTURE)}."
-        )
-    return TargetLayers(
-        target_layers=(
-            TargetLayerSpec(
-                name="stream-moe",  # TODO change this to something meaningful
-                search_params=TargetLayerSearchParams(
-                    layer_class=block_class, count=target_layer_count
-                ),
-            ),
-        )
-    )
-
-
-def target_layers_for_model(
-    config: PipelineConfig, expert_bank: BaseExpertBank | None
-) -> TargetLayers | None:
-
-    if config.trace_settings is not None:
-        return config.trace_settings.to_target_layer_config()
-
-    elif expert_bank is not None:
-        return target_layers_for_architecture(
-            config.llm.architecture,
-            len(expert_bank.manifest.model_moe_spec.moe_block_idxs),
-        )
-
-
 # TODO move to dedicated logging module
 # TODO add prefill_s field to GenerationMetrics
-def generation_metrics_log_msg(metrics: GenerationMetrics, prefill_s: float | int):
+def generation_metrics_log_msg(
+    metrics: GenerationMetrics, prefill_s: float | int
+) -> str:
     return textwrap.dedent(f"""
     Generation stats
     ----------------

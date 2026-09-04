@@ -9,21 +9,21 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator, computed_fie
 from preempt.config.target_layers import TargetLayers, TargetLayerSpec
 
 
+# TODO validate arch against HF snapshot `config.json`,
+# e.g. `Qwen3_5MoeForConditionalGeneration` (Qwen3.6)
 class LlmConfig(BaseModel):
-    """Model identifiers for the LLM used in a pipeline"""
+    """Model identifiers for an LLM."""
 
     model_config = ConfigDict(extra="allow", frozen=True)
 
     model_id: str = Field(min_length=1)
     revision: str | None = Field(default=None)
     backend: str = Field(min_length=1)
-    architecture: str = Field(
-        min_length=1
-    )  # TODO validate against HF snapshot `config.json`, e.g. `Qwen3_5MoeForConditionalGeneration` (Qwen3.6)
+    architecture: str = Field(min_length=1)
 
 
 class GenerationSettings(BaseModel):
-    """Decode settings for a pipeline run."""
+    """Decode settings for text generation."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -32,7 +32,7 @@ class GenerationSettings(BaseModel):
 
 
 class TraceSettings(BaseModel):
-    """Settings for MoE router tracing"""
+    """MoE router tracing settings"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -58,7 +58,7 @@ class TraceSettings(BaseModel):
 
 
 class StreamSettings(BaseModel):
-    """Settings for streaming weights from expert bank"""
+    """Streaming settings for disk reads from expert bank"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -73,13 +73,12 @@ class StreamSettings(BaseModel):
 
 
 class PipelineConfig(BaseModel):
-    """Top-level config for inference pipeline (read from TOML)"""
+    """Top-level generation pipeline config (read from TOML)"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+    version: int = Field(default=1, ge=1)
 
     llm: LlmConfig
     generation_settings: GenerationSettings = Field(default_factory=GenerationSettings)
     trace_settings: TraceSettings | None = Field(default=None)
     stream_settings: StreamSettings | None = Field(default=None)
-
-    version: int = Field(default=1, ge=1)

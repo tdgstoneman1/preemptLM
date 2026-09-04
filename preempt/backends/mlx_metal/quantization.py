@@ -5,8 +5,6 @@ from enum import StrEnum
 import attrs
 from attrs import field
 
-import mlx.core as mx
-
 
 class MlxQuantMode(StrEnum):
     AFFINE = "affine"
