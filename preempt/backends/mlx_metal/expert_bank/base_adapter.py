@@ -103,27 +103,27 @@ class BaseMoEArchAdapter(ABC):
         ...
 
     @abstractmethod
-    def validate_weight_paths(self, tensor_paths: Mapping[str, str]) -> tuple[str, ...]:
-        """Validates an MoE block's weight tensor paths against expected path
+    def validate_weight_paths(self, weight_paths: Mapping[str, str]) -> tuple[str, ...]:
+        """Validates an MoE block's expert weight paths against expected path
         names for the architecture and returns them in order.
 
         Parameters
         ----------
-        tensor_paths : Mapping[str, str]
+        weight_paths : Mapping[str, str]
             Weight tensor paths relative to the layer mapped to their
             full paths within the model (both in dot notation)
 
         Returns
         -------
         tuple[str, ...]
-            Validated relative weight tensor paths
+            Validated expert layer weight paths (relative to parent MoE block)
 
         Raises
         ------
         ValueError
-            If expected paths are missing from `tensor_paths`.
+            If expected paths are missing from `weight_paths`.
         ValueError
-            If `tensor_paths` contains unexpected paths.
+            If `weight_paths` contains unexpected paths.
         """
         ...
 

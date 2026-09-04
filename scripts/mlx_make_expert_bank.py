@@ -40,12 +40,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Path to local directory where expert bank will be saved.",
     )
     parser.add_argument(
-        "--max-moe-blocks",
-        type=int,
-        default=None,
-        help="Limits conversion to the first 'max_moe_blocks' MoE blocks in the model.",
-    )
-    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Whether to overwrite existing files in the output directory.",
@@ -63,7 +57,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    architecture = DefaultArchClassRegistry.get_arch_adapter(
+    arch_adapter = DefaultArchClassRegistry.get_arch_adapter(
         args.architecture, instantiate=True
     )
     model_dir = resolve_model_dir(args.model)
@@ -75,12 +69,11 @@ def main() -> None:
     manifest = model_to_expert_bank(
         model_dir,
         expert_bank_dir=args.output,
-        arch_adapter=architecture,
+        arch_adapter=arch_adapter,
         model_id=args.model,
-        max_moe_blocks=args.max_moe_blocks,
         overwrite=args.overwrite,
     )
-    print(f"Saved expert bank to {args.output.absolute().as_posix()}")
+    print(f"Saved expert bank to {args.output.absolute().as_posix()!r}")
 
     num_blobs = len(manifest.blobs)
     num_blocks = len(manifest.model_moe_spec.moe_block_idxs)

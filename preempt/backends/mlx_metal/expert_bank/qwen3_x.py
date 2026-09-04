@@ -87,44 +87,43 @@ class Qwen3_xArchAdapter(BaseMoEArchAdapter):
             for part in MLX_QUANTIZED_TENSOR_PARTS
         )
 
-    def validate_weight_paths(self, tensor_paths: Mapping[str, str]) -> tuple[str, ...]:
-        """Validates an MoE block's weight tensor paths against expected path
+    def validate_weight_paths(self, weight_paths: Mapping[str, str]) -> tuple[str, ...]:
+        """Validates an MoE block's expert weight paths against expected path
         names for the architecture and returns them in order.
 
         Parameters
         ----------
-        tensor_paths : Mapping[str, str]
+        weight_paths : Mapping[str, str]
             Weight tensor paths relative to the layer mapped to their
             full paths within the model (both in dot notation)
 
         Returns
         -------
         tuple[str, ...]
-            Validated relative weight tensor paths
+            Validated expert layer weight paths (relative to parent MoE block)
 
         Raises
         ------
         ValueError
-            If expected paths are missing from `tensor_paths`.
+            If expected paths are missing from `weight_paths`.
         ValueError
-            If `tensor_paths` contains unexpected paths.
+            If `weight_paths` contains unexpected paths.
         """
-        present = tuple(filter(lambda x: x in tensor_paths, self.weight_order))
+        present = tuple(filter(lambda x: x in weight_paths, self.weight_order))
         missing = list(
             filter(
-                lambda x: f"{x}.weight" not in tensor_paths,
+                lambda x: f"{x}.weight" not in weight_paths,
                 self.linear_projection_names,
             )
         )
         if missing:
             raise ValueError(
-                "The following are missing from `tensor_paths`: " f"{missing!r}"
+                "The following are missing from `weight_paths`: " f"{missing!r}"
             )
-
-        unexpected = set(tensor_paths) - set(self.weight_order)
+        unexpected = set(weight_paths) - set(self.weight_order)
         if unexpected:
             raise ValueError(
-                f"`tensor_paths` contains the following unexpected items: {unexpected!r}"
+                f"`weight_paths` contains the following unexpected items: {unexpected!r}"
             )
 
         return present

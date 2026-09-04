@@ -3,6 +3,7 @@ from types import MappingProxyType
 from collections.abc import Generator
 
 from pathlib import Path
+import hashlib
 import shutil
 
 import re
@@ -194,3 +195,26 @@ def make_shard_map(
             shards.append(current_shard)
 
     return shards
+
+
+def hash_model_ckpt(ckpt_path: Path) -> str:
+    """Hashes an MLX model checkpoint.
+
+    Returns a SHA-256 digest of the checkpoint's `config.json` and the names
+    and byte sizes of its `*.safetensors` shards.
+
+    Parameters
+    ----------
+    ckpt_path : Path
+        Path to a Hugging Face-style MLX model checkpoint
+
+    Returns
+    -------
+    str
+        Unique fingerprint for the checkpoint
+    """
+    digest = hashlib.sha256((ckpt_path / "config.json").read_bytes())
+    for shard in sorted(ckpt_path.glob("*.safetensors")):
+        digest.update(f"{shard.name}:{shard.stat().st_size}".encode())
+
+    return digest.hexdigest()

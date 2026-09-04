@@ -41,8 +41,8 @@ import mlx.core as mx
 from preempt.backends.mlx_metal.expert_bank.qwen3_x import Qwen3_xArchAdapter
 from preempt.backends.mlx_metal.expert_bank.serialization import (
     ShardTensorCache,
-    build_tensor_shard_index,
-    group_expert_weights_by_block,
+    _make_shard_index,
+    _group_weight_paths_by_block,
 )
 from preempt.backends.mlx_metal.expert_cache import MlxExpertCache
 from preempt.backends.mlx_metal.utils import mlx_to_numpy
@@ -290,8 +290,8 @@ async def run(args: argparse.Namespace) -> None:
     print(f"Store directory: {args.expert_bank}", flush=True)
 
     arch = Qwen3_xArchAdapter()
-    shard_index = build_tensor_shard_index(model_dir, arch)
-    by_layer = group_expert_weights_by_block(shard_index, arch)
+    shard_index = _make_shard_index(model_dir, arch)
+    by_layer = _group_weight_paths_by_block(shard_index, arch)
     cache = ShardTensorCache(shard_index=shard_index)
 
     with PreadExpertBank(args.expert_bank) as bank:

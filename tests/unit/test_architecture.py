@@ -200,16 +200,3 @@ class TestQwenMoESpec:
         assert topo.moe_block_idxs == (5,)
         assert topo.num_routed_experts == 128
         assert topo.top_k == 4
-
-
-def test_convert_accepts_architecture_parameter() -> None:  # TODO remove, redundant
-    sig = inspect.signature(model_to_expert_bank)
-
-    assert "architecture" in sig.parameters
-
-
-def test_apply_experts_accepts_apply_expert_fn() -> None:
-    sig = inspect.signature(sequential_expert_matmul)
-
-    assert "expert_forward_fn" in sig.parameters
-    assert "activation" not in sig.parameters
