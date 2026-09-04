@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 import re
 
 import mlx.core as mx
+import mlx.nn as nn
 
 from preempt.expert_bank.manifest import ModelMoESpec
 
@@ -17,14 +18,33 @@ from ..quantization import QuantSettings
 class BaseMoEArchAdapter(ABC):
     """*Abstract; do not instantiate*
 
-    Defines architecture-specific parameters for expert bank serialization with
-    MLX models. Subclasses encapsulate tensor naming patterns, projection layouts,
-    and quantization configurations for a specific MoE family.
+    Defines MoE architecture-specific parameters for expert bank serialization with
+    MLX models. Subclasses encapsulate a model family's parameter name patterns/layouts
+    and quantization configurations.
     """
 
     @property
     @abstractmethod
-    def projection_names(self) -> tuple[str, ...]:
+    def model_architecture(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def moe_class_name(self) -> str:
+        """Name of the `nn.Module` class used for MoE blocks in mlx-lm's implemtation
+        of the model, e.g. "Qwen3NextSparseMoeBlock" for Qwen3-Next and Qwen3.x models.
+
+        Used for filtering a loaded model's MoE blocks.
+
+        Returns
+        -------
+        str
+            Class name matching `type(module).__name__`
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def linear_projection_names(self) -> tuple[str, ...]:
         """Ordered names of expert projection layers stored in the expert blob.
 
         Returns
@@ -35,54 +55,9 @@ class BaseMoEArchAdapter(ABC):
         """
         ...
 
-    # TODO use literal or enum for output type
     @property
     @abstractmethod
-    def quantized_tensor_parts(self) -> tuple[str, ...]:
-        """Component suffixes comprising a quantized tensor in blob storage order.
-
-        Returns
-        -------
-        tuple[str, ...]
-            Quantized tensor component names in serialization order, such as
-            ("weight", "scales", "biases").
-        """
-        ...
-
-    @property
-    @abstractmethod
-    def expert_module_pattern(self) -> str:
-        """Uncompiled regex pattern matching expert module paths in a checkpoint.
-
-        The pattern must define named capture groups for `"prefix"`, `"layer"`,
-        and `"projection"`.
-
-        Returns
-        -------
-        str
-            Raw regex pattern string used to construct compiled tensor and
-            module matchers.
-        """
-        ...
-
-    @property
-    @abstractmethod
-    def layer_class_name(self) -> str:
-        """Class name of the MoE block module type in the loaded model.
-
-        Used for layer-discovery filtering.
-
-        Returns
-        -------
-        str
-            Class name matching `type(module).__name__`, such as
-            "Qwen3NextSparseMoeBlock".
-        """
-        ...
-
-    @property
-    @abstractmethod
-    def expert_tensor_regex(self) -> re.Pattern[str]:
+    def expert_weight_path_regex(self) -> re.Pattern[str]:
         """Regex for matching expert tensor names
 
         The pattern must include named capture groups for `"prefix"`, `"layer"`,
@@ -97,7 +72,7 @@ class BaseMoEArchAdapter(ABC):
 
     @property
     @abstractmethod
-    def expert_module_regex(self) -> re.Pattern[str]:
+    def expert_layer_path_regex(self) -> re.Pattern[str]:
         """Regex for matching expert module paths.
 
         The pattern must include named capture groups for `"prefix"`, `"layer"`,
@@ -113,12 +88,12 @@ class BaseMoEArchAdapter(ABC):
 
     @property
     @abstractmethod
-    def tensor_order(self) -> tuple[str, ...]:
-        """Defines the canonical order of tensors within an expert blob.
+    def weight_order(self) -> tuple[str, ...]:
+        """Defines how weight tensors should be ordered during serialization.
 
-        This sequence determines how tensor parts from all projections are
-        concatenated. For example: `("gate_proj.weight", "gate_proj.scales",
-        "gate_proj.biases", "up_proj.weight", ...)`.
+        Determines how tensor parts for an MoE block's linear projections are
+        concatenated, for example: `("gate_proj.weight", "gate_proj.scales",
+        "gate_proj.biases", "up_proj.weight", ...)`
 
         Returns
         -------
@@ -128,9 +103,7 @@ class BaseMoEArchAdapter(ABC):
         ...
 
     @abstractmethod
-    def validate_weight_tensor_paths(
-        self, tensor_paths: Mapping[str, str]
-    ) -> tuple[str, ...]:
+    def validate_weight_paths(self, tensor_paths: Mapping[str, str]) -> tuple[str, ...]:
         """Validates an MoE block's weight tensor paths against expected path
         names for the architecture and returns them in order.
 
@@ -158,61 +131,60 @@ class BaseMoEArchAdapter(ABC):
     def resolve_quantization(
         self, config: Mapping[str, Any], block_idxs: Sequence[int]
     ) -> QuantSettings | None:
-        """Determines quantization parameters from `config`.
+        """Resolves quantization parameters from the model's `config.json`.
 
         Parameters
         ----------
         config : Mapping[str, Any]
-            Parsed `config.json` from model checkpoint.
+            Parsed `config.json` from a Hugging Face-style model checkpoint.
         block_idxs : Sequence[int]
-            Indices of the MoE transformer blocks being converted.
+            Indices of the transformer blocks containing the target MoE blocks
+            being serialized
 
         Returns
         -------
         QuantSettings | None
-            The shared quantization parameters, or `None` if unquantized.
+            The resolved quantization parameters, or `None` if unquantized
 
         Raises
         ------
         ValueError
-            If experts are not uniformly quantized across the given layers.
+            If experts are not uniformly quantized across the specified layers
         """
         ...
 
     @abstractmethod
-    def dtype_tag(self, stacked: Mapping[str, mx.array], *, quantized: bool) -> str:
-        """Returns a tag representing the scalar dtype.
+    def dtype_tag_for(self, weights: Mapping[str, mx.array], *, quantized: bool) -> str:
+        """Returns a dtype tag for a layer's weights.
 
-        For quantized models, this inspects `scales`/`biases`. For unquantized
-        models, it inspects the weights.
+        Inspects `'weights'` for unquantized models and `'scales'` and `'biases'`
+        for quantized ones.
 
         Parameters
         ----------
-        stacked : Mapping[str, mx.array]
-            A layer's stacked tensors
+        weights : Mapping[str, mx.array]
+            Mapping of weight names to weight arrays
         quantized : bool
             True if the model is quantized, False otherwise
 
         Returns
         -------
         str
-            A short dtype tag, e.g., `"bf16"`, `"f16"`, or `"f32"`.
+            A short dtype tag, e.g., `"bf16"`, `"f16"`, or `"f32"`
         """
         ...
 
-    # TODO verify that block_idxs refers to transformer block
     @abstractmethod
-    def extract_model_moe_spec(
+    def get_model_moe_spec(
         self,
-        config: Mapping[str, Any],  # TODO rename, too vague
+        config: Mapping[str, Any],
         block_idxs: Sequence[int],
-        num_routed_experts: int,
     ) -> ModelMoESpec:
-        """Extracts MoE-specific configuration from checkpoint.
+        """Returns MoE configuration from a model checkpoint.
 
-        Parses the model's `config.json` to create a `ModelMoESpec` object,
-        which includes the number of experts, top-k routing, and the indices
-        of the transformer blocks that contain MoE layers.
+        Parses `config` to create a `ModelMoESpec` object, which includes the
+        number of experts, top-k routing, and the indices of the transformer
+        blocks in the model containing MoE blocks.
 
         Parameters
         ----------
@@ -220,12 +192,10 @@ class BaseMoEArchAdapter(ABC):
             The model's parsed `config.json`
         block_idxs : Sequence[int]
             Indices of the transformer blocks containing MoE layers.
-        num_routed_experts : int
-            The number of experts per MoE layer, detected from tensor shapes.
 
         Returns
         -------
         ModelMoESpec
-            The model's MoE config for its manifest
+            The model's MoE specification
         """
         ...

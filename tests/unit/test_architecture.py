@@ -11,6 +11,8 @@ from preempt.backends.mlx_metal.expert_bank.serialization import model_to_expert
 from preempt.backends.mlx_metal.ops import sequential_expert_matmul
 from preempt.backends.mlx_metal.quantization import QuantSettings
 
+from preempt.backends.mlx_metal.constants import MLX_QUANTIZED_TENSOR_PARTS
+
 
 def test_cannot_instantiate_abstract() -> None:
     with pytest.raises(TypeError):
@@ -20,7 +22,7 @@ def test_cannot_instantiate_abstract() -> None:
 def test_partial_subclass_cannot_instantiate() -> None:
     class Partial(BaseMoEArchAdapter):
         @property
-        def projection_names(self) -> tuple[str, ...]:
+        def linear_projection_names(self) -> tuple[str, ...]:
             return ("a",)
 
     with pytest.raises(TypeError):
@@ -34,26 +36,23 @@ def arch() -> Qwen3_xArchAdapter:
 
 class TestQwenArchitectureProperties:
     def test_projection_names(self, arch: Qwen3_xArchAdapter) -> None:
-        assert arch.projection_names == ("gate_proj", "up_proj", "down_proj")
-
-    def test_quantized_tensor_parts(self, arch: Qwen3_xArchAdapter) -> None:
-        assert arch.quantized_tensor_parts == ("weight", "scales", "biases")
+        assert arch.linear_projection_names == ("gate_proj", "up_proj", "down_proj")
 
     def test_layer_class_name(self, arch: Qwen3_xArchAdapter) -> None:
-        assert arch.layer_class_name == "Qwen3NextSparseMoeBlock"
+        assert arch.moe_class_name == "Qwen3NextSparseMoeBlock"
 
     def test_expert_module_pattern_contains_groups(
         self, arch: Qwen3_xArchAdapter
     ) -> None:
-        assert "(?P<prefix>" in arch.expert_module_pattern
-        assert "(?P<layer>" in arch.expert_module_pattern
-        assert "(?P<projection>" in arch.expert_module_pattern
+        assert "(?P<prefix>" in arch._path_pattern
+        assert "(?P<layer>" in arch._path_pattern
+        assert "(?P<projection>" in arch._path_pattern
 
 
 class TestQwenRegexes:
     def test_tensor_regex_matches_qwen_name(self, arch: Qwen3_xArchAdapter) -> None:
         name = "language_model.model.layers.5.mlp.switch_mlp.gate_proj.weight"
-        m = arch.expert_tensor_regex.match(name)
+        m = arch.expert_weight_path_regex.match(name)
 
         assert m is not None
         assert m.group("layer") == "5"
@@ -61,12 +60,14 @@ class TestQwenRegexes:
         assert m.group("part") == "weight"
 
     def test_tensor_regex_rejects_non_expert(self, arch: Qwen3_xArchAdapter) -> None:
-        m = arch.expert_tensor_regex.match("model.layers.5.self_attn.q_proj.weight")
+        m = arch.expert_weight_path_regex.match(
+            "model.layers.5.self_attn.q_proj.weight"
+        )
         assert m is None
 
     def test_module_regex_matches_without_part(self, arch: Qwen3_xArchAdapter) -> None:
         name = "model.layers.3.mlp.switch_mlp.up_proj"
-        m = arch.expert_module_regex.match(name)
+        m = arch.expert_layer_path_regex.match(name)
 
         assert m is not None
         assert m.group("layer") == "3"
@@ -75,7 +76,7 @@ class TestQwenRegexes:
 
 class TestQwenTensorOrder:
     def test_full_order(self, arch: Qwen3_xArchAdapter) -> None:
-        order = arch.tensor_order
+        order = arch.weight_order
 
         assert order[0] == "gate_proj.weight"
         assert order[1] == "gate_proj.scales"
@@ -85,12 +86,12 @@ class TestQwenTensorOrder:
     def test_validate_layer_tensors_full(self, arch: Qwen3_xArchAdapter) -> None:
         layer_tensors = {
             f"{p}.{part}": f"full.{p}.{part}"
-            for p in arch.projection_names
-            for part in arch.quantized_tensor_parts
+            for p in arch.linear_projection_names
+            for part in MLX_QUANTIZED_TENSOR_PARTS
         }
-        result = arch.validate_weight_tensor_paths(layer_tensors)
+        result = arch.validate_weight_paths(layer_tensors)
 
-        assert result == arch.tensor_order
+        assert result == arch.weight_order
 
     def test_validate_layer_tensors_missing_weight_raises(
         self, arch: Qwen3_xArchAdapter
@@ -100,7 +101,7 @@ class TestQwenTensorOrder:
             ValueError,
             match="The following weight tensors are missing from `layer_tensors`",
         ):
-            arch.validate_weight_tensor_paths(layer_tensors)
+            arch.validate_weight_paths(layer_tensors)
 
     def test_validate_layer_tensors_unquantized(self, arch: Qwen3_xArchAdapter) -> None:
         layer_tensors = {
@@ -108,7 +109,7 @@ class TestQwenTensorOrder:
             "up_proj.weight": "x",
             "down_proj.weight": "x",
         }
-        result = arch.validate_weight_tensor_paths(layer_tensors)
+        result = arch.validate_weight_paths(layer_tensors)
 
         assert result == ("gate_proj.weight", "up_proj.weight", "down_proj.weight")
 
@@ -125,7 +126,7 @@ class TestQwenTensorOrder:
             ValueError,
             match="`layer_tensors` contains the following unexpected weight tensors",
         ):
-            arch.validate_weight_tensor_paths(layer_tensors)
+            arch.validate_weight_paths(layer_tensors)
 
 
 class TestQwenQuantization:
@@ -186,7 +187,7 @@ class TestQwenQuantization:
 class TestQwenMoESpec:
     def test_extract(self, arch: Qwen3_xArchAdapter) -> None:
         config = {"text_config": {"num_routed_experts": 256, "num_experts_per_tok": 8}}
-        topo = arch.extract_model_moe_spec(config, (0, 1, 2), num_routed_experts=256)
+        topo = arch.get_model_moe_spec(config, (0, 1, 2))
 
         assert topo.moe_block_idxs == (0, 1, 2)
         assert topo.num_routed_experts == 256
@@ -194,7 +195,7 @@ class TestQwenMoESpec:
 
     def test_extract_non_text_config(self, arch: Qwen3_xArchAdapter) -> None:
         config = {"num_routed_experts": 128, "num_experts_per_tok": 4}
-        topo = arch.extract_model_moe_spec(config, (5,), num_routed_experts=128)
+        topo = arch.get_model_moe_spec(config, (5,))
 
         assert topo.moe_block_idxs == (5,)
         assert topo.num_routed_experts == 128

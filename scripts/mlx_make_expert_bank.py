@@ -75,7 +75,7 @@ def main() -> None:
     manifest = model_to_expert_bank(
         model_dir,
         expert_bank_dir=args.output,
-        architecture=architecture,
+        arch_adapter=architecture,
         model_id=args.model,
         max_moe_blocks=args.max_moe_blocks,
         overwrite=args.overwrite,

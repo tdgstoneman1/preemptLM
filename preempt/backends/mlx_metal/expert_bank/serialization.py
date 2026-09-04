@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from typing import Optional
 from collections.abc import Mapping
 
 import attrs
 from attrs import field
 
 import hashlib
-import json
+
 from pathlib import Path
+
+import json
+
 import gc
 
 import numpy as np
@@ -32,12 +36,12 @@ def hash_model_ckpt(ckpt_path: Path) -> str:
     Parameters
     ----------
     ckpt_path : Path
-        An MLX model's checkpoint directory
+        Path to a Hugging Face-style MLX model checkpoint
 
     Returns
     -------
     str
-        The checkpoint's unique fingerprint.
+        Unique fingerprint for the checkpoint
     """
     digest = hashlib.sha256((ckpt_path / "config.json").read_bytes())
     for shard in sorted(ckpt_path.glob("*.safetensors")):
@@ -47,84 +51,87 @@ def hash_model_ckpt(ckpt_path: Path) -> str:
 
 
 def build_tensor_shard_index(
-    ckpt_path: Path, architecture: BaseMoEArchAdapter
+    ckpt_path: Path, arch_adapter: BaseMoEArchAdapter
 ) -> dict[str, Path]:
-    """Indexes the file locations of all routed expert tensors in a checkpoint.
+    """Filters routed expert layer weights from a model checkpoint's weight
+    map (`model.safetensors.index.json` and returns dict mapping dotted weight
+    paths to safetensors file paths, for example:
 
-    Consults the `model.safetensors.index.json` weight map (or falls back to
-    scanning a monolithic `model.safetensors` file) to map each expert tensor's
-    full, dotted path (e.g., `model.layers.0.block_sparse_moe.w1.weight`)
-    to the physical shard file that contains it.
+    `'language_model.model.layers.0.mlp.switch_mlp.down_proj.weight'`
+    → `'model-00001-of-00005.safetensors'`
 
     Parameters
     ----------
     ckpt_path : Path
-        Local path to a Hugging Face model's checkpoint directory
-    architecture : BaseMoEArchAdapter
-        The architecture definition providing the regex to identify expert
-        weight tensors
+        Local path to a Hugging Face-style model checkpoint
+    arch_adapter : BaseMoEArchAdapter
+        Architecture adapter providing regex patterns to identify routed
+        expert layer weights
 
     Returns
     -------
     dict[str, Path]
-        Mapping of tensor dotted paths to tensor shard file paths
+        Mapping of weight tensor dotted paths to safetensors file paths
     """
-    index_path = ckpt_path / "model.safetensors.index.json"
-    # TODO move path parts like 'model.safetensors' to .constants
-
-    if index_path.exists():
+    if (index_path := ckpt_path / "model.safetensors.index.json").exists():
         weight_map = json.loads(index_path.read_text())["weight_map"]
         return {
-            name: ckpt_path / shard
-            for name, shard in weight_map.items()
-            if architecture.expert_tensor_regex.match(name)
+            path: ckpt_path / shard
+            for path, shard in weight_map.items()
+            if arch_adapter.expert_weight_path_regex.match(path)
         }
 
     single = ckpt_path / "model.safetensors"
-    return {name: single for name in mx.load(single) if regex.match(name)}  # type: ignore
+    return {path: single for path in mx.load(single) if regex.match(path)}  # type: ignore
 
 
-def group_expert_tensors_by_layer(
+def group_expert_weights_by_block(
     shard_index: Mapping[str, Path],
-    architecture: BaseMoEArchAdapter,
+    arch_adapter: BaseMoEArchAdapter,
 ) -> dict[int, dict[str, str]]:
-    """Returns a dictionary of weight tensors grouped and keyed by layer index.
-    Each group's nested dictionary maps a tensor's path relative to its parent
-    (e.g., `w1.weight`) to its full path within the model.
+    """Groups routed expert weight tensors by parent transformer block
+    index.
+
+    Each block index maps to a nested mapping of linear projection
+    component names (e.g. `'gate_proj.weight'`, `'down_proj.scales'`)
+    to their full, dotted tensor paths in the checkpoint (e.g.
+    `'language_model.model.layers.0.mlp.switch_mlp.down_proj.weight'`).
 
     Parameters
     ----------
     shard_index : Mapping[str, Path]
-        Mapping of a tensor's full, dotted path to its file location
-    architecture : BaseMoEArchAdapter
-        Adapter providing regex patterns to parse tensor paths
+        Mapping of dotted weight paths to checkpoint shard file paths
+    arch_adapter : BaseMoEArchAdapter
+        Architecture adapter providing regex patterns to parse and match
+        weight paths
 
     Returns
     -------
     dict[int, dict[str, str]]
-        A nested dictionary of tensors grouped by layer index
+        Mapping of parent transformer block indices to grouped expert
+        weight paths
 
     Raises
     ------
     ValueError
-        If tensor weights from multiple model prefixes are found.
+        If expert weight paths match multiple distinct module prefixes.
     """
     by_layer: dict[int, dict[str, str]] = {}
     prefixes: set[str] = set()
 
-    for name in shard_index:
-        match = architecture.expert_tensor_regex.match(name)
+    for weight_path in shard_index:
+        match = arch_adapter.expert_weight_path_regex.match(weight_path)
         if match is None:
             continue
 
         prefixes.add(match.group("prefix"))
         suffix = f"{match.group('projection')}.{match.group('part')}"
-        by_layer.setdefault(int(match.group("layer")), {})[suffix] = name
+        by_layer.setdefault(int(match.group("layer")), {})[suffix] = weight_path
 
     if len(prefixes) > 1:
         raise ValueError(
-            "Routed expert tensors come from multiple stacks; this converter "
-            f"packs one: prefixes {sorted(prefixes)!r}."
+            "Expected all routed expert weight paths to share a single module"
+            f"prefix, but found multiple: {sorted(prefixes)!r}"
         )
 
     return by_layer
@@ -132,99 +139,104 @@ def group_expert_tensors_by_layer(
 
 @attrs.define
 class ShardTensorCache:
-    """Bounded cache managing the deferred loading of stacked expert tensors."""
-
     shard_index: Mapping[str, Path] = field()
     _loaded_path: Path | None = field(default=None, init=False)
     _loaded: dict[str, mx.array] = field(factory=dict, init=False)
 
-    def get(self, name: str) -> mx.array:
-        path = self.shard_index[name]
-        if path != self._loaded_path:
+    def get(self, tensor_path: str) -> mx.array:
+        if (path := self.shard_index[tensor_path]) != self._loaded_path:
             self._loaded = mx.load(path)  # type: ignore
             self._loaded_path = path
 
-        return self._loaded[name]
+        return self._loaded[tensor_path]
 
     def load_layer(self, layer_weights: Mapping[str, str]) -> dict[str, mx.array]:
-        """Loads `layer_tensors` from tensorshards.
+        """Loads `layer_weights` from tensorshards.
 
         Parameters
         ----------
-        layer_tensors : Mapping[str, str]
-            A mapping of dotted tensor paths relative to parent modules (e.g.,
-            `w1.weight`) to their full paths in the checkpoint
+        layer_weights : Mapping[str, str]
+            A mapping of dotted weight paths relative to parent modules (e.g.,
+            `w1.weight`) to their full paths in the checkpoint (e.g.
+            `'language_model.model.layers.0.mlp.switch_mlp.down_proj.weight'`)
 
         Returns
         -------
         dict[str, mx.array]
-            Mapping of dotted paths in dot notation to stacked weight tensors
+            Mapping of dotted paths to stacked weight tensors
         """
         # Sort by shard order to reduce disk reads for layers split between shards
-        # TODO verify sorting actually helps, otherwise may introduce latency
         ordered = sorted(
             layer_weights.items(), key=lambda item: self.shard_index[item[1]]
         )
-        return {path: self.get(name) for path, name in ordered}
+        return {path: self.get(tensor_path) for path, tensor_path in ordered}
 
 
-def expert_ndarrays(
-    stacked: Mapping[str, mx.array], expert_idx: int
+def _expert_ndarrays(
+    weight_map: Mapping[str, mx.array], expert_idx: int
 ) -> dict[str, np.ndarray]:
     """Returns a dictionary mapping tensor paths to numpy arrays for the cache's
     `expert_idx`th expert layer.
     """
-    return {path: mlx_to_numpy(tensor[expert_idx]) for path, tensor in stacked.items()}
+    return {
+        path: mlx_to_numpy(tensor[expert_idx]) for path, tensor in weight_map.items()
+    }
 
 
-# TODO remove 'architecture' arg and resolve from config.json or mlx-lm class via registry
+# TODO rm 'arch_adapter', resolve from config.json or registry
 def model_to_expert_bank(
     ckpt_path: Path,
     expert_bank_dir: Path,
     *,
-    architecture: BaseMoEArchAdapter,
-    model_id: str | None = None,
-    max_moe_blocks: int | None = None,
+    arch_adapter: BaseMoEArchAdapter,
+    model_id: Optional[str] = None,
+    max_moe_blocks: Optional[int] = None,
     overwrite: bool = False,
 ) -> ExpertBankManifest:
-    """Writes the routed expert layers of an MLX model to an expert bank on disk.
+    """Serializes a MoE model's routed expert weights and persists them to an expert
+    bank on disk.
 
     Parameters
     ----------
     ckpt_dir : Path
-        Local path to a Hugging Face model's checkpoint directory
+        Local path to a Hugging Face-style model checkpoint
     expert_bank_dir : Path
         Local directory where `experts.bin` and `manifest.json` will be written
-    architecture : BaseMoEArchAdapter
+    arch_adapter : BaseMoEArchAdapter
         Adapter defining the checkpoint's MoE structural patterns
-    model_id : str | None
-        A unique identifier used for compatibility checks when loading the saved expert bank.
-        Defaults to the name of the model checkpoint, but should be explicitly provided for
-        specific cached Hugging Face snapshots. By default `None`
-    max_moe_blocks : int | None
-        Limits conversion to the first `max_moe_blocks` MoE blocks. If `None`, all layers are
-        converted. By default `None`
+    model_id : Optional[str]
+        A unique identifier used for compatibility checks when loading the saved expert
+        bank. Defaults to the name of the model checkpoint, but should be explicitly
+        provided for specific cached Hugging Face snapshots, by default `None`
+    max_moe_blocks : Optional[int]
+        Limits conversion to the first `max_moe_blocks` MoE blocks. If `None`, all layers
+        are converted, by default `None`
     overwrite : bool
-        If `True`, an existing expert bank in the output directory will be overwritten.
-        By default False
+        If `True`, an existing expert bank in the output directory will be overwritten,
+        by default False
 
     Returns
     -------
     ExpertBankManifest
-        The metadata manifest for the expert bank
+        The manifest for the expert bank
 
     Raises
     ------
     ValueError
-        If no routed expert tensors could be resolved from checkpoint.
+        If no routed expert tensors could be resolved from the checkpoint.
     ValueError
-        If a layer's tensors deviate from the structural layout expected for the given
-        architecture.
+        If a layer deviates from the structural layout expected for the architecture
+        defined by `arch_adapter`.
     """
-    shard_index = build_tensor_shard_index(ckpt_path, architecture)
-    by_layer = group_expert_tensors_by_layer(shard_index, architecture)
+    shard_index = build_tensor_shard_index(ckpt_path, arch_adapter)
+    by_layer = group_expert_weights_by_block(shard_index, arch_adapter)
     if not by_layer:
         raise ValueError(f"No routed expert tensors found in {ckpt_path.as_posix()!r}")
+
+    model_id_ = model_id or ckpt_path.name
+    model_fingerprint = hash_model_ckpt(ckpt_path)
+
+    # * Load the first layer to derive serialization info
 
     block_idxs = sorted(by_layer)
     if max_moe_blocks is not None:
@@ -232,50 +244,53 @@ def model_to_expert_bank(
 
     config = json.loads((ckpt_path / "config.json").read_text())
     cache = ShardTensorCache(shard_index=shard_index)
+    dummy = cache.load_layer(by_layer[block_idxs[0]])
 
-    first_stacked = cache.load_layer(by_layer[block_idxs[0]])
-    order = architecture.validate_weight_tensor_paths(by_layer[block_idxs[0]])
-    specs = derive_tensor_specs(expert_ndarrays(first_stacked, 0), order)
-    num_routed_experts = int(next(iter(first_stacked.values())).shape[0])
-
-    quant = architecture.resolve_quantization(config, block_idxs)
+    # Encoding tag
+    quant = arch_adapter.resolve_quantization(config, block_idxs)
     encoding = make_encoding_tag(
         quant,
-        architecture.dtype_tag(first_stacked, quantized=quant is not None),
+        arch_adapter.dtype_tag_for(dummy, quantized=quant is not None),
     )
-    del first_stacked
+
+    # Tensor specs
+    order = arch_adapter.validate_weight_paths(by_layer[block_idxs[0]])
+    tensor_specs = derive_tensor_specs(_expert_ndarrays(dummy, 0), order)
+
+    # MoE spec
+    num_routed_experts = int(next(iter(dummy.values())).shape[0])
+    model_moe_spec = arch_adapter.get_model_moe_spec(config, block_idxs)
+    del dummy
     gc.collect()
 
-    model_moe_spec = architecture.extract_model_moe_spec(
-        config, block_idxs, num_routed_experts
-    )
     with ExpertBankWriter(
         expert_bank_dir,
-        model_id=model_id if model_id is not None else ckpt_path.name,
-        model_fingerprint=hash_model_ckpt(ckpt_path),
+        model_id=model_id_,
+        model_fingerprint=model_fingerprint,
         encoding=encoding,
-        tensor_specs=specs,
+        tensor_specs=tensor_specs,
         model_moe_spec=model_moe_spec,
         overwrite=overwrite,
     ) as writer:
-        for block_idx in block_idxs:
-            layer_order = architecture.validate_weight_tensor_paths(by_layer[block_idx])
-            if layer_order != order:
+        for block in block_idxs:
+            if (order_ := arch_adapter.validate_weight_paths(by_layer[block])) != order:
                 raise ValueError(
-                    f"Layer {block_idx} holds tensors {layer_order!r}; the expert bank's "
-                    f"layout is {order!r}."
+                    f"Inconsistent expert weights layout in MoE block {block}: "
+                    f"expected {order!r} (from block {block_idxs[0]}), but got {order_!r}."
+                )
+            weights = cache.load_layer(by_layer[block])
+
+            for expert in range(num_routed_experts):
+                data = assemble_expert_blob(
+                    _expert_ndarrays(weights, expert), tensor_specs
+                )
+                writer.add_expert(
+                    block_idx=block,
+                    expert_idx=expert,
+                    data=data,
                 )
 
-            stacked = cache.load_layer(by_layer[block_idx])
-            for expert_idx in range(num_routed_experts):
-                writer.add_expert(
-                    block_idx=block_idx,
-                    expert_idx=expert_idx,
-                    data=assemble_expert_blob(
-                        expert_ndarrays(stacked, expert_idx), specs
-                    ),
-                )
-            del stacked
+            del weights, data
             gc.collect()
 
         return writer.finalize()

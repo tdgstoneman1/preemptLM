@@ -223,7 +223,7 @@ def make_encoding_tag(quant: QuantSettings | None, dtype_tag: str) -> str:
 
 def get_expert_quants(
     switch_mlp: SwitchGLU,
-    projection_names: Sequence[str],
+    linear_projection_names: Sequence[str],
 ) -> ExpertLayerQuants | None:
     """Reads quantization parameters for the linear projection layer weights
     in `switch_mlp`.
@@ -233,8 +233,8 @@ def get_expert_quants(
     switch_mlp : SwitchGLU
         A fused multi-expert module containing the stacked weights for all
         expert layers in an MoE block
-    projection_names : Sequence[str]
-        Projection names to read (e.g. from `architecture.projection_names`)
+    linear_projection_names : Sequence[str]
+        Projection names to read (e.g. from `architecture.linear_projection_names`)
 
     Returns
     -------
@@ -250,7 +250,7 @@ def get_expert_quants(
         forward pass)
     """
     params: dict[str, QuantSettings] = {}
-    for name in projection_names:
+    for name in linear_projection_names:
         module = getattr(switch_mlp, name)
 
         if not isinstance(module, (SwitchLinear, QuantizedSwitchLinear)):
