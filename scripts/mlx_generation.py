@@ -40,7 +40,6 @@ from preempt.engine.metrics import GenerationMetrics, StepMetrics
 
 from preempt.backends.mlx_metal.pipeline.build import mlx_build_generation_pipeline
 
-from preempt.utils.io_utils import read_and_validate_toml
 from preempt.utils.pipeline_utils import (
     generation_metrics_log_msg,
     cache_metrics_log_msg,
@@ -51,12 +50,11 @@ from preempt.utils.pipeline_utils import (
 
 
 async def run(
-    config: PipelineConfig, args: argparse.Namespace, config_dir: Path, console: Console
+    config: PipelineConfig, args: argparse.Namespace, console: Console
 ) -> None:
     metrics = GenerationMetrics()  # TODO configure this in TOML config
     pipeline = mlx_build_generation_pipeline(
         config,
-        config_dir=config_dir,
         event_loop=asyncio.get_running_loop(),
         metrics=metrics,
         stream_experts=args.stream_experts,
@@ -172,10 +170,11 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-    config = read_and_validate_toml(args.config, PipelineConfig)
+    config = PipelineConfig.from_toml(args.config)
     console = Console()
+
     try:
-        asyncio.run(run(config, args, args.config.resolve().parent, console))
+        asyncio.run(run(config, args, console))
 
     except KeyboardInterrupt:
         console.print("Exiting...")
