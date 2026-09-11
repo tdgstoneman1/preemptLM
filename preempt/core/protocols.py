@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable, Any
-from collections.abc import Sequence, Mapping, Hashable
+from collections.abc import Sequence, Mapping
 
 from preempt.datamodel.identity import ExpertKey
 
@@ -20,16 +20,16 @@ class IExpertCache(Protocol):
         """Adds expert to the cache."""
         ...
 
+    def get(self, key: ExpertKey) -> Mapping[str, Any]:
+        """Returns cached weights for `key`"""
+        ...
+
     def evict(self, key: ExpertKey) -> None:
         """Drops the data mapped to `key` from the cache."""
         ...
 
     def size(self) -> int:
         """Cache's memory footprint in bytes."""
-        ...
-
-    def get(self, key: ExpertKey) -> Mapping[str, Any]:
-        """Returns cached weights for `key`"""
         ...
 
 
@@ -39,11 +39,11 @@ class IExpertLoader(Protocol):
     available for downstream computation.
     """
 
-    def load(self, keys: Sequence[ExpertKey]) -> None: ...
+    def __del__(self) -> None: ...
+
+    def load(self, keys: ExpertKey | Sequence[ExpertKey]) -> None: ...
 
     def close(self) -> None: ...
-
-    def __del__(self) -> None: ...
 
 
 @runtime_checkable
