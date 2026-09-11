@@ -119,7 +119,7 @@ class MlxExpertCache:
         weight_map = decode_serialized_expert(
             expert, self.encoding
         )  # ! Use expert.encoding instead?
-        mx.eval(tuple(weight_map.values()))
+        mx.eval(weight_map)
 
         if (previous := self._entries.get(expert.key)) is not None:
             self._bytes_size -= previous.num_bytes
