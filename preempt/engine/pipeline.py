@@ -9,11 +9,11 @@ from attrs import field
 from functools import partial
 
 from preempt.core.protocols import IModelRunner, ITokenizer
-from preempt.engine.sinks import BaseTraceSink
 
-from preempt.engine.generation import generate_greedy
-from preempt.engine.metrics import GenerationMetrics, StepMetrics
-from preempt.engine.recorder import BaseTraceRecorder
+from .sinks import BaseTraceSink
+from .generation import generate_greedy
+from .metrics import GenerationMetrics, StepMetrics
+from .recorder import BaseTraceRecorder
 
 
 @attrs.define(kw_only=True)
@@ -63,16 +63,16 @@ class GenerationPipeline:
         max_tokens : int
             Max total tokens to generate. can be overridden per call). Must be
             >= 1
-        prefill_chunk_size : int, optional
+        prefill_chunk_size : int
             Max tokens per prefill chunk. Controls activation memory and enables
             chunk-local expert reuse (no effect on correctness), by default 512
-        recorder : Optional[BaseTraceRecorder], optional
+        recorder : Optional[BaseTraceRecorder]
             Optional recorder for tracing. If provided, `sink` must also be given,
             by default None
-        sink : Optional[BaseTraceSink], optional
+        sink : Optional[BaseTraceSink]
             Optional sink for persisting expert selection traces. If provided, `recorder`
             must also be given, by default None
-        on_step : Optional[Callable[[StepMetrics], None]], optional
+        on_step : Optional[Callable[[StepMetrics], None]]
             Optional callback invoked after each forward pass with per-step metrics,
             by default None
 
