@@ -1,38 +1,42 @@
+from typing import TypeVar
+
 from pathlib import Path
 
 import textwrap
 
 from preempt.config.pipeline import PipelineConfig
 
+from preempt.engine.recorder import BaseTraceRecorder
 from preempt.engine.sinks import ParquetTraceSink
 from preempt.engine.metrics import GenerationMetrics
 
+from preempt.datamodel.tracing.context import TraceRunContext
 from preempt.datamodel.tracing.expert_selection import ExpertSelectionTrace
 
+RecorderT = TypeVar("RecorderT", bound=BaseTraceRecorder)
 
-def validate_output_path(
-    config: PipelineConfig, config_dir: Path | None
-) -> tuple[Path, Path | None]:
-    base_dir = config_dir if config_dir is not None else Path.cwd()
 
-    if config.trace_settings is not None:
-        output_path = base_dir / config.trace_settings.output_path
-        if output_path.exists() and not config.trace_settings.overwrite_output:
-            raise FileExistsError(
-                f"File already exists at {output_path.as_posix()!r}. Configure "
-                "trace settings with a different path or `overwrite_output=True`."
-            )
-        return base_dir, output_path
+def get_recorder(
+    config: PipelineConfig, recorder_cls: type[RecorderT]
+) -> RecorderT | None:
+    if config.trace_settings is None:
+        return
 
-    return base_dir, None
+    ctx = TraceRunContext.with_generated_run_id(
+        run_id_prefix=config.trace_settings.run_id_prefix,
+        model_id=config.llm.model_id,
+        model_architecture=config.llm.architecture,
+        model_revision=config.llm.revision,
+    )
+    return recorder_cls(run_context=ctx)
 
 
 def get_parquet_sink(
-    config: PipelineConfig, output_path: Path | None
+    config: PipelineConfig,
 ) -> ParquetTraceSink | None:
-    if config.trace_settings is not None and output_path is not None:
+    if config.trace_settings is not None:
         return ParquetTraceSink(
-            path=output_path,
+            path=config.trace_settings.output_path,
             schema=ExpertSelectionTrace.arrow_schema(),
             batch_size=config.trace_settings.batch_size,
             overwrite=config.trace_settings.overwrite_output,
