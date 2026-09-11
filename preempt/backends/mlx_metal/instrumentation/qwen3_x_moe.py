@@ -125,7 +125,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
             block_idx=self.block_idx,
             expert_idx=expert_idx,
         )
-        self.expert_loader.load((key,))
+        self.expert_loader.load(key)
         tensors = self.expert_cache.get(key)
 
         return {
