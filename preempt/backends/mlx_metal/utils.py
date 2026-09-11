@@ -97,7 +97,7 @@ def convert_and_save_shard(
 def mlx_to_numpy(array: mx.array, copy: bool = False) -> np.ndarray:
     """Converts an MLX array to NumPy.
 
-    :Note: MLX arrays of dtype `bfloat16` reinterpreted as `uint16`
+    :Note: MLX arrays of dtype `mx.bfloat16` are cast to `ml_dtypes.bfloat16`
     to account for NumPy's lack of native `bfloat16` support.
 
     Parameters
@@ -113,10 +113,15 @@ def mlx_to_numpy(array: mx.array, copy: bool = False) -> np.ndarray:
         The converted array
     """
     if array.dtype == mx.bfloat16:
-        return np.frombuffer(memoryview(array), dtype=ml_dtypes.bfloat16).reshape(
-            array.shape
-        )
-    return np.array(array, copy=copy)
+        return np.frombuffer(
+            memoryview(array),
+            dtype=ml_dtypes.bfloat16,
+        ).reshape(array.shape)
+
+    if copy:
+        return np.array(array, copy=True)
+
+    return np.asarray(array)
 
 
 def load_mlx_model(model_id: str, *, lazy: bool = False) -> MlxLoadedModel:
