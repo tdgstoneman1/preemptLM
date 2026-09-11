@@ -42,7 +42,7 @@ class BaseExpertBank(ABC):
     _tensor_specs: tuple[TensorSpec, ...]
     _fd: int | None
 
-    def __init__(self, expert_bank_path: Path):
+    def __init__(self, expert_bank_path: Path) -> None:
         self._manifest = ExpertBankManifest.load(expert_bank_path)
         self._index = self._manifest.blob_index()
         self._tensor_specs = self._manifest.tensor_specs
@@ -58,6 +58,9 @@ class BaseExpertBank(ABC):
     ) -> None:
         self.close()
 
+    def __del__(self) -> None:
+        self.close()
+
     @property
     def manifest(self) -> ExpertBankManifest:
         return self._manifest
@@ -66,8 +69,28 @@ class BaseExpertBank(ABC):
     def model_fingerprint(self) -> str:
         return self._manifest.model_fingerprint
 
+    @abstractmethod
+    async def read(
+        self,
+        key: ExpertKey,
+        priority: ReadPriority,
+    ) -> SerializedExpert: ...
+
+    @abstractmethod
+    def read_sync(
+        self,
+        key: ExpertKey,
+        priority: ReadPriority = ReadPriority.DEMAND,
+    ) -> SerializedExpert: ...
+
+    @abstractmethod
+    def close(self) -> None: ...
+
     def key_for(
-        self, block_idx: int, expert_idx: int, variant: str = "all"
+        self,
+        block_idx: int,
+        expert_idx: int,
+        variant: str = "all",
     ) -> ExpertKey:
         return ExpertKey(
             model_fingerprint=self.model_fingerprint,
@@ -102,14 +125,6 @@ class BaseExpertBank(ABC):
         }:
             raise ExpertBankCompatibilityError(repr(mismatches))
 
-    @abstractmethod
-    async def read(
-        self, key: ExpertKey, priority: ReadPriority
-    ) -> SerializedExpert: ...
-
-    @abstractmethod
-    def close(self) -> None: ...
-
 
 class PreadExpertBank(BaseExpertBank):
     """Uses positioned reads (via `os.pread`) to load expert weights from
@@ -118,24 +133,60 @@ class PreadExpertBank(BaseExpertBank):
     On MacOS, this can be substantially faster than memory mapping.
     """
 
-    def __init__(self, expert_bank_path: Path, bypass_page_cache: bool = True) -> None:
+    def __init__(
+        self,
+        expert_bank_path: Path,
+        bypass_page_cache: bool = True,
+    ) -> None:
         super().__init__(expert_bank_path)
 
         fd = os.open(expert_bank_path / EXPERTS_FILENAME, os.O_RDONLY)
+
         if bypass_page_cache and sys.platform == "darwin":
             fcntl.fcntl(fd, F_NOCACHE, 1)
 
         self._fd = fd
 
-    async def read(self, key: ExpertKey, priority: ReadPriority) -> SerializedExpert:
+    def _validate_fd(self) -> int:
         if self._fd is None:
             raise RuntimeError("Cannot read closed expert bank.")
 
-        blob = self._index[key]  # intentional KeyError
-        data = await asyncio.to_thread(os.pread, self._fd, blob.length, blob.offset)
+        return self._fd
 
+    def _validate_data_size(self, data: bytes, blob: ExpertBlobRecord) -> bytes:
         if len(data) != blob.length:
             raise IOError()  # TODO error msg
+
+        return data
+
+    def read_sync(
+        self,
+        key: ExpertKey,
+        priority: ReadPriority = ReadPriority.DEMAND,
+    ) -> SerializedExpert:
+
+        fd = self._validate_fd()
+        blob = self._index[key]
+        data = os.pread(fd, blob.length, blob.offset)
+        data = self._validate_data_size(data, blob)
+
+        return SerializedExpert(
+            key=key,
+            data=data,
+            encoding=self._manifest.encoding,
+            tensor_specs=self._tensor_specs,
+        )
+
+    async def read(
+        self,
+        key: ExpertKey,
+        priority: ReadPriority,
+    ) -> SerializedExpert:
+
+        fd = self._validate_fd()
+        blob = self._index[key]  # intentional KeyError
+        data = await asyncio.to_thread(os.pread, fd, blob.length, blob.offset)
+        data = self._validate_data_size(data, blob)
 
         return SerializedExpert(
             key=key,
@@ -157,14 +208,18 @@ class MmapExpertBank(BaseExpertBank):
 
     _mmap: mmap.mmap | None
 
-    def __init__(self, expert_bank_path: Path, **kwargs) -> None:
+    def __init__(
+        self,
+        expert_bank_path: Path,
+        **kwargs,
+    ) -> None:
         super().__init__(expert_bank_path)
 
         self._mmap = None
         self._fd = None
 
-        success = False
         fd = os.open(expert_bank_path / EXPERTS_FILENAME, os.O_RDONLY)
+        success = False
         try:
             file_size = os.fstat(fd).st_size
             if file_size > 0:
@@ -177,7 +232,11 @@ class MmapExpertBank(BaseExpertBank):
             if not success:
                 os.close(fd)
 
-    async def read(self, key: ExpertKey, priority: ReadPriority) -> SerializedExpert:
+    def read_sync(
+        self,
+        key: ExpertKey,
+        priority: ReadPriority,
+    ) -> SerializedExpert:
         if self._mmap is None:
             raise RuntimeError()  # TODO add message
 
@@ -193,6 +252,13 @@ class MmapExpertBank(BaseExpertBank):
             encoding=self._manifest.encoding,
             tensor_specs=self._tensor_specs,
         )
+
+    async def read(
+        self,
+        key: ExpertKey,
+        priority: ReadPriority,
+    ) -> SerializedExpert:
+        return self.read_sync(key, priority)
 
     def close(self) -> None:
         if self._mmap is not None:
