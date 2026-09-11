@@ -66,6 +66,7 @@ class ExpertCacheManager:
     _rng: random.Random
 
     _entries: dict[ExpertKey, _Entry]
+    _keys: list[ExpertKey]
     _bytes_size: int
     _clock: int
 
@@ -202,21 +203,19 @@ class ExpertCacheManager:
         Returns
         -------
         tuple[ExpertKey, ...]
-            Expert keys displaced to make room for the new expert, in the order
-            they were evicted. Caller must remove exactly these from the cache
-            and in the same order.
+            Keys for experts evicted to make room for the new expert, in the order
+            they were evicted in.
 
         Raises
         ------
         ValueError
-            If a single expert's size exceeds cache's total memory budget
+            If a single serialized expert's size exceeds cache's total memory budget
         """
         if num_bytes > self._budget_bytes:
             raise ValueError(
                 f"The size of expert {key!r} ({num_bytes/1024**3} GB) exceeds the "
                 f"cache's total memory budget ({self._budget_bytes/1024**3} GB)."
             )
-
         if key in self._entries:
             return tuple()
 
