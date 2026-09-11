@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from pathlib import Path
 
 from rich.console import Console
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 import mlx.core as mx
 
@@ -28,10 +31,8 @@ from preempt.engine.expert_loaders import DiskBackedExpertLoader
 from preempt.expert_bank.encoding import parse_encoding_tag
 from preempt.expert_bank.banks import BaseExpertBank, PreadExpertBank, MmapExpertBank
 
-from preempt.datamodel.tracing.context import TraceRunContext
-
 from preempt.utils.pipeline_utils import (
-    validate_output_path,
+    get_recorder,
     get_parquet_sink,
 )
 from ..instrumentation.instrument import (
@@ -51,26 +52,21 @@ from .runner import MlxModelRunner
 # TODO pass max_kv_size from config
 
 
-def _get_streaming_deps(
+def _get_io_deps(
     *,
-    base_dir: Path,
     config: PipelineConfig,
     metrics: GenerationMetrics | None,
-    event_loop: asyncio.AbstractEventLoop | None,
+    executor: ThreadPoolExecutor,
 ) -> tuple[BaseExpertBank, MlxExpertCache, DiskBackedExpertLoader]:
     if config.stream_settings is None:
         raise ValueError()
 
-    if event_loop is None:
-        raise ValueError()
-
-    expert_bank_path = base_dir / config.stream_settings.expert_bank_path
     expert_bank = PreadExpertBank(
-        expert_bank_path,
+        config.stream_settings.expert_bank_path,
         bypass_page_cache=config.stream_settings.bypass_page_cache,
     )
     cache = MlxExpertCache(
-        encoding=parse_encoding_tag(expert_bank.manifest.encoding)  # type: ignore
+        encoding=parse_encoding_tag(expert_bank.manifest.encoding),  # type: ignore
     )
     cache_manager = ExpertCacheManager(
         budget_bytes=config.stream_settings.memory_bytes_budget
@@ -79,25 +75,10 @@ def _get_streaming_deps(
         expert_bank=expert_bank,
         cache=cache,  # type: ignore
         cache_manager=cache_manager,
-        loop=event_loop,
+        executor=executor,
         metrics=metrics,
     )
     return expert_bank, cache, loader
-
-
-def _get_recorder(
-    config: PipelineConfig, output_path: Path | None
-) -> MlxTraceRecorder | None:
-    if config.trace_settings is None or output_path is None:
-        return
-
-    ctx = TraceRunContext.with_generated_run_id(
-        run_id_prefix=config.trace_settings.run_id_prefix,
-        model_id=config.llm.model_id,
-        model_architecture=config.llm.architecture,
-        model_revision=config.llm.revision,
-    )
-    return MlxTraceRecorder(run_context=ctx)
 
 
 def _moe_blocks_for_model(
@@ -170,31 +151,27 @@ def _evaluate_model(
 def mlx_build_generation_pipeline(
     config: PipelineConfig,
     *,
-    config_dir: Path | None = None,
-    event_loop: asyncio.AbstractEventLoop | None = None,
-    metrics: GenerationMetrics | None = None,
+    event_loop: Optional[asyncio.AbstractEventLoop] = None,
+    executor: Optional[ThreadPoolExecutor] = None,
+    metrics: Optional[GenerationMetrics] = None,
     stream_experts: bool,
     profile: bool,
-    console: Console | None = None,
+    console: Optional[Console] = None,
 ) -> GenerationPipeline:
 
-    def maybe_print_to_console(msg: str) -> None:
-        nonlocal console
-        if console is not None:
-            console.print(msg)
-        else:
-            print(msg, flush=True)
-
+    print_ = lambda x: (
+        console.print(x) if console is not None else lambda x: print(x, flush=True)
+    )
     # * Device settings
     device = mx.default_device()
-    maybe_print_to_console(f"Default device: {mx.device_info(device)!r}")
+    print_(f"Default device: {mx.device_info(device)!r}")
 
     memory_budget = (
         f"{config.stream_settings.memory_budget_gb} GB"
         if config.stream_settings
         else "N/A"
     )
-    maybe_print_to_console(f"Expert cache memory budget: {memory_budget}")
+    print_(f"Expert cache memory budget: {memory_budget}")
 
     # * Validate config
     if config.llm.backend != Backends.MLX:
@@ -202,23 +179,22 @@ def mlx_build_generation_pipeline(
             f"Invalid LLM backend for MLX pipeline: {config.llm.backend!r}. For MLX, "
             f"set to {Backends.MLX!r}."
         )
-
-    # * Validate trace output path
-    base_dir, output_path = validate_output_path(config, config_dir)
-
     # * Resolve path to model the model
     try:
         path = Path(config.llm.model_id).absolute().resolve(strict=True).as_posix()
     except FileNotFoundError:
         path = config.llm.model_id
 
-    maybe_print_to_console(f"Loading model: {path!r}")
+    print_(f"Loading model: {path!r}")
     loaded = load_mlx_model(path, lazy=stream_experts)
 
     # * Configure optional streaming
     if stream_experts:
-        expert_bank, cache, loader = _get_streaming_deps(
-            base_dir=base_dir, config=config, metrics=metrics, event_loop=event_loop
+        executor = executor or ThreadPoolExecutor(max_workers=64)
+        expert_bank, cache, loader = _get_io_deps(
+            config=config,
+            metrics=metrics,
+            executor=executor,
         )
     else:
         expert_bank, cache, loader = None, None, None
@@ -233,8 +209,8 @@ def mlx_build_generation_pipeline(
     moe_blocks = _moe_blocks_for_model(loaded, target_layer_config)
 
     if profile:
-        recorder = _get_recorder(config, output_path)
-        sink = get_parquet_sink(config, output_path)
+        recorder = get_recorder(config, MlxTraceRecorder)
+        sink = get_parquet_sink(config)
     else:
         recorder, sink = None, None
 
@@ -247,7 +223,7 @@ def mlx_build_generation_pipeline(
         expert_cache=cache,
         recorder=recorder,
     )
-    maybe_print_to_console(f"Instrumented {num_instrumented} MoE block(s)")
+    print_(f"Instrumented {num_instrumented} MoE block(s)")
 
     _evaluate_model(
         loaded,
@@ -260,7 +236,6 @@ def mlx_build_generation_pipeline(
         # max_tokens=config.generation_settings.max_tokens,
         # prefill_chunk_size=config.generation_settings.prefill_chunk_size,
     )
-
     return GenerationPipeline(
         runner=runner,
         tokenizer=loaded.tokenizer,
