@@ -61,7 +61,7 @@ def _iter_expert_routed_tokens(
 ) -> Iterator[tuple[int, mx.array, mx.array]]:
     for expert_idx, toks in _group_tok_routings_by_expert(flat_idxs).items():
         assigned = mx.asarray(toks, dtype=mx.int32)
-        yield expert_idx, x_flat[mx.asarray(assigned // top_k)], assigned
+        yield expert_idx, x_flat[assigned // top_k], assigned
 
 
 def _reassemble(
