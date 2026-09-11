@@ -12,6 +12,8 @@ from preempt.expert_bank.blob import SerializedExpert
 class IExpertCache(Protocol):
     """Interface for caching experts in memory."""
 
+    _entries: Any
+
     def __contains__(self, item) -> bool: ...
 
     def add(self, expert: SerializedExpert) -> None:
@@ -39,6 +41,10 @@ class IExpertLoader(Protocol):
 
     def load(self, keys: Sequence[ExpertKey]) -> None: ...
 
+    def close(self) -> None: ...
+
+    def __del__(self) -> None: ...
+
 
 @runtime_checkable
 class ITokenizer(Protocol):
@@ -62,6 +68,9 @@ class ITokenizer(Protocol):
 @runtime_checkable
 class IModelRunner(Protocol):
     """Runs model text generation loop."""
+
+    model: Any
+    kv_cache: Any
 
     def step(self, tokens: Sequence[int]) -> int:
         """Runs forward pass over `tokens` and returns the greedy-
