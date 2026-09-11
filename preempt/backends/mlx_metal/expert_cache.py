@@ -10,6 +10,7 @@ import math
 import numpy as np
 
 import mlx.core as mx
+from mlx.utils import tree_flatten
 
 from preempt.expert_bank.encoding import ExpertBankEncoding, parse_encoding_tag
 from preempt.expert_bank.blob import SerializedExpert
@@ -119,7 +120,7 @@ class MlxExpertCache:
         weight_map = decode_serialized_expert(
             expert, self.encoding
         )  # ! Use expert.encoding instead?
-        mx.eval(weight_map)
+        mx.eval(tree_flatten(weight_map))
 
         if (previous := self._entries.get(expert.key)) is not None:
             self._bytes_size -= previous.num_bytes
