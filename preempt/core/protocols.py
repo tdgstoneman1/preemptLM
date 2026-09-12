@@ -1,49 +1,7 @@
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable, Any
-from collections.abc import Sequence, Mapping
-
-from preempt.datamodel.identity import ExpertKey
-
-from preempt.expert_bank.blob import SerializedExpert
-
-
-@runtime_checkable
-class IExpertCache(Protocol):
-    """Interface for caching experts in memory."""
-
-    _entries: Any
-
-    def __contains__(self, item) -> bool: ...
-
-    def add(self, expert: SerializedExpert) -> None:
-        """Adds expert to the cache."""
-        ...
-
-    def get(self, key: ExpertKey) -> Mapping[str, Any]:
-        """Returns cached weights for `key`"""
-        ...
-
-    def evict(self, key: ExpertKey) -> None:
-        """Drops the data mapped to `key` from the cache."""
-        ...
-
-    def size(self) -> int:
-        """Cache's memory footprint in bytes."""
-        ...
-
-
-@runtime_checkable
-class IExpertLoader(Protocol):
-    """Ensures MoE router-selected experts are loaded into memory and makes them
-    available for downstream computation.
-    """
-
-    def __del__(self) -> None: ...
-
-    def load(self, keys: ExpertKey | Sequence[ExpertKey]) -> None: ...
-
-    def close(self) -> None: ...
+from collections.abc import Sequence
 
 
 @runtime_checkable
