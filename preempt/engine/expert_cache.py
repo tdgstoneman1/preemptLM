@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 import attrs
 from attrs import field
 
-import random
+import numpy as np
 
 from preempt.datamodel.identity import ExpertKey
 
-from preempt.core.enums import CacheEvictionPolicy
+from preempt.core.enums import CacheEvictionPolicy, ReadPriority
 
 # TODO rename module
 # TODO merge cache manager and cache into a single cache class
@@ -30,40 +28,45 @@ class _Entry:
         Logical clock of most recent access (LFRU recency term).
     slot : int
         Position in the cache's key list for O(1) eviction via swap-remove.
+    can_evict : bool
+        Flag indicating whether the entry can safely be evicted. For `DEMAND` reads,
+        this should be False until the entry is consumed by the caller in order to prevent
+        premature eviction.
+
     """
 
     num_bytes: int = field()
     freq: int = field()
     last: int = field()
     slot: int = field()
+    can_evict: bool = field()
 
 
+# TODO add true LRU and LFRU as a baseline for experiments
 class ExpertCacheManager:
     """Manager that tracks experts in memory and manages eviction decisions.
 
-    Uses random sampling to avoid full scans during eviction decisions, with LFRU
-    (Least Frequently Recently Used) as the default policy.
+    Uses Redis-style approximate LRU and LFRU with random sampling to avoid full scans during
+    eviction decisions, with LFRU as the default policy.
 
-    **Note:** This does not track which experts are actively used in a forward pass.
-    When memory budget is less than the *largest* set of unique experts required by
-    *any one layer* across *all tokens*, experts may be prematurely evicted immediately
-    upon loading.
+    **Note:** This does not track which experts are actively used in a forward pass.  When memory
+    budget is less than the *largest* set of unique experts required by *any one layer* across *all
+    tokens*, experts may be prematurely evicted immediately upon loading.
 
-    With the MLX backend, this will not cause an error as MLX's refcounting will still
-    keep expert weights in memory during computation. However, it can still hurt performance
-    by causing excessive re-reads from disk.
+    With the MLX backend, this will not cause an error as MLX's refcounting will still keep expert
+    weights in memory during computation. However, it can still hurt performance by causing
+    excessive re-reads from disk.
 
-    With other backends, insufficient memory budget may cause downstream `KeyError`s.
-    To safely avoid this and possble performance penalties, initialize cache manager
-    with a memory budget greater than the size of `experts_per_token * tokens_in_sequence`
-    (where `experts_per_token` typically refers to top-k, and `tokens_in_sequence`
-    the max sequence length).
+    With other backends, insufficient memory budget may cause downstream `KeyError`s.  To safely
+    avoid this and possible performance penalties, initialize the cache manager with a memory budget
+    greater than `expert_size * experts_per_token * tokens_in_sequence` (where `experts_per_token`
+    usually means top-k, and `tokens_in_sequence` is max sequence length).
     """
 
     _budget_bytes: int
     _policy: CacheEvictionPolicy
     _eviction_sample_size: int
-    _rng: random.Random
+    _rng: np.random.Generator
 
     _entries: dict[ExpertKey, _Entry]
     _keys: list[ExpertKey]
@@ -114,7 +117,7 @@ class ExpertCacheManager:
         self._budget_bytes = budget_bytes
         self._policy = policy
         self._eviction_sample_size = sample_size
-        self._rng = random.Random(seed)
+        self._rng = np.random.default_rng(seed)
 
         self._entries = dict()
         self._keys = list()
@@ -125,6 +128,12 @@ class ExpertCacheManager:
         self._num_misses = 0
         self._num_evictions = 0
         self._num_bytes_read = 0
+
+    def __contains__(self, key: ExpertKey) -> bool:
+        return key in self._entries
+
+    def __len__(self) -> int:
+        return len(self._entries)
 
     @property
     def budget_bytes(self) -> int:
@@ -158,12 +167,6 @@ class ExpertCacheManager:
         """Total number of bytes read from expert bank on disk"""
         return self._num_bytes_read
 
-    def __contains__(self, key: ExpertKey) -> bool:
-        return key in self._entries
-
-    def __len__(self) -> int:
-        return len(self._entries)
-
     def touch(self, key: ExpertKey) -> bool:  # TODO rename
         """Records a demand access for `key` and reports whether it hit.
 
@@ -190,7 +193,12 @@ class ExpertCacheManager:
 
         return True
 
-    def admit(self, key: ExpertKey, num_bytes: int) -> tuple[ExpertKey, ...]:
+    def admit(
+        self,
+        key: ExpertKey,
+        num_bytes: int,
+        priority: ReadPriority,
+    ) -> tuple[ExpertKey, ...]:
         """Makes room for new expert under `key` and records it.
 
         Parameters
@@ -199,6 +207,10 @@ class ExpertCacheManager:
             Key identifying an expert
         num_bytes : int
             The serialized expert's size in bytes
+        priority: ReadPriority
+            Used to flag whether the entry can safely be evicted from the cache
+            prior to being consumed. This prevents entries with `DEMAND` priority
+            from being prematurely evicted in concurrent `admit()` calls.
 
         Returns
         -------
@@ -220,8 +232,8 @@ class ExpertCacheManager:
             return tuple()
 
         self._num_bytes_read += num_bytes
-
         evicted: list[ExpertKey] = []
+
         while self._bytes_size + num_bytes > self._budget_bytes:
             target = self._select_eviction_target()
             self.evict(target)
@@ -230,28 +242,50 @@ class ExpertCacheManager:
             self._num_evictions += 1
 
         self._clock += 1
+
         self._entries[key] = _Entry(
-            num_bytes=num_bytes, freq=1, last=self._clock, slot=len(self._keys)
+            num_bytes=num_bytes,
+            freq=1,
+            last=self._clock,
+            slot=len(self._keys),
+            can_evict=priority != ReadPriority.DEMAND,
         )
         self._keys.append(key)
         self._bytes_size += num_bytes
 
         return tuple(evicted)
 
+    def mark_entry_safe_to_evict(self, key: ExpertKey):
+        self._entries[key].can_evict = True
+
     def _select_eviction_target(self) -> ExpertKey:
-        candidates: Sequence[ExpertKey]
+        num_keys = len(self._keys)
+        targets: list[ExpertKey] = []
 
-        if len(self._keys) <= self._eviction_sample_size:
-            candidates = self._keys
+        if num_keys <= self._eviction_sample_size:
+            targets = [k for k in self._keys if self._entries[k].can_evict]
         else:
-            # Sampling is cheaper w/ replacement than w/o, impact negligible when
-            # cache size >> sample_size (see `waste/src/ecache.c:378` for similar approach)
-            candidates = [
-                self._keys[self._rng.randrange(len(self._keys))]
-                for _ in range(self._eviction_sample_size)
-            ]
+            max_attempts = self._eviction_sample_size * 10
+            idxs = self._rng.integers(0, num_keys, size=max_attempts)
 
-        return min(candidates, key=self._rank)
+            for idx in idxs:
+                key = self._keys[idx]
+
+                if self._entries[key].can_evict:
+                    targets.append(key)
+
+                    if len(targets) == self._eviction_sample_size:
+                        break
+
+            if not targets:  # Fallback if cache highly locked
+                targets = [k for k in self._keys if self._entries[k].can_evict]
+
+        if not targets:
+            raise RuntimeError(
+                "No evictable experts found. Cache budget exceeded by in-flight demand reads."
+            )
+
+        return min(targets, key=self._rank)
 
     def _rank(self, key: ExpertKey) -> tuple[int, int]:
         entry = self._entries[key]
