@@ -14,9 +14,9 @@ from mlx_lm.models.switch_layers import (
     _scatter_unsort,
 )
 
-from preempt.backends.mlx_metal.instrumentation.qwen3_x_moe import IExpertLoader
+from preempt.engine.expert_io.loader import DiskBackedExpertLoader
 from preempt.datamodel.identity import ExpertKey
-from preempt.engine.expert_loaders import IExpertCache
+from preempt.engine.expert_io.cache_manager import ExpertCacheManager
 
 from .types import (
     WeightsTensor,
@@ -24,15 +24,14 @@ from .types import (
     ExpertLayerWeights,
     ExpertLayerQuants,
 )
+from .expert_cache import MlxExpertCache
 from .utils import make_switchglu_weight_map
-
-from icecream import ic
 
 # TODO overhaul fragile token assignment grouping
 # TODO add support for expert layer bias terms in forward pass
 
 
-# @mx.compile
+@mx.compile
 def swiglu_activation(x_up: mx.array, x_gate: mx.array) -> mx.array:
     return nn.silu(x_gate) * x_up
 
@@ -102,7 +101,7 @@ def expert_idx_to_key(
 
 
 def load_experts_from_bank(
-    loader: IExpertLoader,
+    loader: DiskBackedExpertLoader,
     expert_idxs: mx.array,
     model_fingerprint: str,
     block_idx: int,
@@ -125,8 +124,8 @@ def sequential_expert_matmul(
     x: mx.array,
     expert_idxs: mx.array,
     *,
-    expert_loader: IExpertLoader,
-    expert_cache: IExpertCache,
+    expert_loader: DiskBackedExpertLoader,
+    expert_cache: MlxExpertCache,
     top_k: int,
     block_idx: int,
     model_fingerprint: str,
@@ -139,11 +138,11 @@ def sequential_expert_matmul(
     outputs: list[mx.array] = []
     perms: list[mx.array] = []
 
-    for expert_idx in load_experts_from_bank(
+    for expert_key in load_experts_from_bank(
         expert_loader, expert_idxs, model_fingerprint, block_idx
     ):
-        routed_toks, perm = toks_by_expert[expert_idx.expert_idx]
-        weights = expert_cache.get(expert_idx)
+        routed_toks, perm = toks_by_expert[expert_key.expert_idx]
+        weights = expert_cache.get(expert_key)
         weights = make_switchglu_weight_map(weights, quants)
 
         outputs.append(swiglu_forward(routed_toks, weights))
