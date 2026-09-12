@@ -1,7 +1,7 @@
 [project]
 name = "preempt"
 version = "0.1.0"
-description = "Add your description here"
+description = ""
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -42,9 +42,10 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/unit"]
+testpaths = ["tests/unit", "tests/integration"]
 asyncio_mode = "auto"
 markers = [
-    "slow: long-running tests, excluded from the default fast loop",
-    "integration: tests needing real weights or the macOS host",
+    "unit",
+    "integration",
+    "slow",
 ]
