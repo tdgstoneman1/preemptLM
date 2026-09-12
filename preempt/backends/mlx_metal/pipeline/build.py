@@ -34,7 +34,7 @@ from preempt.utils.pipeline_utils import (
     get_recorder,
     get_parquet_sink,
 )
-from ..instrumentation.instrument import (
+from ..module_wrappers.instrument import (
     mlx_instrument_model,
     mlx_strip_instrumented_expert_weights,
     resolve_mlx_target_layers,

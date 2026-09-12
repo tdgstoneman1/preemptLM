@@ -9,8 +9,8 @@ from mlx_lm.models.qwen3_5_moe import Model as Qwen3_5
 from mlx_lm.models.qwen3_next import Model as Qwen3Next, Qwen3NextSparseMoeBlock
 import mlx.nn as nn
 
-from .instrumentation.base_moe_wrapper import BaseMoEWrapper
-from .instrumentation.qwen3_x_moe import Qwen3_xMoEWrapper
+from .module_wrappers.base_moe_wrapper import BaseMoEWrapper
+from .module_wrappers.qwen3_x_moe import Qwen3_xMoEWrapper
 
 from .expert_bank.base_adapter import BaseMoEArchAdapter
 from .expert_bank.qwen3_x import Qwen3_xArchAdapter
