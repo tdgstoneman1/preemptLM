@@ -2,7 +2,10 @@ import pytest
 
 from collections.abc import Callable
 
+from concurrent.futures import ThreadPoolExecutor
+
 from pathlib import Path
+
 import sys
 
 project_root = Path(__file__).resolve().parent.parent
@@ -20,6 +23,11 @@ from preempt.config.target_layers import (
     TargetLayerSearchParams,
     TargetLayerSpec,
 )
+
+
+@pytest.fixture(scope="session")
+def io_executor() -> ThreadPoolExecutor:
+    return ThreadPoolExecutor(max_workers=64)
 
 
 @pytest.fixture(scope="session")
@@ -112,7 +120,7 @@ def trace_settings(trace_path: Path) -> TraceSettings:
 @pytest.fixture(scope="session")
 def generation_settings() -> GenerationSettings:
     return GenerationSettings(
-        max_tokens=128,
+        max_tokens=32,
         prefill_chunk_size=256,
     )
 
