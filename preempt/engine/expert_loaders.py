@@ -1,16 +1,20 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Generator, Optional
 from collections.abc import Sequence
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed, Future
+import asyncio
 
 import time
 
 from preempt.expert_bank.banks import BaseExpertBank
+
 from preempt.core.protocols import IExpertCache
-from preempt.datamodel.identity import ExpertKey
 from preempt.core.enums import ReadPriority
+
+from preempt.datamodel.identity import ExpertKey
+from preempt.datamodel.requests import LoadRequest
 
 from .expert_cache import ExpertCacheManager
 from .metrics import GenerationMetrics
@@ -25,63 +29,84 @@ class DummyExpertLoader:
 
     def __del__(self) -> None: ...
 
-    def load(self, keys: Sequence[ExpertKey]) -> None: ...
+    @property
+    def cache_manager(self) -> None: ...
+
+    def load(
+        self,
+        keys: ExpertKey | Sequence[ExpertKey],
+    ) -> Generator[ExpertKey, None, None]: ...
+
+    def enqueue_prefetch(
+        self,
+        keys: ExpertKey | Sequence[ExpertKey],
+        await_free_slot: bool = True,
+    ) -> list[Future]: ...
 
     def close(self) -> None: ...
 
 
+# TODO validate num_worker_threads based on memory budget
+# num_worker_threads = budget / expert_size -> need to account for edge
+# case where all worker threads' experts waiting to be consumed,
+# meaning they all have to stay in memory at the same time bc none
+# of them can safely be evicted from cache
 class DiskBackedExpertLoader:
-    """`IExpertLoader` interface that loads serialized expert layers
-    from disk on demand.
-
-    :Note: Failed disk reads are fatal.
+    """`IExpertLoader` interface that manages concurrent expert bank I/O and
+    schedules read and prefetch requests based on priority.
     """
 
     _expert_bank: BaseExpertBank
+
     _cache: IExpertCache
     _cache_manager: ExpertCacheManager
-    _executor: ThreadPoolExecutor
+
+    _event_loop: asyncio.AbstractEventLoop
+    _workers: list[asyncio.Task]
+    _queue: asyncio.PriorityQueue
+    _inflight: dict[ExpertKey, Future]
+
     _metrics: GenerationMetrics | None
 
     def __init__(
         self,
         *,
         expert_bank: BaseExpertBank,
-        executor: Optional[ThreadPoolExecutor] = None,
-        max_concurrent_bank_reads: int = 32,
         cache: IExpertCache,
         cache_manager: ExpertCacheManager,
-        metrics: GenerationMetrics | None = None,
+        event_loop: asyncio.AbstractEventLoop,
+        num_worker_threads: int = 64,
+        max_queue_size: int = 0,
+        metrics: Optional[GenerationMetrics] = None,
     ) -> None:
         """
         Parameters
         ----------
         expert_bank : BaseExpertBank
-            Source of serialized expert weights read from disk
-        executor : Optional[ThreadPoolExecutor]
-            Executor managing concurrent disk reads from `expert_bank`. If not
-            given, one is initialized with `max_workers` set to
-            `max_concurrent_bank_reads`, by default None
-        max_concurrent_bank_reads: int
-            Sets the maximum number of concurrent threads that can execute reads
-            from `expert_bank`. Overridden when `executor` is provided, by
-            default 32
+            Source of serialized expert weights read from disk.
         cache : IExpertCache
-            Decodes serialized expert weights into live device tensors and
-            manages their lifecycle in memory
+            Decodes serialized expert weights into live device tensors and manages their lifecycle
+            in memory
         cache_manager : ExpertCacheManager
-            Tracks and manages cached experts within the configured allowed
-            memory budget.
+            Tracks and manages cached experts within the configured allowed memory budget.
+        event_loop : asyncio.AbstractEventLoop
+            Event loop on which expert bank reads are scheduled
+        num_worker_threads : int
+            Sets the number of concurrent background workers available process read requests, by
+            default 64
+        max_queue_size : int
+            Sets the maximum number of tasks allowed in the queue, by default 0 (infinite)
         metrics : GenerationMetrics | None
-            Optional counters to accumulate into during generation, by default
-            None
+            Optional counters to accumulate into during generation, by default None
         """
         self._expert_bank = expert_bank
-        self._executor = (
-            executor
-            if executor is not None
-            else ThreadPoolExecutor(max_workers=max_concurrent_bank_reads)
-        )
+        self._event_loop = event_loop
+        self._workers = [
+            asyncio.create_task(self._worker_loop()) for _ in range(num_worker_threads)
+        ]
+        self._queue = asyncio.PriorityQueue(maxsize=max_queue_size)
+        self._inflight = {}
+
         self._cache = cache
         self._cache_manager = cache_manager
         self._metrics = metrics
@@ -89,44 +114,69 @@ class DiskBackedExpertLoader:
     def __del__(self) -> None:
         self.close()
 
-    def load(self, keys: ExpertKey | Sequence[ExpertKey]) -> None:
-        start_t = time.perf_counter()
-        cache_hits = cache_misses = 0
-        futures = []
-        keys_ = [keys] if isinstance(keys, ExpertKey) else keys
+    @property
+    def cache_manager(self) -> ExpertCacheManager:
+        return self._cache_manager
 
-        for key in set(keys_):
-            count = keys_.count(key)
-            if self._cache_manager.touch(key):
-                cache_hits += count
-            else:
-                futures.append(self._executor.submit(self._expert_bank.read_sync, key))
-                cache_misses += count
+    async def _worker_loop(self) -> None:
+        while True:
+            request: LoadRequest = await self._queue.get()
+            key = request.key
 
-        self._update_metrics("cache_hits", cache_hits)
-        self._update_metrics("cache_misses", cache_misses)
+            try:
+                # Final check if expert already cached
+                if key in self._cache:
+                    request.completion_handle.set_result(None)
+                    self._queue.task_done()
+                    continue
 
-        if not futures:
-            return
+                # Check if request already in flight
+                if key in self._inflight:
+                    first_worker_future = self._inflight[key]
 
-        from concurrent.futures import as_completed
+                    def inflight_callback(future: Future):
+                        try:
+                            if exc := future.exception():
+                                request.completion_handle.set_exception(exc)
+                            else:
+                                request.completion_handle.set_result(None)
 
-        for future in as_completed(futures):
-            expert = future.result()
-            self._update_metrics("prefetched_bytes", len(expert.data))
+                        except Exception as e:
+                            request.completion_handle.set_exception(e)
 
-            for victim in self._cache_manager.admit(expert.key, len(expert.data)):
-                self._cache.evict(victim)
+                    first_worker_future.add_done_callback(inflight_callback)
+                    self._queue.task_done()
 
-            self._cache.add(expert)
+                    continue
 
-        self._update_metrics("demand_stall_s", time.perf_counter() - start_t)
+                # Make current request visible to other workers
+                self._inflight[key] = request.completion_handle
 
-    def close(self) -> None:
-        self._executor.shutdown(wait=False)
-        self._expert_bank.close()
-        if hasattr(self._cache, "_entries"):
-            self._cache._entries.clear()
+                try:
+                    expert = await self._expert_bank.read(key, request.priority)
+
+                    for victim_key in self._cache_manager.admit(
+                        expert.key, len(expert.data), request.priority
+                    ):
+                        self._cache.evict(victim_key)
+                    self._cache.add(expert)
+
+                    request.completion_handle.set_result(None)
+
+                finally:
+                    del self._inflight[key]
+
+                self._queue.task_done()
+
+            except asyncio.CancelledError:
+                break
+
+            except Exception as e:
+                if request:
+                    if not request.completion_handle.done():
+                        request.completion_handle.set_exception(e)
+
+                    self._queue.task_done()
 
     def _update_metrics(
         self,
@@ -135,7 +185,6 @@ class DiskBackedExpertLoader:
     ) -> None:
         if self._metrics is None:
             return
-
         try:
             current = getattr(self._metrics, metric_name)
             setattr(self._metrics, metric_name, current + value)
@@ -145,3 +194,121 @@ class DiskBackedExpertLoader:
 
         except TypeError:
             raise TypeError() from None  # TODO add error msg
+
+    def load(
+        self,
+        keys: ExpertKey | Sequence[ExpertKey],
+    ) -> Generator[ExpertKey, None, None]:
+        start_t = time.perf_counter()
+        keys_ = [keys] if isinstance(keys, ExpertKey) else keys
+
+        cache_hits = 0
+        cache_misses = 0
+        futures: dict[Future, ExpertKey] = {}  # Collects new and in-flight requests
+
+        for key in set(keys_):
+            count = keys_.count(key)
+
+            # Check if expert already cached
+            if self._cache_manager.touch(key):
+                cache_hits += count
+                yield key
+                continue
+
+            # Check if request already in progress
+            if key in self._inflight:
+                cache_misses += count  # Cache still registers a miss
+                existing = self._inflight[key]
+                futures[existing] = key
+                continue
+
+            cache_misses += count
+            future = Future()
+            request = LoadRequest(
+                priority=ReadPriority.DEMAND,
+                key=key,
+                completion_handle=future,
+            )
+            futures[future] = key
+
+            enqueue = asyncio.run_coroutine_threadsafe(
+                self._queue.put(request), self._event_loop
+            )
+            enqueue.result()  # Block until request is enqueued
+
+        self._update_metrics("cache_hits", cache_hits)
+        self._update_metrics("cache_misses", cache_misses)
+
+        if not futures:
+            return
+
+        for future in as_completed(futures.keys()):
+            future.result()
+            yield futures[future]
+
+        self._update_metrics("demand_stall_s", time.perf_counter() - start_t)
+
+    def _enqueue_blocking(
+        self,
+        request: LoadRequest,
+        future: Future,
+        futures: list[Future],
+    ) -> list[Future[None]]:
+        enqueue = asyncio.run_coroutine_threadsafe(
+            self._queue.put(request),
+            self._event_loop,
+        )
+        enqueue.result()
+
+        return [*futures, future]
+
+    def _enqueue_nonblocking(
+        self,
+        request: LoadRequest,
+        future: Future,
+        futures: list[Future],
+    ) -> list[Future[None]]:
+        try:
+            self._event_loop.call_soon_threadsafe(
+                self._queue.put_nowait,
+                request,
+            )
+        except asyncio.QueueFull:
+            return futures
+
+        return [*futures, future]
+
+    def enqueue_prefetch(
+        self,
+        keys: ExpertKey | Sequence[ExpertKey],
+        await_free_slot: bool = True,
+    ) -> list[Future[None]]:
+        keys_ = [keys] if isinstance(keys, ExpertKey) else keys
+        futures: list[Future] = []
+
+        for key in set(keys_):
+            if self._cache_manager.touch(key) or key in self._inflight:
+                continue
+
+            future = Future()
+            request = LoadRequest(
+                priority=ReadPriority.PREFETCH,
+                key=key,
+                completion_handle=future,
+            )
+            futures = (
+                self._enqueue_blocking(request, future, futures)
+                if await_free_slot
+                else self._enqueue_nonblocking(request, future, futures)
+            )
+
+        return futures
+
+    def close(self) -> None:
+        for worker in self._workers:
+            worker.cancel()
+
+        if hasattr(self._cache, "_entries"):
+            self._cache._entries.clear()
+
+        self._expert_bank.close()
