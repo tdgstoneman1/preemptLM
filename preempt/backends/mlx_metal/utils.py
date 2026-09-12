@@ -1,12 +1,15 @@
 from typing import Any, cast
 from collections.abc import Callable, Mapping, Sequence
 
+from attrs import asdict
+
 from pathlib import Path
 
 import gc
 
-import ml_dtypes
 from rich import print
+
+import ml_dtypes
 
 import numpy as np
 
@@ -25,13 +28,19 @@ from safetensors import safe_open
 from preempt.core.protocols import ITokenizer
 from preempt.core.exceptions import EngineCompatibilityError
 
-from .types import MlxLoadedModel, ExpertLayerQuants
+from .types import (
+    MlxLoadedModel,
+    ExpertLayerQuants,
+    WeightsTensor,
+    QuantizedWeightsTensor,
+)
 from .quantization import QuantSettings
 from .constants import (
     MLX_DTYPE_TAGS,
     MLX_QUANTIZED_ENCODING_TEMPLATE,
     MLX_UNQUANTIZED_ENCODING_TEMPLATE,
     MLX_QUANT_PARAMS,
+    SWITCHGLU_LINEAR_PROJ_NAMES,
 )
 from .quantization import QuantSettings
 
@@ -292,3 +301,33 @@ def transformer_block_idx_from_path(module_path: str) -> int | None:
             return int(parts[i + 1])
 
     return None
+
+
+def wrap_weight_map(
+    weights: Mapping[str, mx.array],
+    name: str,
+    quants: ExpertLayerQuants | None,
+) -> WeightsTensor | QuantizedWeightsTensor:
+    """Helper for converting a weight map to `WeightsTensor` or
+    `QuantizedWeightsTensor` if `quants` is provided
+    """
+    if quants is None:
+        return WeightsTensor(
+            weight=weights[f"{name}.weight"],
+        )
+    return QuantizedWeightsTensor(
+        weight=weights[f"{name}.weight"],
+        scales=weights[f"{name}.scales"],
+        biases=weights.get(f"{name}.biases"),
+        **asdict(quants[name]),
+    )
+
+
+def make_switchglu_weight_map(
+    weights: Mapping[str, mx.array],
+    quants: ExpertLayerQuants | None,
+) -> dict[str, WeightsTensor | QuantizedWeightsTensor]:
+    return {
+        name: wrap_weight_map(weights, name, quants)
+        for name in SWITCHGLU_LINEAR_PROJ_NAMES
+    }
