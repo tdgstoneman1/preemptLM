@@ -111,7 +111,7 @@ def resolve_target_layers(
     candidates = tuple(candidates)
     return {
         spec.name: match_target_layers(candidates, spec.search_params)
-        for spec in config.target_layers
+        for spec in config.specs
     }
 
 
@@ -145,7 +145,7 @@ def _target_layers_for_architecture(
         layer_class=target_layer_class, count=target_layer_count
     )
     return TargetLayers(
-        target_layers=(
+        specs=(
             TargetLayerSpec(
                 name="instrumented-moe-block",  # TODO figure this out
                 search_params=search_params,
@@ -160,7 +160,7 @@ def target_layers_for_model(
     target_layer_class: str,
 ) -> TargetLayers | None:
     if config.trace_settings is not None:
-        return config.trace_settings.to_target_layer_config()
+        return config.trace_settings.traced_layers
 
     elif expert_bank is not None:
         return _target_layers_for_architecture(

@@ -48,13 +48,11 @@ class TargetLayers(BaseModel):
     """A set of unique named target layers"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-
-    target_layers: tuple[TargetLayerSpec, ...] = Field(min_length=1)
+    specs: tuple[TargetLayerSpec, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def check_for_name_duplicates(self) -> Self:
-        names = [target.name for target in self.target_layers]
-
+        names = [target.name for target in self.specs]
         if len(names) != len(set(names)):
             raise ValueError(
                 "Target layer names must be unique."

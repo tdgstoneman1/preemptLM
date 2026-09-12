@@ -50,16 +50,17 @@ class TraceSettings(BaseModel):
     capture_gate_logits: bool = Field(default=False)
     run_id_prefix: str = Field(default="trace", min_length=1)
     overwrite_output: bool = Field(default=False)
-    target_layers: tuple[TargetLayerSpec, ...] = Field(min_length=1)
+    target_layer_specs: tuple[TargetLayerSpec, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _validate_target_layers_as_layer_config(self) -> Self:
-        self.to_target_layer_config()
+        self.traced_layers
         return self
 
-    def to_target_layer_config(self) -> TargetLayers:  # TODO rename/refactor
+    @property
+    def traced_layers(self) -> TargetLayers:
         """Projects traced target layers onto `TargetLayers`."""
-        return TargetLayers(target_layers=self.target_layers)
+        return TargetLayers(specs=self.target_layer_specs)
 
 
 # TODO add pread or mmap
@@ -131,13 +132,10 @@ class PipelineConfig(BaseModel):
         Raises
         ------
         AttributeError
-            If the config wasn't originally created from a file.
+            If the config did not originate from a file.
         """
         if self._fp is None:
-            raise AttributeError(
-                "Cannot resolve paths relative to config file because `PipelineConfig` was not "
-                "created from a file."
-            )
+            raise AttributeError("No config file path to resolve relative paths to.")
 
         if self.stream_settings:
             self.stream_settings.expert_bank_path = resolve_dotted_relative_path(

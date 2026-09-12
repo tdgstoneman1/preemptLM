@@ -1,22 +1,20 @@
 from __future__ import annotations
 
-import numpy as np
+import asyncio
+from pathlib import Path
+import sys
 
 from rich import print
-
-import asyncio
-import sys
-from pathlib import Path
 
 project_root = Path(__file__).resolve().parents[2]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+from preempt.backends.mlx_metal.pipeline.build import mlx_build_generation_pipeline
+
 from preempt.core.config.pipeline import PipelineConfig
 
 from preempt.engine.metrics import GenerationMetrics, StepMetrics
-
-from preempt.backends.mlx_metal.pipeline.build import mlx_build_generation_pipeline
 
 from preempt.utils.pipeline_utils import (
     generation_metrics_log_msg,

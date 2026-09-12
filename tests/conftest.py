@@ -112,7 +112,7 @@ def trace_settings(trace_path: Path) -> TraceSettings:
     )
     return TraceSettings(
         output_path=trace_path,
-        target_layers=tuple([target_layers]),
+        target_layer_specs=tuple([target_layers]),
         overwrite_output=True,
     )
 

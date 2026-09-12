@@ -15,12 +15,12 @@ memory_budget_gb = 8
 bypass_page_cache = true
 
 [trace_settings]
-output_path = "../../traces/unquantized.parquet" # relative to this file, NOT cwd
+output_path = "../../traces/unquantized.parquet" 
 overwrite_output = true
 
-[[trace_settings.target_layers]]
+[[trace_settings.target_layer_specs]]
 name = "Qwen3.6-35B-router"
 
-[trace_settings.target_layers.search_params]
+[trace_settings.target_layer_specs.search_params]
 layer_class = "Qwen3NextSparseMoeBlock"
 count = 40
