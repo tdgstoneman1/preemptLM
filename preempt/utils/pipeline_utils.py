@@ -1,10 +1,8 @@
 from typing import TypeVar
 
-from pathlib import Path
-
 import textwrap
 
-from preempt.config.pipeline import PipelineConfig
+from preempt.core.config.pipeline import PipelineConfig
 
 from preempt.engine.recorder import BaseTraceRecorder
 from preempt.engine.sinks import ParquetTraceSink
@@ -44,37 +42,44 @@ def get_parquet_sink(
 
 
 # TODO move to dedicated logging module
-# TODO add prefill_s field to GenerationMetrics
+# TODO add prefill_s and token throughput to GenerationMetrics
 def generation_metrics_log_msg(
-    metrics: GenerationMetrics, prefill_s: float | int
+    metrics: GenerationMetrics,
+    prefill_s: float | int,
 ) -> str:
+    mean_toks_per_s = (metrics.steps[-1].step_idx + 1) / (
+        metrics.total_duration_s - prefill_s
+    )
     return textwrap.dedent(f"""
     Generation stats
     ----------------
-    Total time: {metrics.total_duration_s:.2f} seconds
+    {metrics.steps[-1].step_idx + 1} tokens generated
+    {metrics.records_written:,} traces written to parquet
+
+    Total duration: {metrics.total_duration_s:.2f} seconds
     Prefill time: {prefill_s:.2f} seconds
-    Trace records written: {metrics.records_written:,}
+    Avg throughput: {mean_toks_per_s:.2f} tok/s
     """)
 
 
 # TODO move to dedicated logging module
 def cache_metrics_log_msg(metrics: GenerationMetrics) -> str:
-    demands = metrics.cache_hits + metrics.cache_misses
-    hit_rate = metrics.cache_hits / demands if demands else 0.0
-    miss_rate = metrics.cache_misses / demands if demands else 0.0
+    num_requests = metrics.cache_hits + metrics.cache_misses
+    hit_rate = metrics.cache_hits / num_requests if num_requests else 0.0
+    miss_rate = metrics.cache_misses / num_requests if num_requests else 0.0
 
-    prefetch_mb = metrics.prefetched_bytes / 1024**2
-    wasted_mb = metrics.wasted_prefetch_bytes / 1024**2
+    prefetch_gb = metrics.prefetched_bytes / 1024**3
+    wasted_gb = metrics.wasted_prefetch_bytes / 1024**3
 
     return textwrap.dedent(f"""
     Expert bank stats
     -----------------
-    Total experts routed: {demands:,}
-    Total stall time: {metrics.demand_stall_s:.2f} seconds
+    Total experts routed: {num_requests:,}
+    Total I/O stall time: {metrics.demand_stall_s:.2f} seconds
 
     Cache hits: {metrics.cache_hits} ({hit_rate:.1%})
     Cache misses: {metrics.cache_misses} ({miss_rate:.1%})
     
-    Total read from disk: {prefetch_mb:,.2f} MB 
-    Total wasted disk prefetches: {wasted_mb:,.2f} MB 
+    Total read from disk: {prefetch_gb:,.2f} GB
+    Total wasted disk prefetches: {wasted_gb:,.2f} MB 
     """)
