@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Generator, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 
 import mlx.core as mx
 
 from preempt.engine.expert_io.loader import DiskBackedExpertLoader
-
-from preempt.datamodel.identity import ExpertKey
 
 from ..types import (
     WeightsTensor,
@@ -14,16 +12,21 @@ from ..types import (
     ExpertLayerQuants,
 )
 from ..expert_cache import MlxExpertCache
-from ..utils import make_switchglu_weight_map
 
-from .compiled import swiglu_activation
+from .experts import (
+    swiglu_activation,
+    load_experts_from_bank,
+    make_switchglu_weight_map,
+)
 
 # TODO overhaul fragile token assignment grouping
 # TODO add support for expert layer bias terms in forward pass
 
 
 def _linear_proj_matmul(
-    x: mx.array, projection: WeightsTensor | QuantizedWeightsTensor
+    x: mx.array,
+    projection: WeightsTensor | QuantizedWeightsTensor,
+    stream: mx.DeviceType | mx.Stream = mx.gpu,
 ) -> mx.array:
     if isinstance(projection, QuantizedWeightsTensor):
         return mx.quantized_matmul(
@@ -35,10 +38,12 @@ def _linear_proj_matmul(
             group_size=projection.group_size,
             bits=projection.bits,
             mode=projection.mode,
+            stream=stream,
         )
-    return mx.matmul(x, projection.weight.T)
+    return mx.matmul(x, projection.weight.T, stream=stream)
 
 
+# TODO use array ops
 def swiglu_forward(
     x: mx.array,
     projections: Mapping[str, QuantizedWeightsTensor | WeightsTensor],
@@ -78,49 +83,21 @@ def _iter_expert_routed_toks(
 
 
 def _reassemble(
-    outputs: Sequence[mx.array],
+    outputs: list[mx.array],
     permutation: list[mx.array],
     leading_dims: Sequence[int],
     top_k: int,
+    stream: mx.DeviceType | mx.Stream = mx.gpu,
 ) -> mx.array:
-    grouped = mx.concatenate([*outputs], axis=0)
-    inverse = mx.argsort(mx.concatenate(permutation)).astype(mx.int32)
+    grouped = mx.concatenate(
+        outputs,
+        axis=0,
+        stream=stream,
+    )
+    inverse = mx.concatenate(permutation, stream=stream)
+    inverse = mx.argsort(inverse, stream=stream)
 
     return grouped[inverse].reshape(*leading_dims, top_k, -1)
-
-
-def expert_idx_to_key(
-    expert_idx: int,
-    *,
-    model_fingerprint: str,
-    block_idx: int,
-) -> ExpertKey:
-    """Helper for converting expert indices to `ExpertKey`."""
-    return ExpertKey(
-        model_fingerprint=model_fingerprint,
-        block_idx=block_idx,
-        expert_idx=expert_idx,
-    )
-
-
-def load_experts_from_bank(
-    loader: DiskBackedExpertLoader,
-    expert_idxs: mx.array,
-    model_fingerprint: str,
-    block_idx: int,
-) -> Generator[ExpertKey, None, None]:
-    """Converts expert indices to `ExpertKey`, reads them concurrently from disk, and yields
-    experts' keys for as they are loaded.
-    """
-    keys = [
-        expert_idx_to_key(
-            idx,
-            model_fingerprint=model_fingerprint,
-            block_idx=block_idx,
-        )
-        for idx in expert_idxs.flatten().tolist()  # type: ignore
-    ]
-    yield from loader.load(keys)
 
 
 def sequential_expert_matmul(
@@ -133,6 +110,7 @@ def sequential_expert_matmul(
     block_idx: int,
     model_fingerprint: str,
     quants: ExpertLayerQuants | None,
+    stream: mx.DeviceType | mx.Stream = mx.gpu,
 ) -> mx.array:
     toks_by_expert = {
         expert_idx: (toks, perm)
@@ -151,4 +129,4 @@ def sequential_expert_matmul(
         outputs.append(swiglu_forward(routed_toks, weights))
         perms.append(perm)
 
-    return _reassemble(outputs, perms, x.shape[:-1], top_k)
+    return _reassemble(outputs, perms, x.shape[:-1], top_k, stream=stream)
