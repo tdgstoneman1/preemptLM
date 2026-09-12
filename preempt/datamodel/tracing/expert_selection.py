@@ -7,7 +7,7 @@ from datetime import datetime, UTC
 
 from preempt.core.constants import EXPERT_SELECTION_TRACE_SCHEMA_VERSION
 
-from preempt.utils.attrs_utils import recurse_attrs_instance_fields
+from preempt.utils.dataclass_utils import recurse_attrs_instance_fields
 
 from .arrow import arrow_metadata, arrow_args_for, arrow_schema_field, serialize_utc
 from .context import TraceRunContext, TraceStepContext
