@@ -14,7 +14,7 @@ from preempt.core.protocols import IExpertCache
 from preempt.core.enums import ReadPriority
 
 from preempt.datamodel.identity import ExpertKey
-from preempt.datamodel.requests import LoadRequest
+from preempt.datamodel.requests import LoadRequest, CacheRequest
 
 from .expert_cache import ExpertCacheManager
 from .metrics import GenerationMetrics
@@ -48,23 +48,24 @@ class DummyExpertLoader:
 
 # TODO validate num_worker_threads based on memory budget
 # num_worker_threads = budget / expert_size -> need to account for edge
-# case where all worker threads' experts waiting to be consumed,
-# meaning they all have to stay in memory at the same time bc none
-# of them can safely be evicted from cache
+# case where all worker threads' experts simultaneously waiting to be consumed,
+# meaning none of them can safely be evicted from cache
 class DiskBackedExpertLoader:
     """`IExpertLoader` interface that manages concurrent expert bank I/O and
     schedules read and prefetch requests based on priority.
     """
 
     _expert_bank: BaseExpertBank
-
     _cache: IExpertCache
     _cache_manager: ExpertCacheManager
 
     _event_loop: asyncio.AbstractEventLoop
     _workers: list[asyncio.Task]
-    _queue: asyncio.PriorityQueue
+    _task_queue: asyncio.PriorityQueue
     _inflight: dict[ExpertKey, Future]
+
+    _cache_update_queue: asyncio.Queue
+    _cache_update_worker: asyncio.Task
 
     _metrics: GenerationMetrics | None
 
@@ -100,15 +101,21 @@ class DiskBackedExpertLoader:
             Optional counters to accumulate into during generation, by default None
         """
         self._expert_bank = expert_bank
+        self._cache = cache
+        self._cache_manager = cache_manager
+
         self._event_loop = event_loop
         self._workers = [
             asyncio.create_task(self._worker_loop()) for _ in range(num_worker_threads)
         ]
-        self._queue = asyncio.PriorityQueue(maxsize=max_queue_size)
+        self._task_queue = asyncio.PriorityQueue(maxsize=max_queue_size)
         self._inflight = {}
 
-        self._cache = cache
-        self._cache_manager = cache_manager
+        # Queue ensures sequential updates to cache,
+        # prevents race conditions and is faster than thread locking
+        self._cache_update_queue = asyncio.Queue()
+        self._cache_update_worker = asyncio.create_task(self._cache_loop())
+
         self._metrics = metrics
 
     def __del__(self) -> None:
@@ -118,16 +125,34 @@ class DiskBackedExpertLoader:
     def cache_manager(self) -> ExpertCacheManager:
         return self._cache_manager
 
+    async def _cache_loop(self) -> None:
+        while True:
+            request: CacheRequest = await self._cache_update_queue.get()
+            expert = request.expert
+
+            try:
+                for target_key in self._cache_manager.admit(
+                    expert.key, len(expert.data), request.priority
+                ):
+                    self._cache.evict(target_key)
+                self._cache.add(expert)
+
+                request.completion_handle.set_result(None)
+                self._cache_update_queue.task_done()
+
+            except asyncio.CancelledError:
+                break
+
     async def _worker_loop(self) -> None:
         while True:
-            request: LoadRequest = await self._queue.get()
+            request: LoadRequest = await self._task_queue.get()
             key = request.key
 
             try:
                 # Final check if expert already cached
                 if key in self._cache:
                     request.completion_handle.set_result(None)
-                    self._queue.task_done()
+                    self._task_queue.task_done()
                     continue
 
                 # Check if request already in flight
@@ -145,28 +170,26 @@ class DiskBackedExpertLoader:
                             request.completion_handle.set_exception(e)
 
                     first_worker_future.add_done_callback(inflight_callback)
-                    self._queue.task_done()
+                    self._task_queue.task_done()
 
                     continue
 
-                # Make current request visible to other workers
+                # Make current request visible in other threads
                 self._inflight[key] = request.completion_handle
 
                 try:
                     expert = await self._expert_bank.read(key, request.priority)
-
-                    for victim_key in self._cache_manager.admit(
-                        expert.key, len(expert.data), request.priority
-                    ):
-                        self._cache.evict(victim_key)
-                    self._cache.add(expert)
-
-                    request.completion_handle.set_result(None)
+                    cache_request = CacheRequest(
+                        priority=request.priority,
+                        expert=expert,
+                        completion_handle=request.completion_handle,
+                    )
+                    await self._cache_update_queue.put(cache_request)
 
                 finally:
                     del self._inflight[key]
 
-                self._queue.task_done()
+                self._task_queue.task_done()
 
             except asyncio.CancelledError:
                 break
@@ -176,7 +199,7 @@ class DiskBackedExpertLoader:
                     if not request.completion_handle.done():
                         request.completion_handle.set_exception(e)
 
-                    self._queue.task_done()
+                    self._task_queue.task_done()
 
     def _update_metrics(
         self,
@@ -217,7 +240,7 @@ class DiskBackedExpertLoader:
 
             # Check if request already in progress
             if key in self._inflight:
-                cache_misses += count  # Cache still registers a miss
+                cache_misses += count
                 existing = self._inflight[key]
                 futures[existing] = key
                 continue
@@ -231,10 +254,10 @@ class DiskBackedExpertLoader:
             )
             futures[future] = key
 
-            enqueue = asyncio.run_coroutine_threadsafe(
-                self._queue.put(request), self._event_loop
-            )
-            enqueue.result()  # Block until request is enqueued
+            asyncio.run_coroutine_threadsafe(
+                self._task_queue.put(request),
+                self._event_loop,
+            ).result()  # Block until request is enqueued
 
         self._update_metrics("cache_hits", cache_hits)
         self._update_metrics("cache_misses", cache_misses)
@@ -255,7 +278,7 @@ class DiskBackedExpertLoader:
         futures: list[Future],
     ) -> list[Future[None]]:
         enqueue = asyncio.run_coroutine_threadsafe(
-            self._queue.put(request),
+            self._task_queue.put(request),
             self._event_loop,
         )
         enqueue.result()
@@ -270,7 +293,7 @@ class DiskBackedExpertLoader:
     ) -> list[Future[None]]:
         try:
             self._event_loop.call_soon_threadsafe(
-                self._queue.put_nowait,
+                self._task_queue.put_nowait,
                 request,
             )
         except asyncio.QueueFull:
