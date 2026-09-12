@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Literal
-from collections.abc import Callable, Mapping
-
-from attrs import asdict
+from collections.abc import Callable
 
 from functools import partial
 
@@ -19,26 +17,24 @@ from preempt.engine.layer_resolution import LayerCandidate
 from ..types import (
     ModuleWrapperFactory,
     ExpertLayerWeights,
-    WeightsTensor,
-    QuantizedWeightsTensor,
 )
 from ..ops import (
     sequential_expert_matmul,
-    swiglu_forward_fn,
     fused_expert_matmul,
 )
 from ..expert_cache import MlxExpertCache
 from ..recorder import MlxTraceRecorder
 from ..constants import SWITCHGLU_LINEAR_PROJ_NAMES
-from ..utils import get_expert_quants
+from ..utils import get_expert_quants, make_switchglu_weight_map
 
 from .base_moe_wrapper import BaseMoEWrapper
 
 # TODO load and hold experts in module wrapper rather than external cache,
 # keep external cache manager responsible for eviction decisions
+# TODO add `self._should_stream` flag to make logic in __call__ clearer
 
 
-@mx.compile
+# @mx.compile
 def _compute_topk_routing(
     logits: mx.array,
     top_k: int,
@@ -55,7 +51,7 @@ def _compute_topk_routing(
     return inds, scores
 
 
-@mx.compile
+# @mx.compile
 def _combine_and_apply_experts(
     y: mx.array,
     scores: mx.array,
@@ -64,6 +60,7 @@ def _combine_and_apply_experts(
 ) -> mx.array:
     """Copied from upstream __call__"""
     sum_routed_experts = (y * scores[..., None]).sum(axis=-2)
+
     return sum_routed_experts + (mx.sigmoid(shared_gate) * shared_y)
 
 
@@ -76,7 +73,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
     """
 
     inner: Qwen3NextSparseMoeBlock
-    _apply_experts_fn: Callable[[mx.array, mx.array], mx.array]
+    _experts_matmul_fn: Callable[[mx.array, mx.array], mx.array]
 
     def __init__(
         self,
@@ -88,7 +85,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
         expert_loader: Optional[IExpertLoader],
         expert_cache: Optional[MlxExpertCache],
         model_fingerprint: Optional[str],
-        expert_matmul: Literal["sequential", "fused"],
+        streamed_expert_matmul: Literal["sequential", "fused"] | None,
     ) -> None:
         super().__init__(
             inner=inner,
@@ -102,52 +99,38 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
         )
         self._quants = get_expert_quants(inner.switch_mlp, SWITCHGLU_LINEAR_PROJ_NAMES)
 
-        if expert_matmul == "sequential":
-            self._apply_experts_fn = partial(
-                sequential_expert_matmul,
-                expert_forward_fn=swiglu_forward_fn,
-                load_expert_fn=self._get_expert_weights,
-            )
-        else:
-            self._apply_experts_fn = partial(
-                fused_expert_matmul,
-                load_expert_fn=self._get_expert_weights,
-                is_quantized=self.is_quantized,
-            )
+        if streamed_expert_matmul is not None:
+            assert self.expert_cache is not None
+            assert self.expert_loader is not None
+            assert self.model_fingerprint is not None
+
+            if streamed_expert_matmul == "sequential":
+                self._experts_matmul_fn = partial(
+                    sequential_expert_matmul,
+                    expert_loader=self.expert_loader,
+                    expert_cache=self.expert_cache,
+                    top_k=self.inner.top_k,
+                    block_idx=self.block_idx,
+                    model_fingerprint=self.model_fingerprint,
+                    quants=self._quants,
+                )
+            else:
+                self._experts_matmul_fn = partial(
+                    fused_expert_matmul,
+                    load_expert_fn=self._get_expert_weights,
+                    is_quantized=self.is_quantized,
+                )
 
     def _get_expert_weights(self, expert_idx: int) -> ExpertLayerWeights:
-        assert self.expert_loader is not None
-        assert self.expert_cache is not None
-        assert self.model_fingerprint is not None
-
         key = ExpertKey(
-            model_fingerprint=self.model_fingerprint,
+            model_fingerprint=self.model_fingerprint,  # type: ignore
             block_idx=self.block_idx,
             expert_idx=expert_idx,
         )
-        self.expert_loader.load(key)
-        tensors = self.expert_cache.get(key)
+        self.expert_loader.load(key)  # type: ignore
+        weights = self.expert_cache.get(key)  # type: ignore
 
-        return {
-            name: self._projection_from_tensors(tensors, name)
-            for name in SWITCHGLU_LINEAR_PROJ_NAMES
-        }
-
-    def _projection_from_tensors(
-        self,
-        tensors: Mapping[str, mx.array],
-        name: str,
-    ) -> WeightsTensor | QuantizedWeightsTensor:
-        if self.is_quantized:
-            return QuantizedWeightsTensor(
-                weight=tensors[f"{name}.weight"],
-                scales=tensors[f"{name}.scales"],
-                biases=tensors.get(f"{name}.biases"),
-                **asdict(self._quants[name]),  # type: ignore
-            )
-        return WeightsTensor(
-            weight=tensors[f"{name}.weight"],
-        )
+        return make_switchglu_weight_map(weights, self._quants)
 
     def __call__(self, x: mx.array) -> mx.array:
         if self.inner.sharding_group is not None:
@@ -169,7 +152,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
             )
         # * Apply selected experts
         y = (
-            self._apply_experts_fn(x, inds)
+            self._experts_matmul_fn(x, inds)
             if self.expert_cache is not None
             else self.inner.switch_mlp(x, inds)
         )
@@ -190,7 +173,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
         expert_loader: Optional[IExpertLoader] = None,
         expert_cache: Optional[MlxExpertCache] = None,
         model_fingerprint: Optional[str] = None,
-        expert_matmul: Literal["sequential", "fused"] = "sequential",
+        streamed_expert_matmul: Literal["sequential", "fused"] = "sequential",
     ) -> ModuleWrapperFactory:
 
         def factory(
@@ -213,7 +196,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
                 expert_loader=expert_loader,
                 expert_cache=expert_cache,
                 model_fingerprint=model_fingerprint,
-                expert_matmul=expert_matmul,
+                streamed_expert_matmul=streamed_expert_matmul,
             )
 
         return factory
