@@ -18,11 +18,11 @@ class ParquetCompressionCodecs(StrEnum):
 
 
 class ReadPriority(IntEnum):
-    """Defines the urgency of an expert bank read (from disk). Lower values
-    indicate higher urgency.
+    """Defines the urgency of an expert bank read. Lower values indicate higher
+    urgency.
 
-    `DEMAND` reads block the forward pass. `PREFETCH` reads are speculative
-    and non-blocking.
+    - `DEMAND` reads block the forward pass.
+    - `PREFETCH` reads are speculative and non-blocking.
     """
 
     DEMAND = 0
@@ -30,15 +30,10 @@ class ReadPriority(IntEnum):
 
 
 class CacheEvictionPolicy(StrEnum):
-    """Determines the eviction strategy for in-memory experts. Eviction occurs
-    when a requested expert is not found in memory and there is insufficient
-    memory available to load it from disk.
+    """Determines the eviction strategy for experts cached in memory.
 
-    `LFRU` (`ExpertCacheManager` default) ranks by frequency, then recency. This helps
-    frequently accessed experts resist eviction during temporary bursts of less
-    frequent accesses, whereas plain `LRU` would evict them.
-
-    `LRU` stays selectable as a baseline for comparison.
+    - `LFRU`: Least Frequently Recently Used (`ExpertCacheManager` default)
+    - `LRU` Least Recently Used
     """
 
     LFRU = "lfru"
