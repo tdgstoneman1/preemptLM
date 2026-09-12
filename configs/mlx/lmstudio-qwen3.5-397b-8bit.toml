@@ -1,4 +1,5 @@
 version = 1
+resolve_relative_paths = true
 
 [llm]
 model_id = "lmstudio-community/Qwen3.5-397B-A17B-MLX-8bit"
@@ -16,7 +17,7 @@ memory_budget_gb = 16
 bypass_page_cache = true
 
 [trace_settings]
-output_path = "../../traces/qwen3.5-397b-8bit.parquet" # relative to this file, NOT cwd
+output_path = "../../traces/qwen3.5-397b-8bit.parquet"
 overwrite_output = true
 
 [[trace_settings.target_layers]]

@@ -1,4 +1,5 @@
 version = 1
+resolve_relative_paths = true
 
 [llm]
 model_id = "unsloth/Qwen3.6-35B-A3B-MLX-8bit"
@@ -15,7 +16,7 @@ memory_budget_gb = 4
 bypass_page_cache = true
 
 [trace_settings]
-output_path = "../../traces/router-events.parquet" # relative to this file, NOT cwd
+output_path = "../../traces/router-events.parquet"
 overwrite_output = true
 
 [[trace_settings.target_layers]]

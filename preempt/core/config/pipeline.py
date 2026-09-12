@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Self, Optional
+from typing import Self
 from pathlib import Path
 
 from pydantic import (
@@ -85,17 +85,19 @@ class PipelineConfig(BaseModel):
 
     llm: LlmConfig = Field()
     generation_settings: GenerationSettings = Field(default_factory=GenerationSettings)
-    trace_settings: Optional[TraceSettings] = Field(default=None)
-    stream_settings: Optional[StreamSettings] = Field(default=None)
+    trace_settings: TraceSettings | None = Field(default=None)
+    stream_settings: StreamSettings | None = Field(default=None)
 
-    _fp: Optional[Path] = PrivateAttr(default=None)
+    resolve_relative_paths: bool = Field(default=True)
 
-    # TODO optionally resolve model relative path and id.
+    _fp: Path | None = PrivateAttr(default=None)
+
+    # TODO optionally resolve model relative path
     @classmethod
     def from_toml(
         cls,
         fp: str | Path,
-        resolve_relative_paths: bool = True,
+        resolve_relative_paths: bool | None = None,
     ) -> Self:
         """Initializes and returns a new `PipelineConfig` from a TOML config
 
@@ -115,7 +117,8 @@ class PipelineConfig(BaseModel):
         """
         model = read_and_validate_toml(fp, cls)
         model._fp = Path(fp)
-        if resolve_relative_paths:
+
+        if model.resolve_relative_paths or resolve_relative_paths:
             model.resolve_paths_relative_to_config()
 
         return model
