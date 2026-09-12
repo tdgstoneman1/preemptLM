@@ -63,7 +63,7 @@ def _get_expert_io_deps(
     )
     encoding = parse_encoding_tag(expert_bank.manifest.encoding)
     cache_manager = ExpertCacheManager(
-        budget_bytes=config.stream_settings.memory_bytes_budget
+        budget_bytes=config.stream_settings.memory_budget_bytes
     )
     cache = MlxExpertCache(
         encoding=encoding,

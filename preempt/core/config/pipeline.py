@@ -74,7 +74,7 @@ class StreamSettings(BaseModel):
 
     @computed_field
     @property
-    def memory_bytes_budget(self) -> int:  # TODO rename
+    def memory_budget_bytes(self) -> int:
         return int(self.memory_budget_gb * 1024**3)
 
 
@@ -83,13 +83,12 @@ class PipelineConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     version: int = Field(default=1, ge=1)
+    resolve_relative_paths: bool = Field(default=True)
 
     llm: LlmConfig = Field()
     generation_settings: GenerationSettings = Field(default_factory=GenerationSettings)
     trace_settings: TraceSettings | None = Field(default=None)
     stream_settings: StreamSettings | None = Field(default=None)
-
-    resolve_relative_paths: bool = Field(default=True)
 
     _fp: Path | None = PrivateAttr(default=None)
 
