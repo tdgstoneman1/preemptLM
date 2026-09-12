@@ -12,7 +12,7 @@ class StepMetrics:
     ----------
     step_idx : int
         Index of this step within a multi-step generation run
-    n_tokens : int
+    num_tokens : int
         Number of tokens processed this step (multiple tokens during
         prefill or a single token thereafter)
     duration_s : float
@@ -20,7 +20,7 @@ class StepMetrics:
     """
 
     step_idx: int = field(validator=validators.ge(0))
-    n_tokens: int = field(validator=validators.ge(1))  # TODO rename to `num_tokens`
+    num_tokens: int = field(validator=validators.ge(1))
     duration_s: float = field(validator=validators.ge(0.0))
     generated_token_id: int = field(validator=validators.ge(0))
 
@@ -68,7 +68,7 @@ class GenerationMetrics:
 
     @property
     def tokens_forwarded(self) -> int:
-        return sum(step.n_tokens for step in self.steps)
+        return sum(step.num_tokens for step in self.steps)
 
     @property
     def total_duration_s(self) -> float:

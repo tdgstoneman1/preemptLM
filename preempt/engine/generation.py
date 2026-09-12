@@ -121,7 +121,7 @@ async def generate_greedy(
 
         step_metrics = StepMetrics(
             step_idx=step_idx,
-            n_tokens=len(tokens),
+            num_tokens=len(tokens),
             duration_s=time.perf_counter() - started,
             generated_token_id=next_token,
         )
