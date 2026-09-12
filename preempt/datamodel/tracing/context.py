@@ -1,13 +1,11 @@
 from typing import Optional, Self
+from datetime import datetime, UTC
+import secrets
 
 import attrs
 from attrs import field, validators
 
 import pyarrow as pa
-
-from datetime import datetime, UTC
-
-import secrets
 
 from preempt.core.constants import TIMESTAMP_FMT, RUN_ID_TEMPLATE
 
@@ -27,6 +25,8 @@ def generate_run_id(prefix: str, *, timestamp: Optional[datetime] = None) -> str
     )
 
 
+# TODO remove model_revision
+# TODO import default instrumentation_version from dedicated module
 @attrs.define(kw_only=True, frozen=True)
 class TraceRunContext:
     """Identifiers and metadata for a traced generation run.

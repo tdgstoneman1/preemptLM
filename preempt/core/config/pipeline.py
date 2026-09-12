@@ -21,6 +21,7 @@ from .target_layers import TargetLayers, TargetLayerSpec
 
 # TODO validate arch against `config.json` in HF ckpt,
 # e.g. `Qwen3_5MoeForConditionalGeneration` (Qwen3.6)
+# TODO remove revision field
 class LlmConfig(BaseModel):
     """Model identifiers for an LLM."""
 
@@ -59,7 +60,6 @@ class TraceSettings(BaseModel):
 
     @property
     def traced_layers(self) -> TargetLayers:
-        """Projects traced target layers onto `TargetLayers`."""
         return TargetLayers(specs=self.target_layer_specs)
 
 
