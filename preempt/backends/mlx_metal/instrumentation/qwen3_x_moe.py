@@ -181,7 +181,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
         expert_loader: Optional[DiskBackedExpertLoader] = None,
         expert_cache: Optional[MlxExpertCache] = None,
         model_fingerprint: Optional[str] = None,
-        streamed_expert_matmul: Literal["sequential", "fused"] | None = "fused",
+        streamed_expert_matmul: Literal["sequential", "fused"] | None = "sequential",
     ) -> ModuleWrapperFactory:
 
         def factory(
