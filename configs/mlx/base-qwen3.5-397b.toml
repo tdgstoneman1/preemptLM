@@ -19,10 +19,10 @@ bypass_page_cache = true
 output_path = "../../traces/qwen3.5-397b.parquet" 
 overwrite_output = true
 
-[[trace_settings.target_layers]]
+[[trace_settings.target_layer_specs]]
 name = "Qwen3.5-397B-A17B-router"
 
-[trace_settings.target_layers.search_params]
+[trace_settings.target_layer_specs.search_params]
 # layer_path_glob = "model.language_model.*.mlp.experts*"
 layer_class = "Qwen3NextSparseMoeBlock"
 count = 60
