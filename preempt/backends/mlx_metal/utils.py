@@ -17,30 +17,18 @@ import mlx.core as mx
 
 from mlx_lm import load
 from mlx_lm.utils import _get_classes
-from mlx_lm.models.switch_layers import (
-    SwitchLinear,
-    QuantizedSwitchLinear,
-    SwitchGLU,
-)
 
 from safetensors import safe_open
 
 from preempt.core.protocols import ITokenizer
 from preempt.core.exceptions import EngineCompatibilityError
 
-from .types import (
-    MlxLoadedModel,
-    ExpertLayerQuants,
-    WeightsTensor,
-    QuantizedWeightsTensor,
-)
+from .types import MlxLoadedModel
 from .quantization import QuantSettings
 from .constants import (
     MLX_DTYPE_TAGS,
     MLX_QUANTIZED_ENCODING_TEMPLATE,
     MLX_UNQUANTIZED_ENCODING_TEMPLATE,
-    MLX_QUANT_PARAMS,
-    SWITCHGLU_LINEAR_PROJ_NAMES,
 )
 from .quantization import QuantSettings
 
@@ -231,61 +219,6 @@ def make_encoding_tag(quant: QuantSettings | None, dtype_tag: str) -> str:
     )
 
 
-# TODO add support for bias
-def get_expert_quants(
-    switch_mlp: SwitchGLU,
-    linear_projection_names: Sequence[str],
-) -> ExpertLayerQuants | None:
-    """Returns the quantization parameters for a switch layer's linear
-    projection weights, or None if unquantized.
-
-    Parameters
-    ----------
-    switch_mlp : SwitchGLU
-        A fused multi-expert module containing the stacked weights for all
-        routed experts in an MoE block
-    linear_projection_names : Sequence[str]
-        The layer's linear projection weight names
-
-    Returns
-    -------
-    ExpertLayerQuants
-        Per-projection quantization parameters keyed by name.
-
-    Raises
-    ------
-    TypeError
-        If a layer in `switch_mlp` is not an instance of `SwitchLinear` or
-        `QuantizedSwitchLinear`
-    EngineCompatibilityError
-        If a layer in `switch_mlp` has a bias term (currently unsupported
-        in the forward pass)
-    """
-    params: dict[str, QuantSettings] = {}
-    for name in linear_projection_names:
-        module = getattr(switch_mlp, name)
-
-        if not isinstance(module, (SwitchLinear, QuantizedSwitchLinear)):
-            raise TypeError(
-                f"`{name}` is of unsupported type `{type(module).__name__}`. "
-                "Only `SwitchLinear` and `QuantizedSwitchLinear` are currently "
-                "supported."
-            )
-        if "bias" in module:
-            raise EngineCompatibilityError(
-                f"Layer {name!r} (in {type(module).__name__!r}) has a 'bias' "
-                "term, which is currently unsupported."
-            )
-        if all(hasattr(module, attr) for attr in MLX_QUANT_PARAMS):
-            params[name] = QuantSettings(
-                group_size=int(module.group_size),  # type: ignore
-                bits=int(module.bits),  # type: ignore
-                mode=str(module.mode),  # type: ignore
-            )
-
-    return params or None
-
-
 # TODO make architecture agnostic
 def transformer_block_idx_from_path(module_path: str) -> int | None:
     """Parses `module_path` and returns the index of the module's parent
@@ -301,33 +234,3 @@ def transformer_block_idx_from_path(module_path: str) -> int | None:
             return int(parts[i + 1])
 
     return None
-
-
-def wrap_weight_map(
-    weights: Mapping[str, mx.array],
-    name: str,
-    quants: ExpertLayerQuants | None,
-) -> WeightsTensor | QuantizedWeightsTensor:
-    """Helper for converting a weight map to `WeightsTensor` or
-    `QuantizedWeightsTensor` if `quants` is provided
-    """
-    if quants is None:
-        return WeightsTensor(
-            weight=weights[f"{name}.weight"],
-        )
-    return QuantizedWeightsTensor(
-        weight=weights[f"{name}.weight"],
-        scales=weights[f"{name}.scales"],
-        biases=weights.get(f"{name}.biases"),
-        **asdict(quants[name]),
-    )
-
-
-def make_switchglu_weight_map(
-    weights: Mapping[str, mx.array],
-    quants: ExpertLayerQuants | None,
-) -> dict[str, WeightsTensor | QuantizedWeightsTensor]:
-    return {
-        name: wrap_weight_map(weights, name, quants)
-        for name in SWITCHGLU_LINEAR_PROJ_NAMES
-    }
