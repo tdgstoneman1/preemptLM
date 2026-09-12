@@ -11,30 +11,28 @@ import mlx.nn as nn
 from mlx_lm.models.qwen3_next import Qwen3NextSparseMoeBlock
 
 from preempt.datamodel.identity import ExpertKey
-from preempt.core.protocols import IExpertLoader
+
+from preempt.engine.expert_io.loader import DiskBackedExpertLoader
 from preempt.engine.layer_resolution import LayerCandidate
 
 from ..types import (
     ModuleWrapperFactory,
     ExpertLayerWeights,
 )
-from ..ops import (
-    sequential_expert_matmul,
-    fused_expert_matmul,
-)
+from ..ops.fused import fused_expert_matmul
+from ..ops.sequential import sequential_expert_matmul
+from ..ops.experts import make_switchglu_weight_map, get_expert_quants
 from ..expert_cache import MlxExpertCache
 from ..recorder import MlxTraceRecorder
 from ..constants import SWITCHGLU_LINEAR_PROJ_NAMES
-from ..utils import get_expert_quants, make_switchglu_weight_map
 
 from .base_moe_wrapper import BaseMoEWrapper
 
 # TODO load and hold experts in module wrapper rather than external cache,
 # keep external cache manager responsible for eviction decisions
-# TODO add `self._should_stream` flag to make logic in __call__ clearer
 
 
-# @mx.compile
+@mx.compile
 def _compute_topk_routing(
     logits: mx.array,
     top_k: int,
@@ -51,7 +49,7 @@ def _compute_topk_routing(
     return inds, scores
 
 
-# @mx.compile
+@mx.compile
 def _combine_and_apply_experts(
     y: mx.array,
     scores: mx.array,
@@ -82,7 +80,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
         capture_gate_logits: bool,
         layer_path: str,
         block_idx: int,
-        expert_loader: Optional[IExpertLoader],
+        expert_loader: Optional[DiskBackedExpertLoader],
         expert_cache: Optional[MlxExpertCache],
         model_fingerprint: Optional[str],
         streamed_expert_matmul: Literal["sequential", "fused"] | None,
@@ -114,12 +112,18 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
                     model_fingerprint=self.model_fingerprint,
                     quants=self._quants,
                 )
-            else:
+            elif streamed_expert_matmul == "fused":
                 self._experts_matmul_fn = partial(
                     fused_expert_matmul,
-                    load_expert_fn=self._get_expert_weights,
-                    is_quantized=self.is_quantized,
+                    expert_loader=self.expert_loader,
+                    expert_cache=self.expert_cache,
+                    top_k=self.inner.top_k,
+                    block_idx=self.block_idx,
+                    model_fingerprint=self.model_fingerprint,
+                    quants=self._quants,
                 )
+            else:
+                raise ValueError()  # TODO error msg
 
     def _get_expert_weights(self, expert_idx: int) -> ExpertLayerWeights:
         key = ExpertKey(
@@ -140,6 +144,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
         inds, scores = _compute_topk_routing(
             logits, self.inner.top_k, self.inner.norm_topk_prob
         )
+
         # * Lazy record state
         if self.is_traced:
             self.recorder.capture(  # type: ignore
@@ -150,12 +155,15 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
                 softmax_weights=scores,
                 gate_logits=logits if self.capture_gate_logits else None,
             )
+
         # * Apply selected experts
+        # TODO add `self.should_stream` flag to make this cleaner
         y = (
             self._experts_matmul_fn(x, inds)
             if self.expert_cache is not None
             else self.inner.switch_mlp(x, inds)
         )
+
         # * Apply shared expert and combine y
         shared_y = self.inner.shared_expert(x)
         shared_gate = self.inner.shared_expert_gate(x)
@@ -170,10 +178,10 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
     def make_wrapper_factory(
         recorder: Optional[MlxTraceRecorder],
         capture_gate_logits: bool = False,
-        expert_loader: Optional[IExpertLoader] = None,
+        expert_loader: Optional[DiskBackedExpertLoader] = None,
         expert_cache: Optional[MlxExpertCache] = None,
         model_fingerprint: Optional[str] = None,
-        streamed_expert_matmul: Literal["sequential", "fused"] = "sequential",
+        streamed_expert_matmul: Literal["sequential", "fused"] | None = "fused",
     ) -> ModuleWrapperFactory:
 
         def factory(
