@@ -12,7 +12,7 @@ project_root = Path(__file__).resolve().parents[2]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from preempt.config.pipeline import PipelineConfig
+from preempt.core.config.pipeline import PipelineConfig
 
 from preempt.engine.metrics import GenerationMetrics, StepMetrics
 
@@ -66,7 +66,6 @@ async def run(
         prompt, max_tokens=config.generation_settings.max_tokens, on_step=stream_printer
     )
     print(f"\n\n{num_output_toks} tokens")
-    print(f"Avg throughput: {1. / float(np.mean(step_times)):.2} tok/s")
     print(generation_metrics_log_msg(result.metrics, prefill_s))
     print(cache_metrics_log_msg(metrics))
 

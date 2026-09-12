@@ -8,8 +8,8 @@ from attrs import field
 
 from fnmatch import fnmatchcase
 
-from preempt.config.pipeline import PipelineConfig
-from preempt.config.target_layers import (
+from preempt.core.config.pipeline import PipelineConfig
+from preempt.core.config.target_layers import (
     TargetLayers,
     TargetLayerSpec,
     TargetLayerSearchParams,

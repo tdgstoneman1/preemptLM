@@ -12,14 +12,14 @@ project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from preempt.config.pipeline import (
+from preempt.core.config.pipeline import (
     LlmConfig,
     GenerationSettings,
     StreamSettings,
     TraceSettings,
     PipelineConfig,
 )
-from preempt.config.target_layers import (
+from preempt.core.config.target_layers import (
     TargetLayerSearchParams,
     TargetLayerSpec,
 )

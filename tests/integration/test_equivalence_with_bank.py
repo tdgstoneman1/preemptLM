@@ -13,7 +13,7 @@ project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from preempt.config.pipeline import PipelineConfig
+from preempt.core.config.pipeline import PipelineConfig
 
 from preempt.backends.mlx_metal.pipeline.build import mlx_build_generation_pipeline
 
