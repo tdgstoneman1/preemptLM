@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 from typing import Any, Self
+from types import TracebackType
 from collections.abc import Mapping
-
 from abc import ABC, abstractmethod
 
 from pathlib import Path
-
 import asyncio
-
 import os
-
 import json
 
 import pyarrow as pa
@@ -44,7 +41,7 @@ class BaseTraceSink(ABC):
         self,
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
-        traceback: object | None,
+        traceback: TracebackType | None,
     ) -> None:
         await self.aclose()
 

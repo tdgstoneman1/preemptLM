@@ -1,11 +1,11 @@
+from concurrent.futures import Future
+
 import attrs
 from attrs import field
 
-from concurrent.futures import Future
-
 from preempt.core.enums import ReadPriority
 
-from preempt.expert_bank.blob import SerializedExpert
+from preempt.datamodel.expert_bank.blob import SerializedExpert
 
 from .identity import ExpertKey
 

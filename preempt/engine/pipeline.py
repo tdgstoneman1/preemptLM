@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Optional
 from collections.abc import Callable
 
+from functools import partial
+
 import attrs
 from attrs import field
-
-from functools import partial
 
 from preempt.core.protocols import IModelRunner, ITokenizer
 

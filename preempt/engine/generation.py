@@ -4,7 +4,6 @@ from typing import Optional
 from collections.abc import Callable, Sequence
 
 import asyncio
-
 import time
 
 from preempt.core.protocols import IModelRunner
@@ -93,7 +92,7 @@ async def generate_greedy(
             f"but got `{type(recorder)=}` and `{type(sink)=}`."
         )
     _eos_token_ids = (
-        set([eos_token_ids])
+        {eos_token_ids}
         if isinstance(eos_token_ids, int) or eos_token_ids is None
         else eos_token_ids
     )

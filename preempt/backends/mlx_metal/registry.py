@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import NamedTuple, overload, Literal, Never
+from typing import ClassVar, Literal, overload, NamedTuple, Never
 
 import copy
 import inspect
 
+import mlx.nn as nn
+
 from mlx_lm.models.qwen3_5_moe import Model as Qwen3_5
 from mlx_lm.models.qwen3_next import Model as Qwen3Next, Qwen3NextSparseMoeBlock
-import mlx.nn as nn
 
 from .module_wrappers.base_moe_wrapper import BaseMoEWrapper
 from .module_wrappers.qwen3_x_moe import Qwen3_xMoEWrapper
@@ -31,8 +32,8 @@ class ArchClassRegistry:
     :Note: For built-in defaults, use the `DefaultArchClassRegistry` subclass.
     """
 
-    _registered: dict[str, _Entry] = {}
-    _aliases: dict[str, str] = {}
+    _registered: ClassVar[dict[str, _Entry]] = {}
+    _aliases: ClassVar[dict[str, str]] = {}
 
     def __init_subclass__(cls, **kwargs) -> None:
         super().__init_subclass__(**kwargs)
@@ -246,7 +247,7 @@ class DefaultArchClassRegistry(ArchClassRegistry):
     registry mutation.
     """
 
-    _registered: dict[str, _Entry] = {
+    _registered: ClassVar[dict[str, _Entry]] = {
         "qwen3.x": _Entry(
             arch_adapter_cls=Qwen3_xArchAdapter,
             moe_wrapper_cls=Qwen3_xMoEWrapper,
@@ -260,7 +261,7 @@ class DefaultArchClassRegistry(ArchClassRegistry):
             mlx_lm_moe_cls=Qwen3NextSparseMoeBlock,
         ),
     }
-    _aliases: dict[str, str] = {"qwen3.5": "qwen3.x", "qwen3.6": "qwen3.x"}
+    _aliases: ClassVar[dict[str, str]] = {"qwen3.5": "qwen3.x", "qwen3.6": "qwen3.x"}
 
     @classmethod
     def register(cls, **kwargs) -> Never:

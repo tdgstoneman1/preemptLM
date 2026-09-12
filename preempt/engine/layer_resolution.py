@@ -14,7 +14,7 @@ from preempt.core.config.target_layers import (
     TargetLayerSpec,
     TargetLayerSearchParams,
 )
-from preempt.expert_bank.banks import BaseExpertBank
+from preempt.datamodel.expert_bank.banks import BaseExpertBank
 
 
 @attrs.define(frozen=True, kw_only=True)

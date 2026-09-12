@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Self, BinaryIO
 from types import TracebackType
-
 from pathlib import Path
 
-from preempt.datamodel.identity import TensorSpec
 from preempt.core.constants import EXPERTS_FILENAME, MANIFEST_FILENAME
+
+from preempt.datamodel.identity import TensorSpec
 
 from .manifest import (
     ExpertBlobRecord,

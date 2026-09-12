@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Self
-
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator

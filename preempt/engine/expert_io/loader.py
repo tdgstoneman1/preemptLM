@@ -1,23 +1,19 @@
 from __future__ import annotations
 
-from functools import cache
 from typing import Generator, Optional
 from collections.abc import Sequence
 
 from concurrent.futures import as_completed, Future
 import asyncio
-
 import time
-
-from preempt.expert_bank.banks import BaseExpertBank
 
 from preempt.core.enums import ReadPriority
 
 from preempt.datamodel.identity import ExpertKey
+from preempt.datamodel.expert_bank.banks import BaseExpertBank
 from preempt.datamodel.requests import LoadRequest, CacheRequest
 
 from ..metrics import GenerationMetrics
-
 from .cache_manager import ExpertCacheManager
 from .cache import BaseExpertCache
 
@@ -132,15 +128,15 @@ class DiskBackedExpertLoader:
                 if key in self._inflight:
                     first_worker_future = self._inflight[key]
 
-                    def inflight_callback(future: Future):
+                    def inflight_callback(future: Future, request_=request) -> None:
                         try:
                             if exc := future.exception():
-                                request.completion_handle.set_exception(exc)
+                                request_.completion_handle.set_exception(exc)
                             else:
-                                request.completion_handle.set_result(None)
+                                request_.completion_handle.set_result(None)
 
                         except Exception as e:
-                            request.completion_handle.set_exception(e)
+                            request_.completion_handle.set_exception(e)
 
                     first_worker_future.add_done_callback(inflight_callback)
                     self._task_queue.task_done()

@@ -1,5 +1,4 @@
 from typing import Any, Final
-
 from string import Template
 
 import mlx.core as mx

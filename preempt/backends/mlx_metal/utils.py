@@ -1,35 +1,29 @@
 from typing import Any, cast
-from collections.abc import Callable, Mapping, Sequence
-
-from attrs import asdict
-
+from collections.abc import Callable, Mapping
 from pathlib import Path
-
 import gc
 
-from rich import print
-
 import ml_dtypes
-
-import numpy as np
 
 import mlx.core as mx
 
 from mlx_lm import load
 from mlx_lm.utils import _get_classes
 
+import numpy as np
+
 from safetensors import safe_open
 
-from preempt.core.protocols import ITokenizer
-from preempt.core.exceptions import EngineCompatibilityError
+from rich import print
 
-from .types import MlxLoadedModel
-from .quantization import QuantSettings
+from preempt.core.protocols import ITokenizer
+
 from .constants import (
     MLX_DTYPE_TAGS,
     MLX_QUANTIZED_ENCODING_TEMPLATE,
     MLX_UNQUANTIZED_ENCODING_TEMPLATE,
 )
+from .types import MlxLoadedModel
 from .quantization import QuantSettings
 
 

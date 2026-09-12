@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-import numpy as np
-
 import attrs
 from attrs import field, validators
+
+import numpy as np
 
 from preempt.datamodel.identity import ExpertKey, TensorSpec
 

@@ -1,39 +1,37 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from pathlib import Path
+import asyncio
 
 from rich.console import Console
-
-import asyncio
 
 import mlx.core as mx
 
 from preempt.core.enums import Backends
-
 from preempt.core.config.pipeline import PipelineConfig
 from preempt.core.config.target_layers import (
     TargetLayers,
 )
 from preempt.engine.expert_io.cache_manager import ExpertCacheManager
-
-from preempt.engine.metrics import GenerationMetrics
-from preempt.engine.pipeline import GenerationPipeline
+from preempt.engine.expert_io.loader import DiskBackedExpertLoader
 from preempt.engine.layer_resolution import (
     LayerCandidate,
     ensure_no_target_layer_overlap,
     target_layers_for_model,
 )
-from preempt.engine.expert_io.loader import DiskBackedExpertLoader
+from preempt.engine.pipeline import GenerationPipeline
+from preempt.engine.metrics import GenerationMetrics
 
-from preempt.expert_bank.encoding import parse_encoding_tag
-from preempt.expert_bank.banks import BaseExpertBank, PreadExpertBank, MmapExpertBank
-
+from preempt.datamodel.expert_bank.encoding import parse_encoding_tag
+from preempt.datamodel.expert_bank.banks import (
+    BaseExpertBank,
+    PreadExpertBank,
+)
 from preempt.utils.pipeline_utils import (
     get_recorder,
     get_parquet_sink,
 )
+from ..expert_cache import MlxExpertCache
 from ..module_wrappers.instrument import (
     mlx_instrument_model,
     mlx_strip_instrumented_expert_weights,
@@ -41,7 +39,6 @@ from ..module_wrappers.instrument import (
 )
 from ..registry import DefaultArchClassRegistry
 from ..recorder import MlxTraceRecorder
-from ..expert_cache import MlxExpertCache
 from ..types import MlxLoadedModel
 from ..utils import load_mlx_model
 
@@ -152,11 +149,11 @@ def _evaluate_model(
 def mlx_build_generation_pipeline(
     config: PipelineConfig,
     *,
-    event_loop: Optional[asyncio.AbstractEventLoop] = None,
-    metrics: Optional[GenerationMetrics] = None,
+    event_loop: asyncio.AbstractEventLoop | None = None,
+    metrics: GenerationMetrics | None = None,
     stream_experts: bool,
     profile: bool,
-    console: Optional[Console] = None,
+    console: Console | None = None,
 ) -> GenerationPipeline:
 
     print_ = lambda x: (

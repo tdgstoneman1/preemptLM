@@ -1,5 +1,4 @@
 from typing import Final
-
 import re
 from string import Template
 

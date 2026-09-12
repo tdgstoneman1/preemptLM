@@ -16,9 +16,9 @@ import numpy as np
 
 import mlx.core as mx
 
-from preempt.expert_bank.blob import assemble_expert_blob, derive_tensor_specs
-from preempt.expert_bank.manifest import ExpertBankManifest
-from preempt.expert_bank.writer import ExpertBankWriter
+from preempt.datamodel.expert_bank.blob import assemble_expert_blob, derive_tensor_specs
+from preempt.datamodel.expert_bank.manifest import ExpertBankManifest
+from preempt.datamodel.expert_bank.writer import ExpertBankWriter
 
 from preempt.utils.hf_utils import hash_model_ckpt
 

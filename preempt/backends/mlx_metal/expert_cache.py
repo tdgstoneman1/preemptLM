@@ -7,14 +7,16 @@ from attrs import field
 
 import math
 
-import numpy as np
-
 import mlx.core as mx
 from mlx.utils import tree_flatten
 
-from preempt.expert_bank.encoding import ExpertBankEncoding, parse_encoding_tag
-from preempt.expert_bank.blob import SerializedExpert
+import numpy as np
 
+from preempt.datamodel.expert_bank.encoding import (
+    ExpertBankEncoding,
+    parse_encoding_tag,
+)
+from preempt.datamodel.expert_bank.blob import SerializedExpert
 from preempt.datamodel.identity import ExpertKey
 
 from preempt.engine.expert_io.cache import BaseExpertCache

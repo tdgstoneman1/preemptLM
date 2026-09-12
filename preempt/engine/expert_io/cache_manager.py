@@ -5,9 +5,9 @@ from attrs import field
 
 import numpy as np
 
-from preempt.datamodel.identity import ExpertKey
-
 from preempt.core.enums import CacheEvictionPolicy, ReadPriority
+
+from preempt.datamodel.identity import ExpertKey
 
 
 @attrs.define(kw_only=True)

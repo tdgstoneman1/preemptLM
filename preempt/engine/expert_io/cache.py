@@ -1,11 +1,9 @@
 from typing import Any
 from collections.abc import Mapping
-
 from abc import ABC, abstractmethod
 
 from preempt.datamodel.identity import ExpertKey
-
-from preempt.expert_bank.blob import SerializedExpert
+from preempt.datamodel.expert_bank.blob import SerializedExpert
 
 from .cache_manager import ExpertCacheManager
 

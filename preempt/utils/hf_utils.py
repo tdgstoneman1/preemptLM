@@ -5,9 +5,7 @@ from collections.abc import Generator
 from pathlib import Path
 import hashlib
 import shutil
-
 import re
-
 import math
 
 from huggingface_hub import snapshot_download
@@ -63,7 +61,7 @@ def get_safetensor_size(
     path: Path, tensor_name: str, units: Literal["bytes", "kb", "mb", "gb"] = "mb"
 ) -> int | float:
     with safe_open(path, framework="pt", backend="pread") as f:
-        if tensor_name not in f.keys():
+        if tensor_name not in f:
             raise ValueError()
 
         tensor_slice = f.get_slice(tensor_name)
@@ -135,13 +133,10 @@ def make_shard_map(
         else:
             other.append(name)
 
-    # Infinite loop
     def loop_weights() -> Generator[str, Any, NoReturn]:
         while True:
-            # Prioritize blocks of layers to avoid splitting between
-            # multiple files
-            for name in grouped + other:
-                yield name
+            # Prioritize layers grouped in blocks to avoid splits across files
+            yield from (name for name in grouped + other)
 
     shards: list[dict[str, str]] = []
     current_shard: dict[str, str] = {}
@@ -190,9 +185,8 @@ def make_shard_map(
                 break_current_shard = False
                 break
 
-    if shards:
-        if current_shard != shards[-1]:
-            shards.append(current_shard)
+    if shards and current_shard != shards[-1]:
+        shards.append(current_shard)
 
     return shards
 

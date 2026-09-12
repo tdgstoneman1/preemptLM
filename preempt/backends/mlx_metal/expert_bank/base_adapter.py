@@ -9,7 +9,7 @@ import re
 
 import mlx.core as mx
 
-from preempt.expert_bank.manifest import ModelMoESpec
+from preempt.datamodel.expert_bank.manifest import ModelMoESpec
 
 from ..quantization import QuantSettings
 

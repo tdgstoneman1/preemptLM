@@ -7,8 +7,8 @@ from attrs import field
 import mlx.nn as nn
 import mlx.core as mx
 
-from preempt.engine.layer_resolution import LayerCandidate
 from preempt.core.protocols import ITokenizer
+from preempt.engine.layer_resolution import LayerCandidate
 
 from .quantization import QuantSettings
 

@@ -5,24 +5,21 @@ from attrs import asdict
 import mlx.core as mx
 import mlx.nn as nn
 
-import mlx.core as mx
 from mlx_lm.models.switch_layers import (
-    SwitchLinear,
     QuantizedSwitchLinear,
     SwitchGLU,
+    SwitchLinear,
 )
+from preempt.core.exceptions import EngineCompatibilityError
+from preempt.datamodel.identity import ExpertKey
 from preempt.engine.expert_io.loader import DiskBackedExpertLoader
 
-from preempt.datamodel.identity import ExpertKey
-
-from preempt.core.exceptions import EngineCompatibilityError
-
+from ..constants import SWITCHGLU_LINEAR_PROJ_NAMES, MLX_QUANT_PARAMS
 from ..types import (
     ExpertLayerQuants,
     WeightsTensor,
     QuantizedWeightsTensor,
 )
-from ..constants import SWITCHGLU_LINEAR_PROJ_NAMES, MLX_QUANT_PARAMS
 from ..quantization import QuantSettings
 
 
