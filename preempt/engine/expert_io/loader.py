@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import cache
 from typing import Generator, Optional
 from collections.abc import Sequence
 
@@ -27,8 +28,8 @@ from .cache import BaseExpertCache
 
 
 class DiskBackedExpertLoader:
-    """`IExpertLoader` interface that manages concurrent expert I/O, and
-    schedules read and prefetch requests based on priority.
+    """Interfaces with expert bank, manages concurrent expert I/O, and schedules
+    read and prefetch requests based on priority.
     """
 
     _expert_bank: BaseExpertBank
@@ -96,10 +97,6 @@ class DiskBackedExpertLoader:
 
     def __del__(self) -> None:
         self.close()
-
-    @property
-    def cache_manager(self) -> ExpertCacheManager:
-        return self._cache_manager
 
     async def _cache_loop(self) -> None:
         while True:
