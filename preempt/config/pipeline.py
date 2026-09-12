@@ -13,7 +13,10 @@ from pydantic import (
     computed_field,
 )
 
-from preempt.utils.io_utils import read_and_validate_toml, resolve_dotted_relative_path
+from preempt.utils.dataclass_utils import (
+    read_and_validate_toml,
+    resolve_dotted_relative_path,
+)
 
 from .target_layers import TargetLayers, TargetLayerSpec
 
