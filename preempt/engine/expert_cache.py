@@ -9,9 +9,6 @@ from preempt.datamodel.identity import ExpertKey
 
 from preempt.core.enums import CacheEvictionPolicy, ReadPriority
 
-# TODO rename module
-# TODO merge cache manager and cache into a single cache class
-
 
 @attrs.define(kw_only=True)
 class _Entry:
@@ -136,25 +133,28 @@ class ExpertCacheManager:
         return len(self._entries)
 
     @property
-    def budget_bytes(self) -> int:
-        return self._budget_bytes
-
-    @property
     def policy(self) -> CacheEvictionPolicy:
+        """The cache's eviction policy (LRU or LFRU)"""
         return self._policy
 
     @property
+    def budget_bytes(self) -> int:
+        """The cache's maximum allowable memory footprint in bytes"""
+        return self._budget_bytes
+
+    @property
     def cache_size(self) -> int:
+        """The cache's memory footprint in bytes"""
         return self._bytes_size
 
     @property
     def hits(self) -> int:
-        """Number of demand accesses where an expert was already cached"""
+        """Number of cache hits where a requested expert was already cached"""
         return self._num_hits
 
     @property
     def misses(self) -> int:
-        """Number of demand accesses where an expert had to be read from disk"""
+        """Number of cache misses requiring experts to be read from disk"""
         return self._num_misses
 
     @property
@@ -164,22 +164,22 @@ class ExpertCacheManager:
 
     @property
     def bytes_read(self) -> int:
-        """Total number of bytes read from expert bank on disk"""
+        """Total number of bytes read from expert bank"""
         return self._num_bytes_read
 
     def touch(self, key: ExpertKey) -> bool:  # TODO rename
-        """Records a demand access for `key` and reports whether it hit.
+        """Records a request for `key` and reports whether it hit.
 
         Parameters
         ----------
         key : ExpertKey
-            Key for an MoE router-selected expert
+            Key identifying an MoE expert
 
         Returns
         -------
         bool
-            `True` if the key was found in cache (frequency and recency updated),
-            `False` otherwise (caller should read the expert and call `admit(...)`).
+            True if the key was found in the cache (frequency and recency updated), False
+            otherwise.
         """
         if (entry := self._entries.get(key)) is None:
             self._num_misses += 1
@@ -204,26 +204,26 @@ class ExpertCacheManager:
         Parameters
         ----------
         key : ExpertKey
-            Key identifying an expert
+            Key identifying a serialized expert
         num_bytes : int
-            The serialized expert's size in bytes
+            Size of the expert's weights in bytes
         priority: ReadPriority
-            Used to flag whether the entry can safely be evicted from the cache
-            prior to being consumed. This prevents entries with `DEMAND` priority
-            from being prematurely evicted in concurrent `admit()` calls.
+            Used to flag whether the entry can safely be evicted from the cache. This is to prevent
+            entries with `DEMAND` priority from being prematurely evicted by concurrent `admit()`
+            calls.
 
         Returns
         -------
         tuple[ExpertKey, ...]
-            Keys for experts evicted to make room for the new expert, in the order
-            they were evicted in.
+            Keys for experts evicted to make room for the new expert, in the order they were evicted
+            in.
 
         Raises
         ------
         ValueError
             If a single serialized expert's size exceeds cache's total memory budget
         """
-        if num_bytes > self._budget_bytes:
+        if num_bytes > self._budget_bytes:  # TODO move this check to helper method
             raise ValueError(
                 f"The size of expert {key!r} ({num_bytes/1024**3} GB) exceeds the "
                 f"cache's total memory budget ({self._budget_bytes/1024**3} GB)."
@@ -255,8 +255,10 @@ class ExpertCacheManager:
 
         return tuple(evicted)
 
-    def mark_entry_safe_to_evict(self, key: ExpertKey):
-        self._entries[key].can_evict = True
+    def mark_entry_safe_to_evict(self, key: ExpertKey) -> None:
+        # ! Maybe raise KeyError loudly, this could hide bugs
+        if entry := self._entries.get(key):
+            entry.can_evict = True
 
     def _select_eviction_target(self) -> ExpertKey:
         num_keys = len(self._keys)
@@ -282,9 +284,10 @@ class ExpertCacheManager:
 
         if not targets:
             raise RuntimeError(
-                "No evictable experts found. Cache budget exceeded by in-flight demand reads."
+                "No evictable experts found in the cache. The total size of in-flight "
+                "expert bank reads likely exceeds the cache's confiugured memory budget "
+                f"({self.budget_bytes/1024**3} GB)."
             )
-
         return min(targets, key=self._rank)
 
     def _rank(self, key: ExpertKey) -> tuple[int, int]:
