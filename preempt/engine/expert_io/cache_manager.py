@@ -40,6 +40,7 @@ class _Entry:
 
 
 # TODO add true LRU and LFRU as a baseline for experiments
+# TODO class docstring
 class ExpertCacheManager:
     """Manager that tracks experts in memory and manages eviction decisions.
 
