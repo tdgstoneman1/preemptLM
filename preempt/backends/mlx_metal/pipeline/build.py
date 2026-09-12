@@ -7,26 +7,26 @@ from pathlib import Path
 from rich.console import Console
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 
 import mlx.core as mx
 
 from preempt.core.enums import Backends
 from preempt.core.protocols import IExpertLoader
 
-from preempt.config.pipeline import PipelineConfig
-from preempt.config.target_layers import (
+from preempt.core.config.pipeline import PipelineConfig
+from preempt.core.config.target_layers import (
     TargetLayers,
 )
+from preempt.engine.expert_io.cache_manager import ExpertCacheManager
+
 from preempt.engine.metrics import GenerationMetrics
 from preempt.engine.pipeline import GenerationPipeline
-from preempt.engine.expert_cache import ExpertCacheManager
 from preempt.engine.layer_resolution import (
     LayerCandidate,
     ensure_no_target_layer_overlap,
     target_layers_for_model,
 )
-from preempt.engine.expert_loaders import DiskBackedExpertLoader
+from preempt.engine.expert_io.loader import DiskBackedExpertLoader
 
 from preempt.expert_bank.encoding import parse_encoding_tag
 from preempt.expert_bank.banks import BaseExpertBank, PreadExpertBank, MmapExpertBank
@@ -48,15 +48,15 @@ from ..utils import load_mlx_model
 
 from .runner import MlxModelRunner
 
-# TODO pass 'expert_matmul' mode for MoE wrapper module (from config)
+# TODO pass 'streamed_expert_matmul' mode for MoE wrapper module (from config)
 # TODO pass max_kv_size from config
 
 
-def _get_io_deps(
+def _get_expert_io_deps(
     *,
     config: PipelineConfig,
     metrics: GenerationMetrics | None,
-    executor: ThreadPoolExecutor,
+    event_loop: asyncio.AbstractEventLoop,
 ) -> tuple[BaseExpertBank, MlxExpertCache, DiskBackedExpertLoader]:
     if config.stream_settings is None:
         raise ValueError()
@@ -65,17 +65,19 @@ def _get_io_deps(
         config.stream_settings.expert_bank_path,
         bypass_page_cache=config.stream_settings.bypass_page_cache,
     )
-    cache = MlxExpertCache(
-        encoding=parse_encoding_tag(expert_bank.manifest.encoding),  # type: ignore
-    )
+    encoding = parse_encoding_tag(expert_bank.manifest.encoding)
     cache_manager = ExpertCacheManager(
         budget_bytes=config.stream_settings.memory_bytes_budget
     )
+    cache = MlxExpertCache(
+        encoding=encoding,
+        manager=cache_manager,
+    )
     loader = DiskBackedExpertLoader(
         expert_bank=expert_bank,
-        cache=cache,  # type: ignore
+        cache=cache,
         cache_manager=cache_manager,
-        executor=executor,
+        event_loop=event_loop,
         metrics=metrics,
     )
     return expert_bank, cache, loader
@@ -152,7 +154,6 @@ def mlx_build_generation_pipeline(
     config: PipelineConfig,
     *,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
-    executor: Optional[ThreadPoolExecutor] = None,
     metrics: Optional[GenerationMetrics] = None,
     stream_experts: bool,
     profile: bool,
@@ -190,11 +191,11 @@ def mlx_build_generation_pipeline(
 
     # * Configure optional streaming
     if stream_experts:
-        executor = executor or ThreadPoolExecutor(max_workers=64)
-        expert_bank, cache, loader = _get_io_deps(
+        event_loop = event_loop or asyncio.get_event_loop()
+        expert_bank, cache, loader = _get_expert_io_deps(
             config=config,
             metrics=metrics,
-            executor=executor,
+            event_loop=event_loop,
         )
     else:
         expert_bank, cache, loader = None, None, None
