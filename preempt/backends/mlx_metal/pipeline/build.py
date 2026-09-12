@@ -11,7 +11,6 @@ import asyncio
 import mlx.core as mx
 
 from preempt.core.enums import Backends
-from preempt.core.protocols import IExpertLoader
 
 from preempt.core.config.pipeline import PipelineConfig
 from preempt.core.config.target_layers import (
@@ -102,7 +101,7 @@ def _instrument_model(
     moe_blocks: list[LayerCandidate],
     config: PipelineConfig,
     expert_bank: BaseExpertBank | None,
-    expert_loader: IExpertLoader | None,
+    expert_loader: DiskBackedExpertLoader | None,
     expert_cache: MlxExpertCache | None,
     recorder: MlxTraceRecorder | None,
 ) -> int:
