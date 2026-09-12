@@ -8,7 +8,7 @@ from ..types import ExpertLayerQuants, ModuleWrapperFactory
 from ..expert_cache import MlxExpertCache
 from ..recorder import MlxTraceRecorder
 
-from preempt.core.protocols import IExpertLoader
+from preempt.engine.expert_io.loader import DiskBackedExpertLoader
 
 
 class BaseMoEWrapper(ABC, nn.Module):
@@ -21,7 +21,7 @@ class BaseMoEWrapper(ABC, nn.Module):
     block_idx: int
     model_fingerprint: str | None
 
-    expert_loader: IExpertLoader | None
+    expert_loader: DiskBackedExpertLoader | None
     expert_cache: MlxExpertCache | None
 
     _quants: ExpertLayerQuants | None
@@ -34,7 +34,7 @@ class BaseMoEWrapper(ABC, nn.Module):
         capture_gate_logits: bool,
         layer_path: str,
         block_idx: int,
-        expert_loader: Optional[IExpertLoader],
+        expert_loader: Optional[DiskBackedExpertLoader],
         expert_cache: Optional[MlxExpertCache],
         model_fingerprint: Optional[str],
     ) -> None:
