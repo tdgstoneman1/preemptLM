@@ -7,10 +7,8 @@ import numpy as np
 
 from preempt.core.enums import CacheEvictionPolicy, ReadPriority
 
-from preempt.datamodel.identity import ExpertKey
 
-
-@attrs.define(kw_only=True)
+@attrs.define(kw_only=True, slots=True)
 class _Entry:
     """Metadata for one cached expert
 
@@ -24,7 +22,7 @@ class _Entry:
     last : int
         Logical clock of most recent access (LFRU recency term).
     slot : int
-        Position in the cache's key list for O(1) eviction via swap-remove.
+        Position in the cache for O(1) eviction via swap-remove.
     can_evict : bool
         Flag indicating whether the entry can safely be evicted. For `DEMAND` reads,
         this should be False until the entry is consumed by the caller in order to prevent
@@ -41,6 +39,7 @@ class _Entry:
 
 # TODO add true LRU and LFRU as a baseline for experiments
 # TODO class docstring
+@attrs.define(slots=True)
 class ExpertCacheManager:
     """Manager that tracks experts in memory and manages eviction decisions.
 
@@ -66,8 +65,8 @@ class ExpertCacheManager:
     _eviction_sample_size: int
     _rng: np.random.Generator
 
-    _entries: dict[ExpertKey, _Entry]
-    _keys: list[ExpertKey]
+    _entries: dict[int, _Entry]
+    _expert_idxs: list[int]
     _bytes_size: int
     _clock: int
 
@@ -118,7 +117,7 @@ class ExpertCacheManager:
         self._rng = np.random.default_rng(seed)
 
         self._entries = dict()
-        self._keys = list()
+        self._expert_idxs = list()
         self._bytes_size = 0
         self._clock = 0
 
@@ -127,8 +126,8 @@ class ExpertCacheManager:
         self._num_evictions = 0
         self._num_bytes_read = 0
 
-    def __contains__(self, key: ExpertKey) -> bool:
-        return key in self._entries
+    def __contains__(self, item) -> bool:
+        return item in self._entries
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -168,21 +167,21 @@ class ExpertCacheManager:
         """Total number of bytes read from expert bank"""
         return self._num_bytes_read
 
-    def touch(self, key: ExpertKey) -> bool:  # TODO rename
+    def touch(self, expert_idx: int) -> bool:
         """Records a request for `key` and reports whether it hit.
 
         Parameters
         ----------
-        key : ExpertKey
-            Key identifying an MoE expert
+        expert_idx : int
+            Unique integer index pointing to a serialized expert's location the model
 
         Returns
         -------
         bool
-            True if the key was found in the cache (frequency and recency updated), False
+            True if `expert_idx` is in the cache (frequency and recency updated), False
             otherwise.
         """
-        if (entry := self._entries.get(key)) is None:
+        if (entry := self._entries.get(expert_idx)) is None:
             self._num_misses += 1
             return False
 
@@ -196,16 +195,16 @@ class ExpertCacheManager:
 
     def admit(
         self,
-        key: ExpertKey,
+        expert_idx: int,
         num_bytes: int,
         priority: ReadPriority,
-    ) -> tuple[ExpertKey, ...]:
-        """Makes room for new expert under `key` and records it.
+    ) -> tuple[int, ...]:
+        """Makes room for new expert and records the admission.
 
         Parameters
         ----------
-        key : ExpertKey
-            Key identifying a serialized expert
+        expert_idx : int
+            Unique integer index pointing to a serialized expert's location within the model
         num_bytes : int
             Size of the expert's weights in bytes
         priority: ReadPriority
@@ -215,9 +214,9 @@ class ExpertCacheManager:
 
         Returns
         -------
-        tuple[ExpertKey, ...]
-            Keys for experts evicted to make room for the new expert, in the order they were evicted
-            in.
+        tuple[int, ...]
+            Indices for the experts that were evicted to make room for the new expert, in the order
+            they were evicted in.
 
         Raises
         ------
@@ -226,14 +225,14 @@ class ExpertCacheManager:
         """
         if num_bytes > self._budget_bytes:  # TODO move this check to helper method
             raise ValueError(
-                f"The size of expert {key!r} ({num_bytes/1024**3} GB) exceeds the "
+                f"The size of expert {expert_idx} ({num_bytes/1024**3} GB) exceeds the "
                 f"cache's total memory budget ({self._budget_bytes/1024**3} GB)."
             )
-        if key in self._entries:
+        if expert_idx in self._entries:
             return tuple()
 
         self._num_bytes_read += num_bytes
-        evicted: list[ExpertKey] = []
+        evicted: list[int] = []
 
         while self._bytes_size + num_bytes > self._budget_bytes:
             target = self._select_eviction_target()
@@ -244,35 +243,36 @@ class ExpertCacheManager:
 
         self._clock += 1
 
-        self._entries[key] = _Entry(
+        self._entries[expert_idx] = _Entry(
             num_bytes=num_bytes,
             freq=1,
             last=self._clock,
-            slot=len(self._keys),
+            slot=len(self._expert_idxs),
             can_evict=priority != ReadPriority.DEMAND,
         )
-        self._keys.append(key)
+        self._expert_idxs.append(expert_idx)
         self._bytes_size += num_bytes
 
         return tuple(evicted)
 
-    def mark_entry_safe_to_evict(self, key: ExpertKey) -> None:
+    def mark_entry_safe_to_evict(self, expert_idx: int) -> None:
         # ! Maybe raise KeyError loudly, this could hide bugs
-        if entry := self._entries.get(key):
+        if entry := self._entries.get(expert_idx):
             entry.can_evict = True
 
-    def _select_eviction_target(self) -> ExpertKey:
-        num_keys = len(self._keys)
-        targets: list[ExpertKey] = []
+    # TODO optimize this
+    def _select_eviction_target(self) -> int:
+        num_keys = len(self._expert_idxs)
+        targets: list[int] = []
 
         if num_keys <= self._eviction_sample_size:
-            targets = [k for k in self._keys if self._entries[k].can_evict]
+            targets = [idx for idx in self._expert_idxs if self._entries[idx].can_evict]
         else:
             max_attempts = self._eviction_sample_size * 10
             idxs = self._rng.integers(0, num_keys, size=max_attempts)
 
             for idx in idxs:
-                key = self._keys[idx]
+                key = self._expert_idxs[idx]
 
                 if self._entries[key].can_evict:
                     targets.append(key)
@@ -281,7 +281,7 @@ class ExpertCacheManager:
                         break
 
             if not targets:  # Fallback if cache highly locked
-                targets = [k for k in self._keys if self._entries[k].can_evict]
+                targets = [k for k in self._expert_idxs if self._entries[k].can_evict]
 
         if not targets:
             raise RuntimeError(
@@ -291,20 +291,20 @@ class ExpertCacheManager:
             )
         return min(targets, key=self._rank)
 
-    def _rank(self, key: ExpertKey) -> tuple[int, int]:
-        entry = self._entries[key]
+    def _rank(self, expert_idx: int) -> tuple[int, int]:
+        entry = self._entries[expert_idx]
 
         if self._policy is CacheEvictionPolicy.LRU:
             return (0, entry.last)
 
         return (entry.freq, entry.last)
 
-    def evict(self, key: ExpertKey) -> None:
-        entry = self._entries.pop(key)
-        moved = self._keys.pop()
+    def evict(self, expert_idx: int) -> None:
+        entry = self._entries.pop(expert_idx)
+        moved = self._expert_idxs.pop()
 
-        if moved != key:
-            self._keys[entry.slot] = moved
+        if moved != expert_idx:
+            self._expert_idxs[entry.slot] = moved
             self._entries[moved].slot = entry.slot
 
         self._bytes_size -= entry.num_bytes

@@ -17,7 +17,7 @@ MlxModuleT = TypeVar("MlxModuleT", bound=nn.Module)
 ModuleWrapperFactory = Callable[[MlxModuleT, LayerCandidate], nn.Module]
 
 
-@attrs.define(kw_only=True, frozen=True, eq=False)
+@attrs.define(kw_only=True, frozen=True, slots=True)
 class MlxLoadedModel:
     """An `mlx_lm` model-tokenizer pair.
 
@@ -35,11 +35,12 @@ class MlxLoadedModel:
 
 
 # TODO remove weights data classes, adds unnecessary boilerplate
-class WeightsTensor(NamedTuple):
+@attrs.define(kw_only=True, frozen=True, slots=True)
+class WeightsTensor:
     weight: mx.array
 
 
-@attrs.define(kw_only=True, frozen=True, eq=False)
+@attrs.define(kw_only=True, frozen=True, slots=True)
 class QuantizedWeightsTensor(QuantSettings):
     weight: mx.array
     scales: mx.array

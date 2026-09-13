@@ -10,8 +10,6 @@ import mlx.nn as nn
 
 from mlx_lm.models.qwen3_next import Qwen3NextSparseMoeBlock
 
-from preempt.datamodel.identity import ExpertKey
-
 from preempt.engine.expert_io.loader import DiskBackedExpertLoader
 from preempt.engine.layer_resolution import LayerCandidate
 
@@ -109,7 +107,7 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
                     expert_cache=self.expert_cache,
                     top_k=self.inner.top_k,
                     block_idx=self.block_idx,
-                    model_fingerprint=self.model_fingerprint,
+                    num_experts=self.inner.num_experts,
                     quants=self._quants,
                 )
             elif streamed_expert_matmul == "fused":
@@ -117,22 +115,20 @@ class Qwen3_xMoEWrapper(BaseMoEWrapper):
                     fused_expert_matmul,
                     expert_loader=self.expert_loader,
                     expert_cache=self.expert_cache,
-                    top_k=self.inner.top_k,
                     block_idx=self.block_idx,
-                    model_fingerprint=self.model_fingerprint,
+                    num_experts=self.inner.num_experts,
                     quants=self._quants,
                 )
             else:
                 raise ValueError()  # TODO error msg
 
     def _get_expert_weights(self, expert_idx: int) -> ExpertLayerWeights:
-        key = ExpertKey(
-            model_fingerprint=self.model_fingerprint,  # type: ignore
-            block_idx=self.block_idx,
-            expert_idx=expert_idx,
-        )
-        self.expert_loader.load(key)  # type: ignore
-        weights = self.expert_cache.get(key)  # type: ignore
+        assert self.expert_loader is not None
+        assert self.expert_cache is not None
+
+        idx = (self.block_idx * self.inner.num_experts) + expert_idx
+        self.expert_loader.load(idx)  # type: ignore
+        weights = self.expert_cache.get(idx)
 
         return make_switchglu_weight_map(weights, self._quants)
 

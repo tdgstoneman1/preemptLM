@@ -7,18 +7,18 @@ from attrs import field, validators
 
 import numpy as np
 
-from preempt.datamodel.identity import ExpertKey, TensorSpec
+from preempt.datamodel.identity import TensorSpec
 
 
-@attrs.define(kw_only=True, frozen=True)
+@attrs.define(kw_only=True, frozen=True, slots=True)
 class SerializedExpert:
     """An expert layer's weights in bytes and the metadata required to decode them back
     into tensors.
 
     Attributes
     ----------
-    key : ExpertKey
-        Unique identifier for the expert layer
+    idx : int
+        TODO
     data : bytes
         Concatenated bytes for the expert layer's weights (size = `sum(spec.num_bytes
         for spec in tensor_specs)`)
@@ -28,7 +28,7 @@ class SerializedExpert:
         Expert weight tensor specifications in the order they appear in `data`
     """
 
-    key: ExpertKey = field()
+    idx: int = field()
     data: bytes = field()
     encoding: str = field(validator=validators.min_len(1))
     tensor_specs: tuple[TensorSpec, ...] = field()

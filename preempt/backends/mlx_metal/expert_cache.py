@@ -17,13 +17,12 @@ from preempt.datamodel.expert_bank.encoding import (
     parse_encoding_tag,
 )
 from preempt.datamodel.expert_bank.blob import SerializedExpert
-from preempt.datamodel.identity import ExpertKey
 
 from preempt.engine.expert_io.cache import BaseExpertCache
 from preempt.engine.expert_io.cache_manager import ExpertCacheManager
 
 
-@attrs.define(kw_only=True, frozen=True, eq=False)
+@attrs.define(kw_only=True, frozen=True, eq=False, slots=True)
 class CachedExpert:
     """A cached expert's weights and size in bytes.
 
@@ -70,7 +69,7 @@ def decode_serialized_expert(
     """
     if (parsed := parse_encoding_tag(expert.encoding)) != encoding:
         raise ValueError(
-            f"Encoding mismatch for {expert.key!r}. Expected {encoding!r}, "
+            f"Encoding mismatch for {expert.idx}. Expected {encoding!r}, "
             f"but got {expert.encoding!r} ({parsed!r})."
         )
 
@@ -87,7 +86,7 @@ def decode_serialized_expert(
 
     if offset != len(expert.data):
         raise ValueError(
-            f"Blob for {expert.key!r} is {len(expert.data)} bytes, but its "
+            f"Blob for {expert.idx} is {len(expert.data)} bytes, but its "
             f"tensor spec accounts for {offset} bytes."
         )
 
@@ -109,7 +108,7 @@ class MlxExpertCache(BaseExpertCache):
     encoding: ExpertBankEncoding = field()
     manager: ExpertCacheManager
 
-    _entries: dict[ExpertKey, CachedExpert] = field(factory=dict, init=False)
+    _entries: dict[int, CachedExpert] = field(factory=dict, init=False)
     _bytes_size: int = field(default=0, init=False)
 
     def __contains__(self, item) -> bool:
@@ -124,8 +123,6 @@ class MlxExpertCache(BaseExpertCache):
 
         Parameters
         ----------
-        key : ExpertKey
-            Expert udentifier to key its weights to
         expert : SerializedExpert
             An expert layer's byte data, layout specs, and encoding info
         """
@@ -135,21 +132,21 @@ class MlxExpertCache(BaseExpertCache):
         )  # ! Use expert.encoding instead?
         mx.eval(tree_flatten(weight_map))
 
-        if (previous := self._entries.get(expert.key)) is not None:
+        if (previous := self._entries.get(expert.idx)) is not None:
             self._bytes_size -= previous.num_bytes
 
-        self._entries[expert.key] = CachedExpert(
+        self._entries[expert.idx] = CachedExpert(
             weight_map=weight_map, num_bytes=num_bytes
         )
         self._bytes_size += num_bytes
 
-    def get(self, key: ExpertKey) -> Mapping[str, mx.array]:
+    def get(self, expert_idx: int) -> Mapping[str, mx.array]:
         """Returns cached expert mapped to `key`.
 
         Parameters
         ----------
-        key : ExpertKey
-            Identifier for the cached expert
+        expert_idx : int
+            Unique index denoting the cached expert's position within its model
 
         Returns
         -------
@@ -161,115 +158,27 @@ class MlxExpertCache(BaseExpertCache):
         KeyError
             If `key` does not exist in the cache.
         """
-        entry = self._entries[key].weight_map
-        self.manager.mark_entry_safe_to_evict(key)
+        entry = self._entries[expert_idx].weight_map
+        self.manager.mark_entry_safe_to_evict(expert_idx)
 
         return entry
 
-    def evict(self, key: ExpertKey) -> None:
+    def evict(self, expert_idx: int) -> None:
         """Drops an expert's weights from the cache.
 
         Parameters
         ----------
-        key : ExpertKey
-            Identifier for the expert to remove
+        expert_idx : int
+            Unique index denoting the cached expert's position within its model
 
         Raises
         ------
         KeyError
             If `key` does not exist in the cache.
         """
-        entry = self._entries.pop(key)
+        entry = self._entries.pop(expert_idx)
         self._bytes_size -= entry.num_bytes
 
     def size(self) -> int:
         """Returns the cache's memory footprint in bytes."""
         return self._bytes_size
-
-
-# TODO add `manager` attribute to directly connect cache to `CacheManager`,
-# necessary for marking entries as 'consumed' and ok for possible eviction
-# @attrs.define(kw_only=True, eq=False, slots=True)
-# class MlxExpertCache:
-#     """`IExpertCache` interface for MLX.
-
-#     Attributes
-#     ----------
-#     encoding : ExpertBankEncoding
-#         Encoding information for validating and decoding serialized experts
-#     """
-
-#     encoding: ExpertBankEncoding = field()
-#     _entries: dict[ExpertKey, CachedExpert] = field(factory=dict, init=False)
-#     _bytes_size: int = field(default=0, init=False)
-
-#     def add(self, expert: SerializedExpert) -> None:
-#         """Decodes serialized expert weights as MLX arrays and maps them to `key`
-#         in the cache.
-
-#         If the cache already contains an entry for `key`, it is replaced and byte
-#         accounting is updated accordingly.
-
-#         Parameters
-#         ----------
-#         key : ExpertKey
-#             Expert udentifier to key its weights to
-#         expert : SerializedExpert
-#             An expert layer's byte data, layout specs, and encoding info
-#         """
-#         num_bytes = len(expert.data)
-#         weight_map = decode_serialized_expert(
-#             expert, self.encoding
-#         )  # ! Use expert.encoding instead?
-#         mx.eval(tree_flatten(weight_map))
-
-#         if (previous := self._entries.get(expert.key)) is not None:
-#             self._bytes_size -= previous.num_bytes
-
-#         self._entries[expert.key] = CachedExpert(
-#             weight_map=weight_map, num_bytes=num_bytes
-#         )
-#         self._bytes_size += num_bytes
-
-#     def evict(self, key: ExpertKey) -> None:
-#         """Drops an expert's weights from the cache.
-
-#         Parameters
-#         ----------
-#         key : ExpertKey
-#             Identifier for the expert to remove
-
-#         Raises
-#         ------
-#         KeyError
-#             If `key` does not exist in the cache.
-#         """
-#         entry = self._entries.pop(key)
-#         self._bytes_size -= entry.num_bytes
-
-#     def size(self) -> int:
-#         """Returns the cache's memory footprint in bytes."""
-#         return self._bytes_size
-
-#     def get(self, key: ExpertKey) -> Mapping[str, mx.array]:
-#         """Returns cached expert mapped to `key`.
-
-#         Parameters
-#         ----------
-#         key : ExpertKey
-#             Identifier for the cached expert
-
-#         Returns
-#         -------
-#         Mapping[str, mx.array]
-#             Mapping of weight names to MLX arrays
-
-#         Raises
-#         ------
-#         KeyError
-#             If `key` does not exist in the cache.
-#         """
-#         return self._entries[key].weight_map
-
-#     def __contains__(self, item) -> bool:
-#         return item in self._entries

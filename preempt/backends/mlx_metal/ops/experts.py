@@ -28,6 +28,7 @@ def swiglu_activation(x_up: mx.array, x_gate: mx.array) -> mx.array:
     return nn.silu(x_gate) * x_up
 
 
+# TODO remove
 def expert_idx_to_key(
     expert_idx: int,
     *,
@@ -45,22 +46,15 @@ def expert_idx_to_key(
 def load_experts_from_bank(
     loader: DiskBackedExpertLoader,
     expert_idxs: mx.array,
-    model_fingerprint: str,
     block_idx: int,
+    num_experts: int,
     stream: mx.DeviceType | mx.Stream = mx.gpu,
-) -> Generator[ExpertKey, None, None]:
-    """Converts expert indices to `ExpertKey`, reads them concurrently from disk, and yields
-    experts' keys for as they are loaded.
-    """
-    keys = [
-        expert_idx_to_key(
-            idx,
-            model_fingerprint=model_fingerprint,
-            block_idx=block_idx,
-        )
+) -> Generator[int, None, None]:
+    idxs = [
+        (block_idx * num_experts) + idx
         for idx in expert_idxs.flatten(stream=stream).tolist()  # type: ignore
     ]
-    yield from loader.load(keys)
+    yield from loader.load(idxs)
 
 
 def wrap_weight_map(

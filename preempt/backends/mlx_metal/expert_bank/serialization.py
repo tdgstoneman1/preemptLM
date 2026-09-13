@@ -3,14 +3,12 @@ from __future__ import annotations
 from typing import Optional
 from collections.abc import Mapping
 
+from pathlib import Path
+import json
+import gc
+
 import attrs
 from attrs import field
-
-from pathlib import Path
-
-import json
-
-import gc
 
 import numpy as np
 
@@ -122,7 +120,7 @@ def _expert_ndarrays(
     }
 
 
-@attrs.define
+@attrs.define(slots=True)
 class ShardTensorCache:
     shard_index: Mapping[str, Path] = field()
     _loaded_fp: Path | None = field(default=None, init=False)
@@ -146,7 +144,7 @@ class ShardTensorCache:
 # TODO rm 'arch_adapter', resolve from config.json or registry
 def model_to_expert_bank(
     ckpt_path: Path,
-    expert_bank_dir: Path,
+    expert_bank_path: Path,
     arch_adapter: BaseMoEArchAdapter,
     *,
     model_id: Optional[str] = None,
@@ -159,7 +157,7 @@ def model_to_expert_bank(
     ----------
     ckpt_dir : Path
         Local path to a Hugging Face-style model checkpoint
-    expert_bank_dir : Path
+    expert_bank_path : Path
         Path to local directory where `experts.bin` and `manifest.json`
         will be written
     arch_adapter : BaseMoEArchAdapter
@@ -170,7 +168,7 @@ def model_to_expert_bank(
         but should be explicitly provided for specific cached Hugging Face
         snapshots, by default `None`
     overwrite : bool
-        If `True`, overwrites existing expert bank files in `expert_bank_dir`,
+        If `True`, overwrites existing expert bank files in `expert_bank_path`,
         by default False
 
     Returns
@@ -225,7 +223,7 @@ def model_to_expert_bank(
     gc.collect()
 
     with ExpertBankWriter(
-        expert_bank_dir,
+        expert_bank_path,
         model_id=model_id_,
         model_fingerprint=model_fingerprint,
         encoding=encoding,

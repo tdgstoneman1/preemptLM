@@ -108,7 +108,7 @@ def sequential_expert_matmul(
     expert_cache: MlxExpertCache,
     top_k: int,
     block_idx: int,
-    model_fingerprint: str,
+    num_experts: int,
     quants: ExpertLayerQuants | None,
     stream: mx.DeviceType | mx.Stream = mx.gpu,
 ) -> mx.array:
@@ -119,11 +119,11 @@ def sequential_expert_matmul(
     outputs: list[mx.array] = []
     perms: list[mx.array] = []
 
-    for expert_key in load_experts_from_bank(
-        expert_loader, expert_idxs, model_fingerprint, block_idx
+    for glob_idx in load_experts_from_bank(
+        expert_loader, expert_idxs, block_idx, num_experts, stream
     ):
-        routed_toks, perm = toks_by_expert[expert_key.expert_idx]
-        weights = expert_cache.get(expert_key)
+        routed_toks, perm = toks_by_expert[glob_idx % num_experts]
+        weights = expert_cache.get(glob_idx)
         weights = make_switchglu_weight_map(weights, quants)
 
         outputs.append(swiglu_forward(routed_toks, weights))

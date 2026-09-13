@@ -16,7 +16,7 @@ from .metrics import GenerationMetrics, StepMetrics
 from .recorder import BaseTraceRecorder
 
 
-@attrs.define(kw_only=True)
+@attrs.define(kw_only=True, slots=True)
 class GenerationResult:
     """Token ids, decoded text, and metrics for a completed generation"""
 
@@ -25,6 +25,7 @@ class GenerationResult:
     metrics: GenerationMetrics = field()
 
 
+@attrs.define(slots=True)
 class GenerationPipeline:
     """Configures and runs text generation loop with aggregated metrics.
 

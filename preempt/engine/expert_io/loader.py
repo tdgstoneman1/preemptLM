@@ -7,9 +7,10 @@ from concurrent.futures import as_completed, Future
 import asyncio
 import time
 
+import attrs
+
 from preempt.core.enums import ReadPriority
 
-from preempt.datamodel.identity import ExpertKey
 from preempt.datamodel.expert_bank.banks import BaseExpertBank
 from preempt.datamodel.requests import LoadRequest, CacheRequest
 
@@ -23,6 +24,7 @@ from .cache import BaseExpertCache
 # meaning none of them can safely be evicted from cache
 
 
+@attrs.define(slots=True)
 class DiskBackedExpertLoader:
     """Interfaces with expert bank, manages concurrent expert I/O, and schedules
     read and prefetch requests based on priority.
@@ -35,7 +37,7 @@ class DiskBackedExpertLoader:
     _event_loop: asyncio.AbstractEventLoop
     _workers: list[asyncio.Task]
     _task_queue: asyncio.PriorityQueue
-    _inflight: dict[ExpertKey, Future]
+    _inflight: dict[int, Future]
 
     _cache_update_queue: asyncio.Queue
     _cache_update_worker: asyncio.Task
@@ -96,17 +98,17 @@ class DiskBackedExpertLoader:
 
     async def _cache_loop(self) -> None:
         while True:
-            request: CacheRequest = await self._cache_update_queue.get()
-            expert = request.expert
+            req: CacheRequest = await self._cache_update_queue.get()
+            expert = req.expert
 
             try:
                 for target_key in self._cache_manager.admit(
-                    expert.key, len(expert.data), request.priority
+                    req.expert.idx, len(req.expert.data), req.priority
                 ):
                     self._cache.evict(target_key)
                 self._cache.add(expert)
 
-                request.completion_handle.set_result(None)
+                req.completion_handle.set_result(None)
                 self._cache_update_queue.task_done()
 
             except asyncio.CancelledError:
@@ -114,21 +116,19 @@ class DiskBackedExpertLoader:
 
     async def _worker_loop(self) -> None:
         while True:
-            request: LoadRequest = await self._task_queue.get()
-            key = request.key
-
+            req: LoadRequest = await self._task_queue.get()
+            expert_idx = req.expert_idx
             try:
-                # Final check if expert already cached
-                if key in self._cache:
-                    request.completion_handle.set_result(None)
+                if expert_idx in self._cache:
+                    req.completion_handle.set_result(None)
                     self._task_queue.task_done()
                     continue
 
                 # Check if request already in flight
-                if key in self._inflight:
-                    first_worker_future = self._inflight[key]
+                if expert_idx in self._inflight:
+                    first_worker_future = self._inflight[expert_idx]
 
-                    def inflight_callback(future: Future, request_=request) -> None:
+                    def inflight_callback(future: Future, request_=req) -> None:
                         try:
                             if exc := future.exception():
                                 request_.completion_handle.set_exception(exc)
@@ -140,23 +140,22 @@ class DiskBackedExpertLoader:
 
                     first_worker_future.add_done_callback(inflight_callback)
                     self._task_queue.task_done()
-
                     continue
 
                 # Make current request visible in other threads
-                self._inflight[key] = request.completion_handle
+                self._inflight[expert_idx] = req.completion_handle
 
                 try:
-                    expert = await self._expert_bank.read(key, request.priority)
+                    expert = await self._expert_bank.read(expert_idx, req.priority)
                     cache_request = CacheRequest(
-                        priority=request.priority,
+                        priority=req.priority,
                         expert=expert,
-                        completion_handle=request.completion_handle,
+                        completion_handle=req.completion_handle,
                     )
                     await self._cache_update_queue.put(cache_request)
 
                 finally:
-                    del self._inflight[key]
+                    del self._inflight[expert_idx]
 
                 self._task_queue.task_done()
 
@@ -164,9 +163,9 @@ class DiskBackedExpertLoader:
                 break
 
             except Exception as e:
-                if request:
-                    if not request.completion_handle.done():
-                        request.completion_handle.set_exception(e)
+                if req:
+                    if not req.completion_handle.done():
+                        req.completion_handle.set_exception(e)
 
                     self._task_queue.task_done()
 
@@ -189,39 +188,38 @@ class DiskBackedExpertLoader:
 
     def load(
         self,
-        keys: ExpertKey | Sequence[ExpertKey],
-    ) -> Generator[ExpertKey, None, None]:
+        expert_idxs: int | Sequence[int],
+    ) -> Generator[int, None, None]:
         start_t = time.perf_counter()
-        keys_ = [keys] if isinstance(keys, ExpertKey) else keys
+        idxs = [expert_idxs] if isinstance(expert_idxs, int) else expert_idxs
 
         cache_hits = 0
         cache_misses = 0
-        futures: dict[Future, ExpertKey] = {}  # Collects new and in-flight requests
+        futures: dict[Future, int] = {}  # Collects new and in-flight requests
 
-        for key in set(keys_):
-            count = keys_.count(key)
-
+        for idx in set(idxs):
+            count = idxs.count(idx)
             # Check if expert already cached
-            if self._cache_manager.touch(key):
+            if self._cache_manager.touch(idx):
                 cache_hits += count
-                yield key
+                yield idx
                 continue
 
             # Check if request already in progress
-            if key in self._inflight:
+            if idx in self._inflight:
                 cache_misses += count
-                existing = self._inflight[key]
-                futures[existing] = key
+                existing = self._inflight[idx]
+                futures[existing] = idx
                 continue
 
             cache_misses += count
             future = Future()
             request = LoadRequest(
                 priority=ReadPriority.DEMAND,
-                key=key,
+                expert_idx=idx,
                 completion_handle=future,
             )
-            futures[future] = key
+            futures[future] = idx
 
             asyncio.run_coroutine_threadsafe(
                 self._task_queue.put(request),
@@ -251,7 +249,6 @@ class DiskBackedExpertLoader:
             self._event_loop,
         )
         enqueue.result()
-
         return [*futures, future]
 
     def _enqueue_nonblocking(
@@ -272,20 +269,20 @@ class DiskBackedExpertLoader:
 
     def enqueue_prefetch(
         self,
-        keys: ExpertKey | Sequence[ExpertKey],
+        expert_idxs: int | Sequence[int],
         await_free_slot: bool = True,
     ) -> list[Future[None]]:
-        keys_ = [keys] if isinstance(keys, ExpertKey) else keys
+        idxs = [expert_idxs] if isinstance(expert_idxs, int) else expert_idxs
         futures: list[Future] = []
 
-        for key in set(keys_):
-            if self._cache_manager.touch(key) or key in self._inflight:
+        for idx in set(idxs):
+            if self._cache_manager.touch(idx) or idx in self._inflight:
                 continue
 
             future = Future()
             request = LoadRequest(
                 priority=ReadPriority.PREFETCH,
-                key=key,
+                expert_idx=idx,
                 completion_handle=future,
             )
             futures = (

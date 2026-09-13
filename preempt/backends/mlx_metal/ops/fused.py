@@ -99,9 +99,8 @@ def fused_expert_matmul(
     *,
     expert_loader: DiskBackedExpertLoader,
     expert_cache: MlxExpertCache,
-    top_k: int,
     block_idx: int,
-    model_fingerprint: str,
+    num_experts: int,
     quants: ExpertLayerQuants | None,
     stream: mx.DeviceType | mx.Stream = mx.gpu,
 ) -> mx.array:
@@ -137,11 +136,11 @@ def fused_expert_matmul(
 
     # * Load expert linear proj weights (out of order)
     expert_projs = {
-        key.expert_idx: expert_cache.get(key)
-        for key in load_experts_from_bank(
+        idx: expert_cache.get(idx)
+        for idx in load_experts_from_bank(
             expert_loader,
             mx.asarray(unique_experts, copy=False),
-            model_fingerprint,
+            num_experts,
             block_idx,
             stream=stream,
         )

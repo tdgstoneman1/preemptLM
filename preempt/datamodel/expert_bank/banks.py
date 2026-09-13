@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 import sys
 
+import attrs
+
 from preempt.core.constants import EXPERTS_FILENAME, F_NOCACHE
 from preempt.core.exceptions import ExpertBankCompatibilityError
 from preempt.core.enums import ReadPriority
@@ -18,10 +20,7 @@ from preempt.core.enums import ReadPriority
 from preempt.datamodel.identity import ExpertKey, TensorSpec
 
 from .blob import SerializedExpert
-from .manifest import (
-    ExpertBankManifest,
-    ExpertBlobRecord,
-)
+from .manifest import ExpertBankManifest, ExpertBlobDescriptor
 
 
 class _CompatibilitySpec(TypedDict):
@@ -35,13 +34,11 @@ class BaseExpertBank(ABC):
     """*Abstract; do not instantiate.*"""
 
     _manifest: ExpertBankManifest
-    _index: dict[ExpertKey, ExpertBlobRecord]
     _tensor_specs: tuple[TensorSpec, ...]
     _fd: int | None
 
     def __init__(self, expert_bank_path: Path) -> None:
         self._manifest = ExpertBankManifest.load(expert_bank_path)
-        self._index = self._manifest.blob_index()
         self._tensor_specs = self._manifest.tensor_specs
 
     def __enter__(self) -> Self:
@@ -63,26 +60,31 @@ class BaseExpertBank(ABC):
         return self._manifest
 
     @property
+    def blob_index(self) -> tuple[ExpertBlobDescriptor, ...]:
+        return self.manifest.blob_index
+
+    @property
     def model_fingerprint(self) -> str:
         return self._manifest.model_fingerprint
 
     @abstractmethod
     async def read(
         self,
-        key: ExpertKey,
+        key: int,
         priority: ReadPriority,
     ) -> SerializedExpert: ...
 
     @abstractmethod
     def read_sync(
         self,
-        key: ExpertKey,
+        key: int,
         priority: ReadPriority = ReadPriority.DEMAND,
     ) -> SerializedExpert: ...
 
     @abstractmethod
     def close(self) -> None: ...
 
+    # TODO remove
     def key_for(
         self,
         block_idx: int,
@@ -116,18 +118,17 @@ class BaseExpertBank(ABC):
             moe_block_idxs=self._manifest.model_moe_spec.moe_block_idxs,
         )
         if mismatches := {
-            name: (expected[name], observed[name])
-            for name in expected
-            if expected[name] != observed[name]
+            k: (expected[k], observed[k])
+            for k in expected
+            if expected[k] != observed[k]
         }:
             raise ExpertBankCompatibilityError(repr(mismatches))
 
 
+@attrs.define(slots=True)
 class PreadExpertBank(BaseExpertBank):
     """Uses positioned reads (via `os.pread`) to load expert weights from
-    `experts.bin`.
-
-    On MacOS, this can be substantially faster than memory mapping.
+    `experts.bin`. On MacOS, this can be substantially faster than memory mapping.
     """
 
     def __init__(
@@ -150,7 +151,11 @@ class PreadExpertBank(BaseExpertBank):
 
         return self._fd
 
-    def _validate_data_size(self, data: bytes, blob: ExpertBlobRecord) -> bytes:
+    def _validate_data_size(
+        self,
+        data: bytes,
+        blob: ExpertBlobDescriptor,
+    ) -> bytes:
         if len(data) != blob.length:
             raise IOError()  # TODO error msg
 
@@ -158,17 +163,17 @@ class PreadExpertBank(BaseExpertBank):
 
     def read_sync(
         self,
-        key: ExpertKey,
+        expert_idx: int,
         priority: ReadPriority = ReadPriority.DEMAND,
     ) -> SerializedExpert:
 
         fd = self._validate_fd()
-        blob = self._index[key]
+        blob = self.blob_index[expert_idx]
         data = os.pread(fd, blob.length, blob.offset)
         data = self._validate_data_size(data, blob)
 
         return SerializedExpert(
-            key=key,
+            idx=expert_idx,
             data=data,
             encoding=self._manifest.encoding,
             tensor_specs=self._tensor_specs,
@@ -176,17 +181,18 @@ class PreadExpertBank(BaseExpertBank):
 
     async def read(
         self,
-        key: ExpertKey,
+        expert_idx: int,
         priority: ReadPriority,
     ) -> SerializedExpert:
 
         fd = self._validate_fd()
-        blob = self._index[key]  # intentional KeyError
+        blob = self.blob_index[expert_idx]  # intentional KeyError
+
         data = await asyncio.to_thread(os.pread, fd, blob.length, blob.offset)
         data = self._validate_data_size(data, blob)
 
         return SerializedExpert(
-            key=key,
+            idx=expert_idx,
             data=data,
             encoding=self._manifest.encoding,
             tensor_specs=self._tensor_specs,
@@ -198,6 +204,7 @@ class PreadExpertBank(BaseExpertBank):
             self._fd = None
 
 
+@attrs.define(slots=True)
 class MmapExpertBank(BaseExpertBank):
     """Expert bank using memory mapping to read expert weights from
     `experts.bin`.
@@ -231,20 +238,20 @@ class MmapExpertBank(BaseExpertBank):
 
     def read_sync(
         self,
-        key: ExpertKey,
+        expert_idx: int,
         priority: ReadPriority,
     ) -> SerializedExpert:
         if self._mmap is None:
             raise RuntimeError()  # TODO add message
 
-        blob = self._index[key]  # intentional KeyError
+        blob = self.blob_index[expert_idx]  # intentional KeyError
         slice_ = self._mmap[blob.offset : blob.offset + blob.length]
 
         if len(slice_) != blob.length:
             raise IOError()  # TODO add message
 
         return SerializedExpert(
-            key=key,
+            idx=expert_idx,
             data=slice_,
             encoding=self._manifest.encoding,
             tensor_specs=self._tensor_specs,
@@ -252,7 +259,7 @@ class MmapExpertBank(BaseExpertBank):
 
     async def read(
         self,
-        key: ExpertKey,
+        key: int,
         priority: ReadPriority,
     ) -> SerializedExpert:
         return self.read_sync(key, priority)

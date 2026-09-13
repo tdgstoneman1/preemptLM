@@ -2,7 +2,6 @@ from typing import Any
 from collections.abc import Mapping
 from abc import ABC, abstractmethod
 
-from preempt.datamodel.identity import ExpertKey
 from preempt.datamodel.expert_bank.blob import SerializedExpert
 
 from .cache_manager import ExpertCacheManager
@@ -10,7 +9,7 @@ from .cache_manager import ExpertCacheManager
 
 class BaseExpertCache(ABC):
     manager: ExpertCacheManager
-    _entries: Any  # TODO rename to _experts
+    _entries: Any
 
     @abstractmethod
     def __contains__(self, item) -> bool: ...
@@ -21,12 +20,12 @@ class BaseExpertCache(ABC):
         ...
 
     @abstractmethod
-    def get(self, key: ExpertKey) -> Mapping[str, Any]:
+    def get(self, expert_idx: int) -> Mapping[str, Any]:
         """Returns cached expert weights mapped to `key`"""
         ...
 
     @abstractmethod
-    def evict(self, key: ExpertKey) -> None:
+    def evict(self, expert_idx: int) -> None:
         """Drops the expert weights mapped to `key` from the cache."""
         ...
 

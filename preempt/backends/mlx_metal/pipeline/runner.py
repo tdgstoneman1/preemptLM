@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, Optional, NoReturn
 from collections.abc import Callable, Sequence
 
+import attrs
+
 import mlx.core as mx
 import mlx.nn as nn
 
@@ -14,6 +16,7 @@ import numpy as np
 from preempt.engine.metrics import StepMetrics
 
 
+@attrs.define(slots=True)
 class MlxModelRunner:
     """Mlx implementation of `IModelRunner` protocol.
 

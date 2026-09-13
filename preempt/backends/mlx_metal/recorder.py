@@ -20,7 +20,7 @@ from preempt.engine.sinks import BaseTraceSink
 from preempt.engine.recorder import BaseTraceRecorder
 
 
-@attrs.define(frozen=True)
+@attrs.define(frozen=True, slots=True)
 class _BufferedTrace:
     """Buffered record for an unevaluated router selection.
 
@@ -37,6 +37,7 @@ class _BufferedTrace:
     moe_block_identifiers: MoEBlockIdentifiers = field()
 
 
+@attrs.define(slots=True)
 class MlxTraceRecorder(BaseTraceRecorder):
     """Records expert selection traces from instrumented MLX MoE blocks.
 
