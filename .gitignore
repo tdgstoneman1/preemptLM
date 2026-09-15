@@ -6,9 +6,7 @@ dist/
 wheels/
 *.egg-info
 
-# ignored temporarily 
 **.vscode/**
-README.md
 
 traces/**
 expert-bank/**
