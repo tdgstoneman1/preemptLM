@@ -2,7 +2,7 @@
 
     uv run scripts/mlx_make_expert_bank.py\
         --model unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit\
-        --output expert-bank/qwen3.6-35b-4bit\
+        --output-dir expert-bank/qwen3.6-35b-4bit\
         --arch qwen3.6\
         --overwrite
 """
@@ -42,7 +42,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Hugging Face model/repo id or local path to a model checkpoint.",
     )
     parser.add_argument(
-        "--output",
+        "--output-dir",
         required=True,
         type=Path,
         help="Path to local directory where expert bank will be saved.",
@@ -76,7 +76,7 @@ def main() -> None:
     )
     manifest = model_to_expert_bank(
         model_dir,
-        expert_bank_path=args.output,
+        expert_bank_path=args.output_dir,
         arch_adapter=arch_adapter,
         model_id=args.model,
         overwrite=args.overwrite,
