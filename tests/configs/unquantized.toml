@@ -1,21 +1,23 @@
 version = 1
+resolve_relative_paths = false
+
 
 [llm]
 model_id = "converted-models/qwen3.6-35b"
 backend = "mlx_metal"
-architecture = "qwen3-next"
+architecture = "qwen3.6"
 
 [generation_settings]
 max_tokens = 4096
-prefill_chunk_size = 512
+prefill_chunk_size = 1
 
 [stream_settings]
-expert_bank_path = "../../expert-bank/qwen3.6-35b"
-memory_budget_gb = 8
+expert_bank_path = "expert-bank/qwen3.6-35b"
+memory_budget_gb = 12
 bypass_page_cache = true
 
 [trace_settings]
-output_path = "../../traces/unquantized.parquet" 
+output_path = "tests/traces/unquantized.parquet" 
 overwrite_output = true
 
 [[trace_settings.target_layer_specs]]

@@ -30,23 +30,19 @@ class ExpertKey:
 
 
 class TensorSpec(BaseModel):  # TODO use attrs
-    """Specs for one of an expert's weight tensors, e.g. `gate_proj.weight`.
-
-    Pure data description used by backends to reconstruct tensors from
-    raw bytes.
+    """Pure tensor data description used by backends to decode model parameters from
+    bytes.
 
     Attributes
     ----------
     name : str
-        Tensor name (in dot notation) relative to an expert, e.g. `gate_proj.weight`
+        A dotted path name relative to the parameter's parent layer, e.g.  `gate_proj.weight`
     dtype : str
-        NumPy dtype name of the raw bytes, e.g. `uint32`. Note that `bfloat16`
-        tensors appear as `uint16` here, which the expert bank's `encoding`
-        scalar tag disambiguates.
+        String representation of the numpy dtype
     shape : tuple[int, ...]
-        Tensor shape relative to an expert (no leading batch or expert dims)
+        Parameter shape relative to its parent layer (no leading batch or expert dims)
     num_bytes : int
-        Tensor size in bytes for one expert
+        The parameter's size in bytes
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

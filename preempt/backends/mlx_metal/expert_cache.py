@@ -1,55 +1,39 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import attrs
 from attrs import field
-
-import math
 
 import mlx.core as mx
 from mlx.utils import tree_flatten
 
 import numpy as np
 
+from preempt.datamodel.expert_bank.blob import SerializedExpert
 from preempt.datamodel.expert_bank.encoding import (
     ExpertBankEncoding,
     parse_encoding_tag,
 )
-from preempt.datamodel.expert_bank.blob import SerializedExpert
-
 from preempt.engine.expert_io.cache import BaseExpertCache
 from preempt.engine.expert_io.cache_manager import ExpertCacheManager
 
-
-@attrs.define(kw_only=True, frozen=True, eq=False, slots=True)
-class CachedExpert:
-    """A cached expert's weights and size in bytes.
-
-    Attributes
-    ----------
-    weight_map : Mapping[str, mx.array]
-        Mapping of weight names to MLX arrays
-    num_bytes : int
-        Total size of the expert's weights in bytes
-    """
-
-    weight_map: Mapping[str, mx.array] = field()
-    num_bytes: int = field()
+from .constants import GLU_PROJECTION_NAMES
 
 
-# TODO read weights concurrently
 def decode_serialized_expert(
-    expert: SerializedExpert, encoding: ExpertBankEncoding
+    expert: SerializedExpert,
+    encoding: ExpertBankEncoding | None = None,
 ) -> dict[str, mx.array]:
     """Decodes serialized expert into a dictionary of MLX arrays.
 
     Parameters
     ----------
     expert : SerializedExpert
-        An serialized expert's weights in bytes, tensor specs, and encoding tag
-    encoding : ExpertBankEncoding
-        Expected expert encoding
+        A serialized expert's weights (in bytes), tensor specs, and encoding tag
+    encoding : ExpertBankEncoding | None
+        Encoding information to optionaly verify compatibility with an expert bank,
+        by default None
 
     Returns
     -------
@@ -67,7 +51,10 @@ def decode_serialized_expert(
     ValueError
         If a bit-viewed dtype cannot be resolved.
     """
-    if (parsed := parse_encoding_tag(expert.encoding)) != encoding:
+    if (
+        encoding is not None
+        and (parsed := parse_encoding_tag(expert.encoding)) != encoding
+    ):
         raise ValueError(
             f"Encoding mismatch for {expert.idx}. Expected {encoding!r}, "
             f"but got {expert.encoding!r} ({parsed!r})."
@@ -77,7 +64,7 @@ def decode_serialized_expert(
     offset = 0
 
     for spec in expert.tensor_specs:
-        count = math.prod(spec.shape)
+        count = np.prod(spec.shape)
         weights[spec.name] = mx.asarray(
             np.frombuffer(expert.data, dtype=spec.dtype, count=count, offset=offset)
         ).reshape(spec.shape)
@@ -91,6 +78,22 @@ def decode_serialized_expert(
         )
 
     return weights
+
+
+@attrs.define(kw_only=True, frozen=True, eq=False, slots=True)
+class CachedExpert:
+    """A cached expert's weights and size in bytes.
+
+    Attributes
+    ----------
+    weight_map : Mapping[str, mx.array]
+        Mapping of weight names to MLX arrays
+    num_bytes : int
+        Total size of the expert's weights in bytes
+    """
+
+    weight_map: Mapping[str, mx.array] = field()
+    num_bytes: int = field()
 
 
 @attrs.define(kw_only=True, slots=True)
@@ -140,13 +143,13 @@ class MlxExpertCache(BaseExpertCache):
         )
         self._bytes_size += num_bytes
 
-    def get(self, expert_idx: int) -> Mapping[str, mx.array]:
-        """Returns cached expert mapped to `key`.
+    def get(self, eid: int) -> Mapping[str, mx.array]:
+        """Returns the cached expert mapped to `eid`.
 
         Parameters
         ----------
-        expert_idx : int
-            Unique index denoting the cached expert's position within its model
+        eid : int
+            Unique index denoting the expert's position within the model
 
         Returns
         -------
@@ -156,29 +159,66 @@ class MlxExpertCache(BaseExpertCache):
         Raises
         ------
         KeyError
-            If `key` does not exist in the cache.
+            If `eid` is not in the cache
         """
-        entry = self._entries[expert_idx].weight_map
-        self.manager.mark_entry_safe_to_evict(expert_idx)
+        try:
+            entry = self._entries[eid].weight_map
 
+        except KeyError:
+            raise KeyError() from None  # TODO error msg
+
+        self.manager.mark_safe_to_evict(eid)
         return entry
 
-    def evict(self, expert_idx: int) -> None:
+    def evict(self, eid: int) -> None:
         """Drops an expert's weights from the cache.
 
         Parameters
         ----------
-        expert_idx : int
+        eid : int
             Unique index denoting the cached expert's position within its model
 
         Raises
         ------
         KeyError
-            If `key` does not exist in the cache.
+            If `eid` is not in the cache
         """
-        entry = self._entries.pop(expert_idx)
+        try:
+            entry = self._entries.pop(eid)
+        except KeyError:
+            raise KeyError() from None  # TODO error msg
+
         self._bytes_size -= entry.num_bytes
 
     def size(self) -> int:
         """Returns the cache's memory footprint in bytes."""
         return self._bytes_size
+
+
+# TODO support for quantized weights
+class SlottedGLU:
+    __slots__ = GLU_PROJECTION_NAMES
+
+    gate: mx.array
+    up: mx.array
+    down: mx.array
+
+    def __init__(
+        self,
+        num_slots: int,
+        up_shape: Sequence[int],
+        down_shape: Sequence[int],
+        dtype: mx.Dtype,
+    ) -> None:
+        self.gate_proj = mx.zeros(
+            (num_slots, *up_shape),
+            dtype=dtype,
+        )
+        self.up_proj = mx.zeros(
+            (num_slots, *up_shape),
+            dtype=dtype,
+        )
+        self.down_proj = mx.zeros(
+            (num_slots, *down_shape),
+            dtype=dtype,
+        )

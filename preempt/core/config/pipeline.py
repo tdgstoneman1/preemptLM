@@ -83,7 +83,7 @@ class PipelineConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     version: int = Field(default=1, ge=1)
-    resolve_relative_paths: bool = Field(default=True)
+    resolve_relative_paths: bool | None = Field(default=None)
 
     llm: LlmConfig = Field()
     generation_settings: GenerationSettings = Field(default_factory=GenerationSettings)
@@ -118,7 +118,12 @@ class PipelineConfig(BaseModel):
         model = read_and_validate_toml(fp, cls)
         model._fp = Path(fp)
 
-        if model.resolve_relative_paths or resolve_relative_paths:
+        model.resolve_relative_paths = (
+            resolve_relative_paths
+            if resolve_relative_paths is not None
+            else model.resolve_relative_paths
+        )
+        if model.resolve_relative_paths:
             model.resolve_paths_relative_to_config()
 
         return model

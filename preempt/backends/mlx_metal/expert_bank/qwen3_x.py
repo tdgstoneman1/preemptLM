@@ -12,7 +12,7 @@ from preempt.datamodel.expert_bank.manifest import ModelMoESpec
 from .base_adapter import BaseMoEArchAdapter
 
 from ..constants import (
-    SWITCHGLU_LINEAR_PROJ_NAMES,
+    GLU_PROJECTION_NAMES,
     MLX_QUANTIZED_TENSOR_PARTS,
 )
 from ..quantization import QuantSettings
@@ -42,7 +42,7 @@ class Qwen3_xArchAdapter(BaseMoEArchAdapter):
     @property
     def linear_projection_names(self) -> tuple[str, ...]:
         """The three `SwitchGLU` linear projection names in serialization order."""
-        return SWITCHGLU_LINEAR_PROJ_NAMES
+        return GLU_PROJECTION_NAMES
 
     @property
     def expert_layer_path_regex(self) -> re.Pattern[str]:

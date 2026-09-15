@@ -14,7 +14,7 @@ from preempt.core.exceptions import EngineCompatibilityError
 from preempt.datamodel.identity import ExpertKey
 from preempt.engine.expert_io.loader import DiskBackedExpertLoader
 
-from ..constants import SWITCHGLU_LINEAR_PROJ_NAMES, MLX_QUANT_PARAMS
+from ..constants import GLU_PROJECTION_NAMES, MLX_QUANT_PARAMS
 from ..types import (
     ExpertLayerQuants,
     WeightsTensor,
@@ -41,6 +41,9 @@ def expert_idx_to_key(
         block_idx=block_idx,
         expert_idx=expert_idx,
     )
+
+
+mx.default_device()
 
 
 def load_experts_from_bank(
@@ -82,8 +85,7 @@ def make_switchglu_weight_map(
     quants: ExpertLayerQuants | None,
 ) -> dict[str, WeightsTensor | QuantizedWeightsTensor]:
     return {
-        name: wrap_weight_map(weights, name, quants)
-        for name in SWITCHGLU_LINEAR_PROJ_NAMES
+        name: wrap_weight_map(weights, name, quants) for name in GLU_PROJECTION_NAMES
     }
 
 

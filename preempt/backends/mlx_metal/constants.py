@@ -27,7 +27,7 @@ MLX_UNQUANTIZED_ENCODING_TEMPLATE: Final[Template] = Template(
     "mlx-unquantized-${dtype}"
 )
 # Matches MLX `SwitchGLU`, sorted in serialization order
-SWITCHGLU_LINEAR_PROJ_NAMES: Final[tuple[str, str, str]] = (
+GLU_PROJECTION_NAMES: Final[tuple[str, str, str]] = (
     "gate_proj",
     "up_proj",
     "down_proj",

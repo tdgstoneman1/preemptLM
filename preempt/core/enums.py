@@ -19,8 +19,7 @@ class ParquetCompressionCodecs(StrEnum):
 
 class ReadPriority(IntEnum):
     """Defines the urgency of an expert bank read. Lower values indicate higher
-    urgency.
-
+    urgency. Possible values:
     - `DEMAND` reads block the forward pass.
     - `PREFETCH` reads are speculative and non-blocking.
     """
@@ -38,3 +37,10 @@ class CacheEvictionPolicy(StrEnum):
 
     LFRU = "lfru"
     LRU = "lru"
+
+
+class CacheSlotState(IntEnum):
+    EMPTY = -1
+    INFLIGHT = 0
+    READY = 1
+    # FAILED = "FAILED"

@@ -8,7 +8,7 @@ architecture = "qwen3-next"
 
 [generation_settings]
 max_tokens = 4096
-prefill_chunk_size = 512
+prefill_chunk_size = 4
 
 [stream_settings]
 expert_bank_path = "../../expert-bank/qwen3.6-35b"

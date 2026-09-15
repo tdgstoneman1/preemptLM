@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Optional, NoReturn
 from collections.abc import Callable, Sequence
-
-import attrs
+from typing import Any, Optional, NoReturn
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -16,7 +14,6 @@ import numpy as np
 from preempt.engine.metrics import StepMetrics
 
 
-@attrs.define(slots=True)
 class MlxModelRunner:
     """Mlx implementation of `IModelRunner` protocol.
 
@@ -33,6 +30,7 @@ class MlxModelRunner:
     prefill_chunk_size: int
     max_kv_size: int | None
     kv_cache: list[Any]
+    stream: mx.ThreadLocalStream
 
     sampler: Callable[[mx.array], mx.array]
     on_step: Callable[[StepMetrics], None] | None
@@ -40,6 +38,7 @@ class MlxModelRunner:
     def __init__(
         self,
         model: nn.Module,
+        stream: mx.ThreadLocalStream,
         max_tokens: Optional[int] = None,
         prefill_chunk_size: int = 2048,
         max_kv_size: Optional[int] = None,
@@ -47,6 +46,7 @@ class MlxModelRunner:
         on_step: Optional[Callable[[StepMetrics], None]] = None,
     ) -> None:
         self.model = model
+        self.stream = stream
 
         self.max_tokens = max_tokens if max_tokens is not None else np.inf
         self.prefill_chunk_size = prefill_chunk_size
@@ -57,7 +57,7 @@ class MlxModelRunner:
         self.on_step = on_step
 
     def step(self, tokens: Sequence[int]) -> int:
-        with mx.stream(generation_stream):
+        with mx.stream(self.stream):
             input_ids = mx.asarray(list(tokens), dtype=mx.int32)
             logits = self.model(input_ids[None], cache=self.kv_cache)[:, -1, :]
             logprobs = logits - mx.logsumexp(logits, keepdims=True)

@@ -22,6 +22,8 @@ from preempt.datamodel.identity import ExpertKey, TensorSpec
 from .blob import SerializedExpert
 from .manifest import ExpertBankManifest, ExpertBlobDescriptor
 
+# TODO use numpy memmap for MmapExpertBank
+
 
 class _CompatibilitySpec(TypedDict):
     model_id: str

@@ -6,6 +6,7 @@ import asyncio
 from rich.console import Console
 
 import mlx.core as mx
+from mlx_lm.generate import generation_stream
 
 from preempt.core.enums import Backends
 from preempt.core.config.pipeline import PipelineConfig
@@ -44,7 +45,8 @@ from ..utils import load_mlx_model
 
 from .runner import MlxModelRunner
 
-# TODO pass 'streamed_expert_matmul' mode for MoE wrapper module (from config)
+from icecream import ic
+
 # TODO pass max_kv_size from config
 
 
@@ -110,13 +112,33 @@ def _instrument_model(
     model_fingerprint = (
         expert_bank.model_fingerprint if expert_bank is not None else None
     )
+
+    num_slots = 0
+    slot_size = 0
+
+    if expert_bank is not None and moe_blocks:
+        slot_size = expert_bank.manifest.expert_num_bytes()
+
+        # Calculate slots per block based on memory budget
+        if config.stream_settings and slot_size > 0:
+            per_layer_budget = config.stream_settings.memory_budget_bytes // len(
+                moe_blocks
+            )
+            num_slots = per_layer_budget // slot_size
+            ic(per_layer_budget, num_slots)
+
     wrapper_cls = DefaultArchClassRegistry.get_moe_wrapper(loaded.model)
+
+    # stream = get_generation_stream()
     wrapper_factory = wrapper_cls.make_wrapper_factory(
         recorder=recorder,
         capture_gate_logits=capture_gate_logits,
         expert_loader=expert_loader,
         model_fingerprint=model_fingerprint,
         expert_cache=expert_cache,
+        num_slots=num_slots,
+        slot_size=slot_size,
+        # stream=stream,
     )
     mlx_instrument_model(
         loaded.model,
@@ -133,17 +155,19 @@ def _evaluate_model(
     config: PipelineConfig,
     expert_bank: BaseExpertBank | None,
 ) -> None:
-    if expert_bank is not None:
-        block = dict(loaded_model.model.named_modules())[moe_blocks[0].layer_path].inner
-        expert_bank.check_model_compatibility(
-            model_id=config.llm.model_id,
-            num_routed_experts=int(block.switch_mlp.gate_proj.num_experts),
-            top_k=int(block.top_k),
-            moe_block_idxs=tuple(sorted(candidate.block_idx for candidate in moe_blocks)),  # type: ignore
-        )
-        # Only evaluate dense backbone
-        mlx_strip_instrumented_expert_weights(loaded_model.model, moe_blocks)
-        mx.eval(loaded_model.model.parameters())
+    if expert_bank is None:
+        return
+
+    block = dict(loaded_model.model.named_modules())[moe_blocks[0].layer_path].inner
+    expert_bank.check_model_compatibility(
+        model_id=config.llm.model_id,
+        num_routed_experts=int(block.switch_mlp.gate_proj.num_experts),
+        top_k=int(block.top_k),
+        moe_block_idxs=tuple(sorted(candidate.block_idx for candidate in moe_blocks)),  # type: ignore
+    )
+    # Only evaluate dense backbone
+    mlx_strip_instrumented_expert_weights(loaded_model.model, moe_blocks)
+    mx.eval(loaded_model.model.parameters())
 
 
 def mlx_build_generation_pipeline(
@@ -222,14 +246,17 @@ def mlx_build_generation_pipeline(
     )
     print_(f"Instrumented {num_instrumented} MoE block(s)")
 
-    _evaluate_model(
-        loaded,
-        moe_blocks=moe_blocks,
-        config=config,
-        expert_bank=expert_bank,
-    )
+    stream = generation_stream
+    with mx.stream(generation_stream):
+        _evaluate_model(
+            loaded,
+            moe_blocks=moe_blocks,
+            config=config,
+            expert_bank=expert_bank,
+        )
     runner = MlxModelRunner(
         loaded.model,
+        stream,
         # max_tokens=config.generation_settings.max_tokens,
         # prefill_chunk_size=config.generation_settings.prefill_chunk_size,
     )

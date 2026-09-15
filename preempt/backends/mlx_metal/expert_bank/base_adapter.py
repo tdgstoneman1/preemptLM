@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 from collections.abc import Mapping, Sequence
-
 from abc import ABC, abstractmethod
-
 import re
 
 import mlx.core as mx

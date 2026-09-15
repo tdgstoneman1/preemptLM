@@ -32,9 +32,6 @@ async def generate_greedy(
 ) -> tuple[list[int], GenerationMetrics]:
     """Greedy token generation using chunked prefill and single-token decoding.
 
-    Each forward pass runs in a thread pool via `asyncio.to_thread` to keep the
-    event loop free for concurrent I/O (such as reading expert weights from disk).
-
     Parameters
     ----------
     runner : IModelRunner
@@ -113,6 +110,7 @@ async def generate_greedy(
                     token_id=tokens[0] if len(tokens) == 1 else None,
                 )
             )
+        # next_token = runner.step(tokens)
         next_token = await asyncio.to_thread(runner.step, tokens)
 
         if recorder is not None and sink is not None:

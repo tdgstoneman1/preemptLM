@@ -1,7 +1,8 @@
-from typing import Any, cast
 from collections.abc import Callable, Mapping
-from pathlib import Path
+from typing import Any, cast
 import gc
+from pathlib import Path
+import threading
 
 import ml_dtypes
 
@@ -25,6 +26,9 @@ from .constants import (
 )
 from .types import MlxLoadedModel
 from .quantization import QuantSettings
+
+import threading
+import mlx.core as mx
 
 
 # TODO docstring

@@ -255,7 +255,7 @@ class ExpertCacheManager:
 
         return tuple(evicted)
 
-    def mark_entry_safe_to_evict(self, expert_idx: int) -> None:
+    def mark_safe_to_evict(self, expert_idx: int) -> None:
         # ! Maybe raise KeyError loudly, this could hide bugs
         if entry := self._entries.get(expert_idx):
             entry.can_evict = True

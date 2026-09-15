@@ -12,6 +12,7 @@ import attrs
 from preempt.core.enums import ReadPriority
 
 from preempt.datamodel.expert_bank.banks import BaseExpertBank
+from preempt.datamodel.expert_bank.blob import SerializedExpert
 from preempt.datamodel.requests import LoadRequest, CacheRequest
 
 from ..metrics import GenerationMetrics
@@ -86,8 +87,8 @@ class DiskBackedExpertLoader:
         self._task_queue = asyncio.PriorityQueue(maxsize=max_queue_size)
         self._inflight = {}
 
-        # Queue ensures sequential updates to cache,
-        # prevents race conditions and is faster than thread locking
+        # Queue ensures sequential cache updates and prevents
+        # race conditions without thread locking overhead
         self._cache_update_queue = asyncio.Queue()
         self._cache_update_worker = asyncio.create_task(self._cache_loop())
 
@@ -237,6 +238,21 @@ class DiskBackedExpertLoader:
             yield futures[future]
 
         self._update_metrics("demand_stall_s", time.perf_counter() - start_t)
+
+    def load_sync(
+        self,
+        expert_idxs: Sequence[int],
+    ) -> tuple[SerializedExpert, ...]:
+        """Synchronously loads multiple experts directly from the bank."""
+
+        async def _load_all() -> tuple[SerializedExpert, ...]:
+            coros = [
+                self._expert_bank.read(idx, ReadPriority.DEMAND) for idx in expert_idxs
+            ]
+            return tuple(await asyncio.gather(*coros))
+
+        future = asyncio.run_coroutine_threadsafe(_load_all(), self._event_loop)
+        return future.result()
 
     def _enqueue_blocking(
         self,

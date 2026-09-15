@@ -12,6 +12,11 @@ Example usage (macOS)::
 from __future__ import annotations
 
 import argparse
+import asyncio
+import datetime
+from pathlib import Path
+from time import perf_counter
+import sys
 
 from rich.console import Console
 from rich.prompt import Prompt
@@ -24,15 +29,6 @@ from rich.columns import Columns
 from rich.traceback import install
 
 import numpy as np
-
-import asyncio
-
-from time import perf_counter
-import datetime
-
-from pathlib import Path
-
-import sys
 
 project_root = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
@@ -141,8 +137,10 @@ async def run(
             toks_per_s = 1 / float(np.mean(window))
 
             num_routed = metrics.cache_hits + metrics.cache_misses
-            hit_rate = metrics.cache_hits / num_routed if args.stream_experts else 0
-            miss_rate = metrics.cache_misses / num_routed if args.stream_experts else 0
+            hit_rate = metrics.cache_hits / num_routed if metrics.cache_hits > 0 else 0
+            miss_rate = (
+                metrics.cache_misses / num_routed if metrics.cache_hits > 0 else 0
+            )
 
             stats = Text(
                 f"step time: {step.duration_s:.2f}s | "

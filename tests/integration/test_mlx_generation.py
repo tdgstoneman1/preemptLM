@@ -4,6 +4,8 @@ import asyncio
 from pathlib import Path
 import sys
 
+import mlx.core as mx
+
 from rich import print
 
 project_root = Path(__file__).resolve().parents[2]
@@ -20,6 +22,7 @@ from preempt.utils.pipeline_utils import (
     generation_metrics_log_msg,
     cache_metrics_log_msg,
 )
+from icecream import ic
 
 
 async def run(
@@ -28,10 +31,9 @@ async def run(
     metrics: GenerationMetrics,
     stream_experts: bool,
 ) -> None:
-    loop = asyncio.get_event_loop()
     pipeline = mlx_build_generation_pipeline(
         config,
-        event_loop=loop,
+        event_loop=asyncio.get_event_loop(),
         metrics=metrics,
         stream_experts=stream_experts,
         profile=False,
@@ -72,13 +74,14 @@ def main() -> None:
     prompt = "Explain the differences between Newtonian physics and Einstein's relativistic physics."
 
     config = PipelineConfig.from_toml(
-        Path(__file__).parents[1] / "configs" / "quantized.toml",
+        Path(__file__).parents[1] / "configs" / "unquantized.toml",
         resolve_relative_paths=False,
     )
     metrics = GenerationMetrics()
     stream_experts = True
 
     try:
+        # with mx.stream(mx.gpu):
         asyncio.run(run(prompt, config, metrics, stream_experts))
 
     except KeyboardInterrupt:
