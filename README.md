@@ -1,7 +1,5 @@
-# preemptLM
-
 <div align="center">
-<h1 align="center", style="font-size: 100px">🔮</h1>
+<h1 align="center", style="fontsize=100px">preemptLM🔮</h1>
 <h4 align="left">PreemptLM is Mixture-of-Experts (MoE) inference engine designed to bypass memory limits by predicting which experts will be routed in the forward pass and <i>preemptively</i> streaming them from disk.</h4>
 <p align="left"><i>This is an active research project currently being developed in collaboration for publication.</i></p>
 </div>
